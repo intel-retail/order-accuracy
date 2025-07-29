@@ -46,26 +46,29 @@ run_pipeline() {
 
   echo "▶️ Starting pipeline ID $pipeline_id"
   
-  GST_DEBUG="GST_TRACER:7" GST_TRACERS='latency_tracer(flags=pipeline)' \
-  gst-launch-1.0 --verbose \
-  filesrc location="$inputsrc" ! \
-  qtdemux! $DECODE ! \
-  queue ! \
-  gvadetect batch-size=$BATCH_SIZE \
-      model-instance-id=odmodel \
-      name=detection \
-      model=$MODEL_PATH \
-      threshold=0.5 \
-      device=$DEVICE \
-      ${PRE_PROCESS:+$PRE_PROCESS} ${DETECTION_OPTIONS:+$DETECTION_OPTIONS} \
-  ! gvametaconvert \
-  ! tee name=t \
-      t. ! queue ! $OUTPUT \
-      t. ! queue ! gvametapublish name=destination file-format=json-lines file-path="/tmp/results/r${CID}.jsonl" ! fakesink sync=false async=false \
-  2>&1 | tee "/tmp/results/gst-launch_${CID}.log" \
-  | (stdbuf -oL sed -n -e 's/^.*current: //p' | stdbuf -oL cut -d , -f 1 > "/tmp/results/pipeline${CID}.log")
-
+  while true; do
+    GST_DEBUG="GST_TRACER:7" GST_TRACERS='latency_tracer(flags=pipeline)' \
+    gst-launch-1.0 --verbose \
+    filesrc location="$inputsrc" ! \
+    qtdemux! $DECODE ! \
+    queue ! \
+    gvadetect batch-size=$BATCH_SIZE \
+        model-instance-id=odmodel \
+        name=detection \
+        model=$MODEL_PATH \
+        threshold=0.5 \
+        device=$DEVICE \
+        ${PRE_PROCESS:+$PRE_PROCESS} ${DETECTION_OPTIONS:+$DETECTION_OPTIONS} \
+    ! gvametaconvert \
+    ! tee name=t \
+        t. ! queue ! $OUTPUT \
+        t. ! queue ! gvametapublish name=destination file-format=json-lines file-path="/tmp/results/r${CID}_${pipeline_id}.jsonl" ! fakesink sync=false async=false \
+    2>&1 | tee "/tmp/results/gst-launch_${CID}_${pipeline_id}.log" \
+    | (stdbuf -oL sed -n -e 's/^.*current: //p' | stdbuf -oL cut -d , -f 1 > "/tmp/results/pipeline${CID}_${pipeline_id}.log")
+  done
 }
+
+
 # Run based on pipeline ID
 case "$PIPELINE_ID" in
   1|2)
