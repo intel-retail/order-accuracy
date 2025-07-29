@@ -100,14 +100,14 @@ fi
 	export DEVICE="${DEVICE}"
 	export inputsrc="${inputsrc}"
 	export BATCH_SIZE="${BATCH_SIZE}"
-    export PIPELINE_ID="1"
+    export PIPELINE_ID="overhead_view"
     export cid="${cid}_1"
     "$bash_cmd"
 ) &
 
 # Run pipeline 2 in background
 (
-    export PIPELINE_ID="2" 
+    export PIPELINE_ID="side_view" 
 	export DEVICE="${DEVICE}"
 	export inputsrc="${inputsrc}"
 	export BATCH_SIZE="${BATCH_SIZE}"

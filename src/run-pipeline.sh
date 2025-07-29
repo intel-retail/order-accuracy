@@ -49,7 +49,7 @@ run_pipeline() {
   GST_DEBUG="GST_TRACER:7" GST_TRACERS='latency_tracer(flags=pipeline)' \
   gst-launch-1.0 --verbose \
   filesrc location="$inputsrc" ! \
-  qtdemux! $DECODE ! \
+  qtdemux ! $DECODE !\
   queue ! \
   gvadetect batch-size=$BATCH_SIZE \
       model-instance-id=odmodel \
@@ -68,7 +68,7 @@ run_pipeline() {
 }
 # Run based on pipeline ID
 case "$PIPELINE_ID" in
-  1|2)
+  "overhead_view"|"side_view")
     run_pipeline "$PIPELINE_ID"
     ;;
   *)

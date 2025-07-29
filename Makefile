@@ -14,7 +14,7 @@ DOCKER_COMPOSE ?= docker-compose.yml
 DOCKER_COMPOSE_SENSORS ?= docker-compose-sensors.yml
 RETAIL_USE_CASE_ROOT ?= $(PWD)
 DENSITY_INCREMENT ?= 1
-RESULTS_DIR ?= $(PWD)/benchmark
+RESULTS_DIR ?= $(shell pwd)/benchmark
 
 download-models: | build-download-models run-download-models
 
@@ -73,7 +73,7 @@ download-qsr-video:
         -v $(shell pwd)/config/sample-videos:/sample-videos \
          qsr-video-downloader:vid
 
-run-demo: | download-models update-submodules download-qsr-video download-sample-videos
+run-qsr: | download-models update-submodules download-qsr-video download-sample-videos
 	@echo "Building automated self checkout app"	
 	$(MAKE) build
 	@echo Running automated self checkout pipeline
