@@ -73,7 +73,14 @@ download-qsr-video:
         -v $(shell pwd)/config/sample-videos:/sample-videos \
          qsr-video-downloader:vid
 
-run-qsr: | download-models update-submodules download-qsr-video download-sample-videos
+compress-qsr-video:
+	@echo "Increasing the duration and Compressing the QSR video..."
+	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t qsr-video-compressor:0.0 -f docker/Dockerfile.viideoDurationIncrease .
+	docker run --rm \
+        -v $(shell pwd)/config/sample-videos:/sample-videos \
+         qsr-video-compressor:0.0
+
+run-demo: | download-models update-submodules download-qsr-video download-sample-videos compress-qsr-video
 	@echo "Building automated self checkout app"	
 	$(MAKE) build
 	@echo Running automated self checkout pipeline
