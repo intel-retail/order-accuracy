@@ -16,7 +16,7 @@ RTSP_PATH="${RTSP_PATH:-stream}"
 RENDER_MODE="${RENDER_MODE:-0}"
 RTSP_OUTPUT="${RTSP_OUTPUT:-0}"
 PIPELINE_ID="${PIPELINE_ID:-1}"
-CID="${cid:-0}"  # Set externally or defaults to 0
+cid="${cid:-0}"  # Set externally or defaults to 0
 
 # Input validation
 if [ -z "$inputsrc" ]; then
@@ -61,14 +61,14 @@ run_pipeline() {
   ! gvametaconvert \
   ! tee name=t \
       t. ! queue ! $OUTPUT \
-      t. ! queue ! gvametapublish name=destination file-format=json-lines file-path="/tmp/results/r${CID}.jsonl" ! fakesink sync=false async=false \
-  2>&1 | tee "/tmp/results/gst-launch_${CID}.log" \
-  | (stdbuf -oL sed -n -e 's/^.*current: //p' | stdbuf -oL cut -d , -f 1 > "/tmp/results/pipeline${CID}.log")
+      t. ! queue ! gvametapublish name=destination file-format=json-lines file-path="/tmp/results/r${cid}.jsonl" ! fakesink sync=false async=false \
+  2>&1 | tee "/tmp/results/gst-launch_${cid}.log" \
+  | (stdbuf -oL sed -n -e 's/^.*current: //p' | stdbuf -oL cut -d , -f 1 > "/tmp/results/pipeline${cid}.log")
 
 }
 # Run based on pipeline ID
 case "$PIPELINE_ID" in
-  "overhead_view"|"side_view")
+  1|2)
     run_pipeline "$PIPELINE_ID"
     ;;
   *)

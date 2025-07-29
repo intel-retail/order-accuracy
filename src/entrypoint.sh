@@ -68,12 +68,7 @@ cid="${cid}"_${CONTAINER_NAME}
 echo "CONTAINER_NAME: ${CONTAINER_NAME}"
 echo "cid: $cid"
 
-touch /tmp/results/r"$cid".jsonl
-chown 1000:1000 /tmp/results/r"$cid".jsonl
-touch /tmp/results/gst-launch_"$cid".log
-chown 1000:1000 /tmp/results/gst-launch_"$cid".log
-touch /tmp/results/pipeline"$cid".log
-chown 1000:1000 /tmp/results/pipeline"$cid".log
+
 
 cl_cache_dir="/home/pipeline-server/.cl-cache" \
 DISPLAY="$DISPLAY" \
@@ -95,23 +90,46 @@ if [ ! -f "$inputsrc" ]; then
     echo "Error: Input file not found: $inputsrc"
     exit 1
 fi
+
+create_pipeline_files() {
+    local cid=$1
+    local base_path="/tmp/results"
+    
+    # Array of file specifications [prefix:extension]
+    local file_specs=(
+        "r:jsonl"
+        "gst-launch_:log"
+        "pipeline:log"
+    )
+    
+    for spec in "${file_specs[@]}"; do
+        IFS=':' read -r prefix ext <<< "$spec"
+        local file_path="${base_path}/${prefix}${cid}.${ext}"
+        touch "$file_path"
+        chown 1000:1000 "$file_path"
+    done
+}
 # Run pipeline 1 in background
 (
 	export DEVICE="${DEVICE}"
 	export inputsrc="${inputsrc}"
 	export BATCH_SIZE="${BATCH_SIZE}"
-    export PIPELINE_ID="overhead_view"
-    export cid="${cid}_1"
+    export PIPELINE_ID=1
+    export cid="${cid}_overhead_view"
+	echo "Pipeline ${pipeline_id} cid value: $cid"
+    create_pipeline_files "$cid"
     "$bash_cmd"
 ) &
 
 # Run pipeline 2 in background
 (
-    export PIPELINE_ID="side_view" 
+    export PIPELINE_ID=2
 	export DEVICE="${DEVICE}"
 	export inputsrc="${inputsrc}"
 	export BATCH_SIZE="${BATCH_SIZE}"
-    export cid="${cid}_2"
+    export cid="${cid}_side_view"
+	echo "Pipeline ${pipeline_id} cid value: $cid"
+    create_pipeline_files "$cid"
     "$bash_cmd"
 ) &
 
