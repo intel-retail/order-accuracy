@@ -1,0 +1,29 @@
+FROM alpine:3.18
+
+# Install minimal required packages
+RUN apk add --no-cache \
+    bash \
+    wget \
+    ffmpeg
+# Add proxy arguments
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+
+# Set proxy environment variables
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    http_proxy=${HTTP_PROXY} \
+    https_proxy=${HTTPS_PROXY}
+
+# Create directories
+WORKDIR /scripts
+
+# Copy the scripts
+COPY ../download_models/download-qsr-video.sh ./
+COPY ../performance-tools/benchmark-scripts/format_avc_mp4.sh ./
+COPY ../config/qsr_videos_download.txt ./
+
+# Make scripts executable
+RUN chmod +x *.sh
+
+CMD ["./download-qsr-video.sh"]
