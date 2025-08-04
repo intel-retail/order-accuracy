@@ -75,7 +75,7 @@ download-qsr-video:
 
 compress-qsr-video:
 	@echo "Increasing the duration and Compressing the QSR video..."
-	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t qsr-video-compressor:0.0 -f docker/Dockerfile.viideoDurationIncrease .
+	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t qsr-video-compressor:0.0 -f docker/Dockerfile.videoDurationIncrease .
 	docker run --rm \
         -v $(shell pwd)/config/sample-videos:/sample-videos \
          qsr-video-compressor:0.0

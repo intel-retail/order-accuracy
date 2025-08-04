@@ -20,13 +20,16 @@ ENV HTTP_PROXY=http://proxy-mu.intel.com:911
 RUN pip install --no-cache-dir opencv-python
 # Copy script into container
 COPY ../src/loop_video.py .
-
+COPY ../config/sample-videos /sample-videos
 # Entrypoint: Run OpenCV script → then compress using GStreamer
 CMD ["sh", "-c", "\
-  if [ ! -f /sample-videos/qsr-usecase.mp4 ]; then \
+  if [ -f /sample-videos/qsr-usecase.mp4 ]; then \
     python loop_video.py && \
     mkdir -p /sample-videos/compressed-video && \
-    gst-launch-1.0 filesrc location=/sample-videos/increased-video/qsr-usecase.mp4 ! decodebin ! x264enc bitrate=800 ! mp4mux ! filesink location=/sample-videos/compressed-video/qsr-usecase.mp4; \
-  fi && \
-  cp /sample-videos/compressed-video/qsr-usecase.mp4 /sample-videos/qsr-usecase.mp4"]
+    gst-launch-1.0 filesrc location=/sample-videos/increased-video/qsr-usecase.mp4 ! decodebin ! x264enc bitrate=800 ! mp4mux ! filesink location=/sample-videos/compressed-video/qsr-usecase.mp4 && \
+    cp /sample-videos/compressed-video/qsr-usecase.mp4 /sample-videos/qsr-usecase.mp4; \
+  else \
+    echo \"No qsr video file found\"; \
+  fi"]
+
 
