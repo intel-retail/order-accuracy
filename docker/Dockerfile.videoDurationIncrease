@@ -1,5 +1,12 @@
 FROM python:3.10-slim
 
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+# Set proxy environment variables
+ENV HTTP_PROXY=${HTTP_PROXY} \
+    HTTPS_PROXY=${HTTPS_PROXY} \
+    http_proxy=${HTTP_PROXY} \
+    https_proxy=${HTTPS_PROXY}
 # Install system libraries for OpenCV and GStreamer
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libsm6 libxext6 libgl1 gstreamer1.0-libav \
@@ -15,8 +22,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Set working directory
 WORKDIR /app
 # Install Python dependencies
-ENV HTTPS_PROXY=http://proxy-mu.intel.com:912
-ENV HTTP_PROXY=http://proxy-mu.intel.com:911
 RUN pip install --no-cache-dir opencv-python
 # Copy script into container
 COPY ../src/loop_video.py .

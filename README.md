@@ -1,113 +1,78 @@
-# Automated Self Checkout
+# Order Accuracy
 
-![Integration](https://github.com/intel-retail/automated-self-checkout/actions/workflows/integration.yaml/badge.svg?branch=main)
-![CodeQL](https://github.com/intel-retail/automated-self-checkout/actions/workflows/codeql.yaml/badge.svg?branch=main)
-![GolangTest](https://github.com/intel-retail/automated-self-checkout/actions/workflows/gotest.yaml/badge.svg?branch=main)
-![DockerImageBuild](https://github.com/intel-retail/automated-self-checkout/actions/workflows/build.yaml/badge.svg?branch=main) 
-[![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/intel-retail/automated-self-checkout/badge)](https://api.securityscorecards.dev/projects/github.com/intel-retail/automated-self-checkout)
-[![GitHub Latest Stable Tag](https://img.shields.io/github/v/tag/intel-retail/automated-self-checkout?sort=semver&label=latest-stable)](https://github.com/intel-retail/automated-self-checkout/releases)
-[![Discord](https://discord.com/api/guilds/1150892043120414780/widget.png?style=shield)](https://discord.gg/2SpNRF4SCn)
+## Overview
 
-> **Warning**  
-> The **main** branch of this repository contains work-in-progress development code for the upcoming release, and is **not guaranteed to be stable or working**.
->
-> **The source for the latest release can be found at [Releases](https://github.com/intel-retail/automated-self-checkout/releases).**
-
-# Table of Contents 📑
-
-- [📋 Prerequisites](#-prerequisites)
-- [🚀 QuickStart](#-quickstart)
-  - [Run pipeline on iGPU](#run-pipeline-on-igpu)
-  - [Run pipeline with classification model on iGPU](#run-pipeline-with-classification-model-on-igpu)
-- [📊 Benchmarks](#-benchmarks)
-- [📖 Advanced Documentation](#-documentation)
-- [🌀 Join the community](#-join-the-community)
-- [References](#references)
-- [Disclaimer](#disclaimer)
-- [Datasets & Models Disclaimer](#datasets--models-disclaimer)
-- [License](#license)
+The Order Accuracy Pipeline System is an open-source reference implementation for building and deploying video analytics pipelines for retail order accuracy in Quick Servce Restaurant(QSR) use cases. It leverages Intel® hardware and software, GStreamer, and OpenVINO™ to enable scalable, real-time object detection and classification at the edge.
 
 ## 📋 Prerequisites
 
-- Ubuntu 24.04 / 24.10
-- [Docker](https://docs.docker.com/engine/install/ubuntu/) 
-- [Manage Docker as a non-root user](https://docs.docker.com/engine/install/linux-postinstall/)
-- Make (sudo apt install make)
+- Ubuntu 24.04 or newer (Linux recommended)
+- [Docker](https://docs.docker.com/engine/install/)
+- [Make](https://www.gnu.org/software/make/) (`sudo apt install make`)
 - Intel hardware (CPU, iGPU, dGPU, NPU)
-- Intel drivers
-  - Lunar Lake iGPU: https://dgpu-docs.intel.com/driver/client/overview.html
-  - NPU: https://medium.com/openvino-toolkit/how-to-run-openvino-on-a-linux-ai-pc-52083ce14a98 
-
+- Intel drivers (see [Intel GPU drivers](https://dgpu-docs.intel.com/driver/client/overview.html))
+- Sufficient disk space for models, videos, and results
 
 ## 🚀 QuickStart
 
-(If this is the first time, it will take some time to download videos, models, docker images and build images)
+> The first run will download models, videos, and build Docker images. This may take some time.
 
-This command will run a basic DLStreamer pipeline doing Object Detection using YOLOv5s INT8 model on CPU:
 
+### 1. Download models and videos, and run the Loss Prevention application.
+
+```sh
+make download-models
+make update-submodules
+make download-sample-videos
+make run-render-mode
 ```
+
+
+> **User can directly run single make command that internally called all above command and run the Loss Prevention application.**
+
+
+### 3. Run Loss Prevention appliaction with single command.
+
+
+```sh
 make run-demo
-```
-
-stop containers:
 
 ```
+
+### 4. Stop all containers
+
+```sh
 make down
 ```
 
-### Run pipeline on iGPU
+### 4. Run benchmarking on CPU/NPU/GPU.
+>*By default, the configuration is set to use the CPU. If you want to benchmark the application on GPU or NPU, please update the device value in workload_to_pipeline.json.*
 
-```
-DEVICE_ENV=res/all-gpu.env make run-demo
-```
-
-```
-make down
+```sh
+make  benchmark
 ```
 
-### Run pipeline with classification model on iGPU
+### 5. See the benchmarking results.
 
-```
-PIPELINE_SCRIPT=yolov5s_effnetb0.sh DEVICE_ENV=res/all-gpu.env make run-demo
-```
+```sh
+make  consolidate-metrics
 
-### Run pipeline using USB wecam on CPU
-
-```
-INPUTSRC=/dev/video0 DEVICE_ENV=res/webcam.env make run-demo
+cat benchmark/metrics.csv
 ```
 
-Note: Make sure you specify the correct video ID.
 
+## 🛠️ Other Useful Make Commands.
 
-## 📊 Benchmarks 
+- `make clean-images` — Remove dangling Docker images
+- `make clean-models` — Remove all the downloaded models from the system
+- `make clean-all` — Remove all unused Docker resources
 
-- [Benchmark Commands](./benchmark-commands.md)
+## 📁 Project Structure
 
-## 📖 Advanced Documentation
+- `configs/` — Configuration files (txt file with sample video URLs for inference)
+- `docker/` — Dockerfiles for downloader and pipeline containers
+- `download-scripts/` — Scripts for downloading models and videos
+- `src/` — Main source code and pipeline runner scripts
+- `Makefile` — Build automation and workflow commands
 
-- [Automated Self-Checkout Documentation Guide](https://intel-retail.github.io/documentation/use-cases/automated-self-checkout/automated-self-checkout.html)  
-
-## 🌀 Join the community 
-[![Discord Banner 1](https://discordapp.com/api/guilds/1150892043120414780/widget.png?style=banner2)](https://discord.gg/2SpNRF4SCn)
-
-## References
-
-- [Developer focused website to enable developers to engage and build our partner community](https://www.intel.com/content/www/us/en/developer/articles/reference-implementation/automated-self-checkout.html)
-
-- [LinkedIn blog illustrating the automated self checkout use case more in detail](https://www.linkedin.com/pulse/retail-innovation-unlocked-open-source-vision-enabled-mohideen/)
-
-## Disclaimer
-
-GStreamer is an open source framework licensed under LGPL. See https://gstreamer.freedesktop.org/documentation/frequently-asked-questions/licensing.html?gi-language=c.  You are solely responsible for determining if your use of Gstreamer requires any additional licenses.  Intel is not responsible for obtaining any such licenses, nor liable for any licensing fees due, in connection with your use of Gstreamer.
-
-Certain third-party software or hardware identified in this document only may be used upon securing a license directly from the third-party software or hardware owner. The identification of non-Intel software, tools, or services in this document does not constitute a sponsorship, endorsement, or warranty by Intel.
-
-## Datasets & Models Disclaimer
-
-To the extent that any data, datasets or models are referenced by Intel or accessed using tools or code on this site such data, datasets and models are provided by the third party indicated as the source of such content. Intel does not create the data, datasets, or models, provide a license to any third-party data, datasets, or models referenced, and does not warrant their accuracy or quality.  By accessing such data, dataset(s) or model(s) you agree to the terms associated with that content and that your use complies with the applicable license.
-
-Intel expressly disclaims the accuracy, adequacy, or completeness of any data, datasets or models, and is not liable for any errors, omissions, or defects in such content, or for any reliance thereon. Intel also expressly disclaims any warranty of non-infringement with respect to such data, dataset(s), or model(s). Intel is not liable for any liability or damages relating to your use of such data, datasets or models.
-
-## License
-This project is Licensed under an Apache [License](./LICENSE.md).
+---
