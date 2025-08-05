@@ -1,13 +1,13 @@
-FROM alpine:3.18
+FROM alpine:latest 
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
 
 # Install minimal required packages
 RUN apk add --no-cache \
     bash \
-    wget \
-    ffmpeg
+    wget 
 # Add proxy arguments
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
+
 
 # Set proxy environment variables
 ENV HTTP_PROXY=${HTTP_PROXY} \
