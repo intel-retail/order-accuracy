@@ -87,16 +87,10 @@ run-demo: | download-models update-submodules download-qsr-video download-sample
 	$(MAKE) run-render-mode
 
 run-headless: | download-models update-submodules download-sample-videos
-	@echo "Building automated self checkout app"
+	@echo "Building order accuracy app"
 	$(MAKE) build
-	@echo Running automated self checkout pipeline
+	@echo Running order accuracy pipeline
 	$(MAKE) run
-
-run-pipeline-server: | download-models update-submodules download-sample-videos
-	RETAIL_USE_CASE_ROOT=$(RETAIL_USE_CASE_ROOT) docker compose -f src/pipeline-server/docker-compose.pipeline-server.yml up -d
-
-down-pipeline-server:
-	docker compose -f src/pipeline-server/docker-compose.pipeline-server.yml down
 
 build-benchmark:
 	cd performance-tools && $(MAKE) build-benchmark-docker
@@ -113,22 +107,6 @@ benchmark-stream-density: build-benchmark download-models
 	  --container_names $(CONTAINER_NAMES) \
 	  --density_increment $(DENSITY_INCREMENT) \
 	  --results_dir $(RESULTS_DIR)
-
-build-telegraf:
-	cd telegraf && $(MAKE) build
-
-run-telegraf:
-	cd telegraf && $(MAKE) run
-
-clean-telegraf: 
-	./clean-containers.sh influxdb2
-	./clean-containers.sh telegraf
-
-run-portainer:
-	docker compose -p portainer -f docker-compose-portainer.yml up -d
-
-down-portainer:
-	docker compose -p portainer -f docker-compose-portainer.yml down
 
 clean-results:
 	rm -rf results/*
@@ -165,12 +143,6 @@ serve-docs: docs-builder-image
 
 clean-docs:
 	rm -rf docs/
-
-helm-package:
-	helm package helm/ -u -d .deploy
-	helm package helm/
-	helm repo index .
-	helm repo index --url https://github.com/intel-retail/automated-self-checkout .
 
 consolidate-metrics:
 	cd performance-tools/benchmark-scripts && \
