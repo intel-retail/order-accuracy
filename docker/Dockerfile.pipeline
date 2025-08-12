@@ -6,8 +6,6 @@ WORKDIR /
 # Install file command
 RUN apt-get update && apt-get install -y file && rm -rf /var/lib/apt/lists/*
 
-RUN pip install --no-cache-dir python-dotenv
-
 COPY models /home/pipeline-server/models
 COPY ../config/sample-videos /home/pipeline-server/sample-media
 COPY src/run-pipeline.sh /home/pipeline-server/
