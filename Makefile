@@ -41,7 +41,7 @@ update-submodules:
 	@git submodule update --init --recursive
 	@git submodule update --remote --merge
 
-build:
+build: download-models update-submodules download-qsr-video download-sample-videos compress-qsr-video
 	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t dlstreamer:dev -f docker/Dockerfile.pipeline .
 
 run:
@@ -80,10 +80,10 @@ compress-qsr-video:
         -v $(shell pwd)/config/sample-videos:/sample-videos \
          qsr-video-compressor:0.0
 
-run-demo: | download-models update-submodules download-qsr-video download-sample-videos compress-qsr-video
-	@echo "Building automated self checkout app"	
+run-demo:
+	@echo "Building order-accuracy app"	
 	$(MAKE) build
-	@echo Running automated self checkout pipeline
+	@echo Running order-accuracy pipeline
 	$(MAKE) run-render-mode
 
 run-headless: | download-models update-submodules download-sample-videos
