@@ -19,3 +19,4 @@ horizontal-text-detection-0002
 models/
 src/cl-cache/*
 config/sample-videos/*
+benchmark/
