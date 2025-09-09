@@ -10,13 +10,13 @@ Adhering to the following process is the best way to get your work included in t
 
    ```bash
    # Clone your fork of the repo into the current directory
-   git clone https://github.com/<your-username>/automated-self-checkout.git
+   git clone https://github.com/<your-username>/order-accuracy.git
 
    # Navigate to the newly cloned directory
-   cd automated-self-checkout
+   cd order-accuracy
 
    # Assign the original repo to a remote called "upstream"
-   git remote add upstream https://github.com/intel-retail/automated-self-checkout.git
+   git remote add upstream https://github.com/intel-retail/order-accuracy.git
    ```
 
 2. If you cloned a while ago, get the latest changes from upstream:

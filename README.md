@@ -18,7 +18,7 @@ The Order Accuracy Pipeline System is an open-source reference implementation fo
 > The first run will download models, videos, and build Docker images. This may take some time.
 
 
-### 1. Download models and videos, and run the Loss Prevention application.
+### 1. Download models and videos, and run the Order Accuracy application.
 
 ```sh
 make download-models
@@ -28,10 +28,10 @@ make run-render-mode
 ```
 
 
-> **User can directly run single make command that internally called all above command and run the Loss Prevention application.**
+> **User can directly run single make command that internally called all above command and run the Order Accuracy application.**
 
 
-### 3. Run Loss Prevention appliaction with single command.
+### 3. Run Order Accuracy appliaction with single command.
 
 
 ```sh

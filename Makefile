@@ -95,11 +95,26 @@ run-headless: | download-models update-submodules download-sample-videos
 build-benchmark:
 	cd performance-tools && $(MAKE) build-benchmark-docker
 
-benchmark: build-benchmark download-models
-	cd performance-tools/benchmark-scripts && python3 benchmark.py --compose_file ../../src/docker-compose.yml --pipeline $(PIPELINE_COUNT) --results_dir $(RESULTS_DIR)
+benchmark: build-benchmark download-models download-sample-videos
+	cd performance-tools/benchmark-scripts && \
+	pip3 install -r requirements.txt && \
+	python3 benchmark.py --compose_file ../../src/docker-compose.yml --pipeline $(PIPELINE_COUNT) --results_dir $(RESULTS_DIR)
 
 benchmark-stream-density: build-benchmark download-models
-	@cd performance-tools/benchmark-scripts && \
+	@if [ "$(OOM_PROTECTION)" = "0" ]; then \
+        	echo "╔════════════════════════════════════════════════════════════╗";\
+		echo "║ WARNING                                                    ║";\
+		echo "║                                                            ║";\
+		echo "║ OOM Protection is DISABLED. This test may:                 ║";\
+		echo "║ • Cause system instability or crashes                      ║";\
+		echo "║ • Require hard reboot if system becomes unresponsive       ║";\
+		echo "║ • Result in data loss in other applications                ║";\
+		echo "║                                                            ║";\
+		echo "║ Press Ctrl+C now to cancel, or wait 5 seconds...           ║";\
+		echo "╚════════════════════════════════════════════════════════════╝";\
+		sleep 5;\
+    fi
+	cd performance-tools/benchmark-scripts && \
 	python3 benchmark.py \
 	  --compose_file ../../src/docker-compose.yml \
 	  --init_duration $(INIT_DURATION) \
@@ -107,6 +122,10 @@ benchmark-stream-density: build-benchmark download-models
 	  --container_names $(CONTAINER_NAMES) \
 	  --density_increment $(DENSITY_INCREMENT) \
 	  --results_dir $(RESULTS_DIR)
+
+benchmark-quickstart:
+	DEVICE_ENV=res/all-gpu.env RENDER_MODE=0 $(MAKE) benchmark
+	$(MAKE) consolidate-metrics
 
 clean-results:
 	rm -rf results/*
