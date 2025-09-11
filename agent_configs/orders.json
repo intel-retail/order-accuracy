@@ -1,0 +1,115 @@
+[
+    {
+        "bill_number": "391",
+        "items": [
+            {
+                "name": "Bottle of Water",
+                "count": 1
+            },
+            {
+                "name": "Jif Peanut Butter",
+                "count": 1
+            },
+            {
+                "name": "Apple",
+                "count": 1
+            },
+            {
+                "name": "Knife",
+                "count": 1
+            },
+            {
+                "name": "Cookies",
+                "count": 1
+            }
+        ]
+    },
+    {
+        "bill_number": "424",
+        "items": [
+            {
+                "name": "Can",
+                "count": 1
+            },
+            {
+                "name": "Snack Pack",
+                "count": 1
+            },
+            {
+                "name": "Yogurt",
+                "count": 1
+            },
+            {
+                "name": "Chocolate Chip Bar",
+                "count": 1
+            },
+            {
+                "name": "Spoon",
+                "count": 1
+            },
+            {
+                "name": "Straw",
+                "count": 1
+            }
+        ]
+    },
+    {
+        "bill_number": "807",
+        "items": [
+            {
+                "name": "Chips",
+                "count": 2
+            },
+            {
+                "name": "Jif Peanut Butter",
+                "count": 1
+            },
+            {
+                "name": "Plastic Knife",
+                "count": 1
+            }
+        ]
+    },
+    {
+        "bill_number": "580",
+        "items": [
+            {
+                "name": "Banana",
+                "count": 1
+            },
+            {
+                "name": "Can",
+                "count": 1
+            }
+        ]
+    },
+    {
+        "bill_number": "313",
+        "items": [
+            {
+                "name": "Banana",
+                "count": 2
+            },
+            {
+                "name": "Orange",
+                "count": 1
+            },
+            {
+                "name": "Bottle of Water",
+                "count": 1
+            },
+            {
+                "name": "Beer Bottle",
+                "count": 1
+            },
+            {
+                "name": "Can of Protein Shake",
+                "count": 1
+            },
+            {
+                "name": "Straw",
+                "count": 1
+            }
+        ]
+    }
+]

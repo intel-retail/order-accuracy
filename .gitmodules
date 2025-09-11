@@ -1,3 +1,4 @@
-[submodule "performance-tools"]
-	path = performance-tools
-	url = https://github.com/intel-retail/performance-tools
+[submodule "edge-ai-libraries"]
+	path = edge-ai-libraries
+	url = https://github.com/sachinkaushik/edge-ai-libraries.git
+	branch = order-vlm
