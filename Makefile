@@ -12,6 +12,9 @@ export VSS_IP := $(HOST_IP)
 export MINIO_SERVER=$(HOST_IP):4001
 export RABBITMQ_DEFAULT_USER=$(RABBITMQ_USER)
 export RABBITMQ_DEFAULT_PASS=$(RABBITMQ_PASSWORD)
+export USER_GROUP_ID=$(id -g)
+export VIDEO_GROUP_ID=$(getent group video | awk -F: '{printf "%s\n", $3}')
+export RENDER_GROUP_ID=$(getent group render | awk -F: '{printf "%s\n", $3}')
 
 
 update-submodules:
