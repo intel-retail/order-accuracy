@@ -84,10 +84,14 @@ def call_vlm(
     video_id: str = None
 ) -> Tuple[bool, Dict[str, Any], str]:
     """Call the Vision Language Model to analyze frames. Optionally save output to MinIO with order_id and accept video_id."""
+    import time
     payload = build_vlm_payload(frame_records, seed=seed)
     logger.info(f"##########video_id==================: {video_id}")
     try:
-        resp = requests.post(VLM_URL, json=payload, timeout=240)
+        start_time = time.time()
+        resp = requests.post(VLM_URL, json=payload, timeout=600)
+        elapsed = time.time() - start_time
+        logger.info(f"######### VLM call time taken: {elapsed:.2f} seconds")
         if resp.status_code != 200:
             return False, {}, f"VLM call failed: {resp.status_code} {resp.text}"
         try:
