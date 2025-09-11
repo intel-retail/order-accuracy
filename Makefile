@@ -27,6 +27,9 @@ update-submodules:
 
 run-demo:	
 	@echo "Building video-ingestion app"
+	@cd edge-ai-libraries/microservices/vlm-openvino-serving && \
+		echo y | docker compose -f docker/compose.yaml build
+	@echo "vlm-openvino-serving build completed........"
 	@cd edge-ai-libraries/sample-applications/video-search-and-summarization/video-ingestion && \
 		echo y | docker compose -f docker/compose.yaml build
 	@echo "Video Ingestion build completed........"
