@@ -1,5 +1,5 @@
 [project]
-name = "order-accuracy-vlm"
+name = "order-accuracy"
 version = "1.0.0"
 description = "Modular Gradio app to detect order items in uploaded videos using a pipeline + VLM"
 authors = [ { name = "Retail Agent" } ]
@@ -15,7 +15,7 @@ dependencies = [
 ]
 
 [project.scripts]
-order-accuracy-vlm = "main:main"
+order-accuracy = "main:main"
 
 [project.optional-dependencies]
 dev = [
