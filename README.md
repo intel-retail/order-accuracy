@@ -67,7 +67,7 @@ export RABBITMQ_PASSWORD=<your-rabbitmq-password>
 export OD_MODEL_NAME="yolov8l-worldv2"
 export VCLIP_MODEL="openai/clip-vit-base-patch32"
 export ENABLED_WHISPER_MODELS=true
-export VLM_MODEL_NAME="Qwen/Qwen2.5-VL-3B-Instruct"  # or any other supported VLM model on CPU
+export VLM_MODEL_NAME="Qwen/Qwen2.5-VL-7B-Instruct"  # or any other supported VLM model on CPU
 export ENABLED_WHISPER_MODELS="tiny.en,small.en,medium.en" 
 ```
 Go to https://huggingface.co/settings/tokens to get your token.
@@ -81,7 +81,7 @@ export HUGGINGFACE_TOKEN=
 no_proxy=x.x.x.x(HOST_IP)
 ```
 
-## Run/Stop the Application
+## Run/Stop the Application(By default application is running on CPU device)
 
 ```bash
 
@@ -93,6 +93,14 @@ make down (To Stop the application)
 ```
 
 The web interface will be available at `http://<HOST_IP>:7860`
+
+## To Run Application on GPU device
+
+```bash
+
+export ENABLE_VLM_GPU=true
+
+```
 
 
 ## Configuration
