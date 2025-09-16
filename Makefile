@@ -25,7 +25,7 @@ update-submodules:
 	@echo "✅ Submodules updated (if any present)."
 
 
-run-demo:	
+build:
 	@echo "Building video-ingestion app"
 	@cd edge-ai-libraries/microservices/vlm-openvino-serving && \
 		echo y | docker compose -f docker/compose.yaml build
@@ -33,6 +33,8 @@ run-demo:
 	@cd edge-ai-libraries/sample-applications/video-search-and-summarization/video-ingestion && \
 		echo y | docker compose -f docker/compose.yaml build
 	@echo "Video Ingestion build completed........"
+
+run-demo:	
 	@echo "🔹 Running setup.sh with --summary"
 	cd edge-ai-libraries/sample-applications/video-search-and-summarization && \
 	chmod +x setup.sh && ./setup.sh --summary || { echo "setup.sh failed, aborting run-demo."; exit 1; }
