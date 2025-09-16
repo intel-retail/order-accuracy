@@ -35,7 +35,7 @@ run-demo:
 	@echo "Video Ingestion build completed........"
 	@echo "🔹 Running setup.sh with --summary"
 	cd edge-ai-libraries/sample-applications/video-search-and-summarization && \
-	chmod +x setup.sh && ./setup.sh --summary
+	chmod +x setup.sh && ./setup.sh --summary || { echo "setup.sh failed, aborting run-demo."; exit 1; }
 	@PID=$$(lsof -t -i:$(APP_HOST_PORT)); \
 	if [ -n "$$PID" ]; then \
 		kill -9 $$PID; \
