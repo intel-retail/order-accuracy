@@ -87,6 +87,8 @@ no_proxy=x.x.x.x(HOST_IP)
 
 make update-submodules (This command only needs to be run the first time during setup.)
 
+make build (To Build the application)
+
 make run-demo (To Run the application)
 
 make down (To Stop the application)
