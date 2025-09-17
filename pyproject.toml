@@ -12,6 +12,8 @@ dependencies = [
   "watchdog",
   "minio",
   "rapidfuzz>=3.13.0",
+  "opencv-python",
+  "ultralytics"
 ]
 
 [project.scripts]

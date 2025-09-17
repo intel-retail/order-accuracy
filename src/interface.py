@@ -3,10 +3,12 @@
 import os
 import threading
 import queue
-import re
+import re, time
 import requests
 import tempfile
+import rtsp_video_util
 from typing import Generator, Tuple, Any, Dict
+import cv2
 
 import gradio as gr
 
@@ -20,6 +22,10 @@ from functools import lru_cache
 from validate_addon import OrderValidator
 from final_report import update_metrics,load_metrics_from_file
 
+TARGET_CLASSES = { "bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee",
+    "skis","snowboard","sports ball","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake",
+    "chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"
+}
 
 @lru_cache(maxsize=None)
 def create_validate_agent_obj()-> OrderValidator:
@@ -187,6 +193,15 @@ def process_video(video_file) -> Generator[Tuple[str, Any], None, None]:
     logger.info("Video processing completed successfully")
     yield " Agent Success: Grocery items identified and receipt generation complete.", result_json
 
+def webcam_stream():
+    cap = cv2.VideoCapture("/dev/video0")  # direct webcam device
+    while True:
+        ret, frame = cap.read()
+        if not ret:
+            break
+        yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        time.sleep(0.05)  # ~20 fps
+    cap.release()
 
 def build_interface():
     """Build and return the Gradio interface."""
@@ -244,6 +259,10 @@ def build_interface():
                 with gr.Column(scale=1):
                     video_input = gr.Video(label="Upload Video", interactive=True, height=400, width=600, autoplay=True)
                     run_btn = gr.Button("Get Order Summary", size="md")
+                    live_webcam = gr.Image(label="Live Webcam (/dev/video0)", streaming=True)
+                    rtsp_input = gr.Textbox(label="RTSP URL")
+                    run_rtsp_summary_btn = gr.Button("Get Order Summary (Live)")
+                    stop_btn = gr.Button("Stop Stream")                
                 with gr.Column(scale=1):
                     status = gr.Textbox(label="Order Summary Status", interactive=False, lines=6, max_lines=8)
                     result = gr.JSON(label="Order Accuracy Result")
@@ -281,6 +300,56 @@ def build_interface():
             inputs=[option],
             outputs=[get_order_col, recall_order_col, final_report_col]
         )
+        
+        
+        clip_queue = queue.Queue()
+        stop_event = threading.Event()
+
+        # =========================
+        # Consumer Loop
+        # =========================
+        def clip_consumer():
+            while not stop_event.is_set():
+                try:
+                    clip_path = clip_queue.get(timeout=1)
+                except queue.Empty:
+                    continue
+
+                if clip_path is None:  # Sentinel from stop_stream
+                    break
+
+                print(f"[Consumer] Processing {clip_path}")
+                # Call your existing runner pipeline
+                for update in runner(clip_path):
+                    yield update
+                time.sleep(10)
+                clip_queue.task_done()
+
+            print("[Consumer] Stopped")
+
+        # =========================
+        # Main Orchestration
+        # =========================
+        def clips_runner(rtsp_url="rtsp://localhost:8554/test"):
+            
+            # process_rtsp.start_workflow("rtsp://localhost:8554/test", TARGET_CLASSES)
+            model = rtsp_video_util.load_model()
+            stop_event.clear()
+            # Start producer
+            t = threading.Thread(
+            target=rtsp_video_util.start_stream,  # calls stream_and_split internally
+            args=(rtsp_url, model, TARGET_CLASSES, clip_queue, stop_event),
+            daemon=True
+            )
+            t.start()
+            print("[System] Producer started.")
+            for update in clip_consumer():
+                yield update
+
+        def stop_workflow():
+            rtsp_video_util.stop_stream(stop_event, clip_queue)
+            
+        
         def runner(video):
             try:
                 # Initialize status tree structure
@@ -443,7 +512,10 @@ def build_interface():
             outputs=[recall_result, recall_video, recall_validation_result],  # Add validation result output
             show_progress=True
         )
-
+        demo.load(fn=webcam_stream, inputs=[], outputs=live_webcam)
+        run_rtsp_summary_btn.click(clips_runner, inputs=[rtsp_input], outputs=[status, result, validation_result])
+        stop_btn.click(stop_workflow)
+        
         def get_final_report_metrics():
             load_metrics_from_file()
             from final_report import get_metrics_dict
