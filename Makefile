@@ -84,7 +84,11 @@ run-demo:
 	@echo "Building order-accuracy app"	
 	$(MAKE) build
 	@echo Running order-accuracy pipeline
-	$(MAKE) run-render-mode
+	@if [ "$(RENDER_MODE)" != "0" ]; then \
+		$(MAKE) run-render-mode; \
+	else \
+		$(MAKE) run; \
+	fi
 
 run-headless: | download-models update-submodules download-sample-videos
 	@echo "Building order accuracy app"
