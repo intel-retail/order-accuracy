@@ -21,10 +21,10 @@ from save_vlm_result import get_order_json_from_minio, get_video_url_from_minio
 from functools import lru_cache
 from validate_addon import OrderValidator
 from final_report import update_metrics,load_metrics_from_file
+from collections import deque
 
 TARGET_CLASSES = { "bicycle","car","motorcycle","airplane","bus","train","truck","boat","traffic light","fire hydrant","stop sign","parking meter","bench","bird","cat","dog","horse","sheep","cow","elephant","bear","zebra","giraffe","backpack","umbrella","handbag","tie","suitcase","frisbee",
-    "skis","snowboard","sports ball","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake",
-    "chair","couch","potted plant","bed","dining table","toilet","tv","laptop","mouse","remote","keyboard","cell phone","microwave","oven","toaster","sink","refrigerator","book","clock","vase","scissors","teddy bear","hair drier","toothbrush"
+    "skis","snowboard","sports ball","baseball bat","baseball glove","skateboard","surfboard","tennis racket","bottle","wine glass","cup","fork","knife","spoon","bowl","banana","apple","sandwich","orange","broccoli","carrot","hot dog","pizza","donut","cake","refrigerator","clock","vase","scissors","teddy bear","hair drier","toothbrush"
 }
 
 @lru_cache(maxsize=None)
@@ -260,8 +260,8 @@ def build_interface():
                     video_input = gr.Video(label="Upload Video", interactive=True, height=400, width=600, autoplay=True)
                     run_btn = gr.Button("Get Order Summary", size="md")
                     live_webcam = gr.Image(label="Live Webcam (/dev/video0)", streaming=True)
-                    rtsp_input = gr.Textbox(label="RTSP URL")
-                    run_rtsp_summary_btn = gr.Button("Get Order Summary (Live)")
+                    rtsp_input = gr.Textbox(label="Video Source")
+                    run_rtsp_summary_btn = gr.Button("Summarize Order (Stream)")
                     stop_btn = gr.Button("Stop Stream")                
                 with gr.Column(scale=1):
                     status = gr.Textbox(label="Order Summary Status", interactive=False, lines=6, max_lines=8)
@@ -309,23 +309,39 @@ def build_interface():
         # Consumer Loop
         # =========================
         def clip_consumer():
-            while not stop_event.is_set():
+            """
+            Generator that yields updates from processing clips.
+            It will exit only after receiving a None sentinel from producer.
+            """
+            logger.info("[Clips] Consumer started")
+            while True:
+                clip_path = clip_queue.get()  # blocks until an item is available
                 try:
-                    clip_path = clip_queue.get(timeout=1)
-                except queue.Empty:
-                    continue
+                    if clip_path is None:
+                        # producer signaled completion
+                        logger.info("[Consumer] received sentinel - exiting")
+                        break
 
-                if clip_path is None:  # Sentinel from stop_stream
-                    break
+                    logger.info(f"[Consumer] Processing {clip_path}")
+                    # Call your existing runner pipeline which itself yields progress updates
+                    try:
+                        for update in runner(clip_path):
+                            yield update
+                    except Exception as e:
+                        logger.exception(f"[Consumer] Error while running pipeline on {clip_path}: {e}")
+                        # yield an error status so UI shows it
+                        yield (f"🚨 Error processing clip {os.path.basename(clip_path)}: {e}", None, None)
+                    # small backoff to avoid busy loop downstream
+                    time.sleep(8)
+                finally:
+                    # mark task done for this item (including sentinel)
+                    try:
+                        clip_queue.task_done()
+                    except Exception:
+                        pass
 
-                print(f"[Consumer] Processing {clip_path}")
-                # Call your existing runner pipeline
-                for update in runner(clip_path):
-                    yield update
-                time.sleep(10)
-                clip_queue.task_done()
-
-            print("[Consumer] Stopped")
+            logger.info("[Clips] Runner finished")
+            return
 
         # =========================
         # Main Orchestration
@@ -342,12 +358,13 @@ def build_interface():
             daemon=True
             )
             t.start()
-            print("[System] Producer started.")
+            logger.info("[Clips] Producer started.")
             for update in clip_consumer():
                 yield update
 
         def stop_workflow():
-            rtsp_video_util.stop_stream(stop_event, clip_queue)
+            # signal producer to stop; producer will enqueue None sentinel when finished
+            rtsp_video_util.stop_stream(stop_event)
             
         
         def runner(video):
@@ -411,8 +428,9 @@ def build_interface():
                     
                     status_output = format_status_tree()
                     result_output = result_json if isinstance(result_json, (dict, list)) else None
+
+                    status_output = format_status_tree()
                     
-                    # Yield intermediate results
                     yield (status_output, result_output, None)  # Add None for validation result
                 
                 # After VLM processing is complete, run validation
