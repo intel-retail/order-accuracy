@@ -80,4 +80,8 @@ cat benchmark/metrics.csv
 - `src/` — Main source code and pipeline runner scripts
 - `Makefile` — Build automation and workflow commands
 
+## ⓘ Learn More
+
+For detailed documentation and a comprehensive guide, please visit our [project website](https://intel-retail.github.io/documentation/use-cases/order-accuracy/order-accuracy.html).
+
 ---
