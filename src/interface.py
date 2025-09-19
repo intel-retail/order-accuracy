@@ -226,19 +226,9 @@ def build_interface():
         }
     """, title="Order Accuracy") as demo:
         with gr.Row():
-            with gr.Column(scale=0, min_width=120):
-                gr.Image(
-                    value=os.path.join(os.path.dirname(__file__), "intel-logo.png"),
-                    show_label=False,
-                    show_download_button=False,
-                    container=False,
-                    elem_id="intel-logo",
-                    height=60,
-                    width=120,
-                )
             with gr.Column():
                 gr.Markdown(
-                    "<div style='text-align: right; font-size: 2em; font-weight: bold;'>Order Accuracy VLM Application</div>",
+                    "<div style='text-align: center; font-size: 2em; font-weight: bold;'>Order Accuracy</div>",
                     elem_id="order-accuracy-title"
                 )
             
@@ -247,21 +237,22 @@ def build_interface():
         with gr.Row():
             with gr.Column(scale=1):
                 option = gr.Radio(
-                    choices=["Get Order Accuracy", "Recall Order Accuracy", "Final Report"],
-                    value="Get Order Accuracy",
+                    choices=["Real-Time Tracking", "Recall Order", "Accuracy Report"],
+                    value="Real-Time Tracking",
                     label="Select Feature",
                     interactive=True,
                 )
+
+        # Define tracking_col before it is used
+        tracking_col = gr.Column(visible=False)  # Removed the invalid 'label' argument
 
         # Get Order Accuracy UI
         with gr.Column(visible=True) as get_order_col:
             with gr.Row():
                 with gr.Column(scale=1):
-                    video_input = gr.Video(label="Upload Video", interactive=True, height=400, width=600, autoplay=True)
-                    run_btn = gr.Button("Get Order Summary", size="md")
-                    live_webcam = gr.Image(label="Live Webcam (/dev/video0)", streaming=True)
+                    live_webcam = gr.Image(label="Live Stream", streaming=True)
                     rtsp_input = gr.Textbox(label="Video Source")
-                    run_rtsp_summary_btn = gr.Button("Summarize Order (Stream)")
+                    run_rtsp_summary_btn = gr.Button("Analyze Stream")
                     stop_btn = gr.Button("Stop Stream")                
                 with gr.Column(scale=1):
                     status = gr.Textbox(label="Order Summary Status", interactive=False, lines=6, max_lines=8)
@@ -273,7 +264,7 @@ def build_interface():
             with gr.Row():
                 with gr.Column(scale=1):
                     recall_order_number = gr.Textbox(label="Recall Bill/Order Number", placeholder="Enter Bill/Order Number")
-                    recall_btn = gr.Button("Recall Order Accuracy", size="md")
+                    recall_btn = gr.Button("Recall Order", size="md")
                     recall_video = gr.Video(label="Order Video Preview", interactive=False, height=400, width=600, autoplay=True)
                 with gr.Column(scale=1):
                     recall_result = gr.JSON(label="Recalled Order Accuracy Result")
@@ -290,15 +281,15 @@ def build_interface():
         # Option logic: show/hide columns
         def toggle_option(selected):
             return (
-                gr.update(visible=(selected == "Get Order Accuracy")),
-                gr.update(visible=(selected == "Recall Order Accuracy")),
-                gr.update(visible=(selected == "Final Report"))
+                gr.update(visible=(selected == "Real-Time Tracking")),
+                gr.update(visible=(selected == "Recall Order")),
+                gr.update(visible=(selected == "Accuracy Report"))
             )
 
         option.change(
             fn=toggle_option,
             inputs=[option],
-            outputs=[get_order_col, recall_order_col, final_report_col]
+            outputs=[tracking_col, recall_order_col, final_report_col]
         )
         
         
@@ -516,13 +507,6 @@ def build_interface():
                 validation_results = {"error": f"Failed to fetch validation results: {str(e)}"}
             
             return order_json, video_url, validation_results
-
-        run_btn.click(
-            fn=runner, 
-            inputs=[video_input], 
-            outputs=[status, result, validation_result],  # Add validation_result to outputs
-            show_progress=True
-        )
 
         recall_btn.click(
             fn=recall_order,
