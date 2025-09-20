@@ -281,7 +281,7 @@ def build_interface():
         # Option logic: show/hide columns
         def toggle_option(selected):
             return (
-                gr.update(visible=(selected == "Real-Time Tracking")),
+                gr.update(visible=(selected == "Real-Time Tracking")),  # Show tracking_col only for "Real-Time Tracking"
                 gr.update(visible=(selected == "Recall Order")),
                 gr.update(visible=(selected == "Accuracy Report"))
             )
@@ -289,7 +289,7 @@ def build_interface():
         option.change(
             fn=toggle_option,
             inputs=[option],
-            outputs=[tracking_col, recall_order_col, final_report_col]
+            outputs=[get_order_col, recall_order_col, final_report_col]  # Ensure correct columns are toggled
         )
         
         
