@@ -11,7 +11,7 @@ from typing import Generator, Tuple, Any, Dict
 import cv2
 
 import gradio as gr
-
+import threading
 from config import logger, VSS_IP
 from video_utils import validate_video_duration, upload_video
 from pipeline import trigger_pipeline, wait_for_pipeline_completion
@@ -22,6 +22,7 @@ from functools import lru_cache
 from validate_addon import OrderValidator
 from final_report import update_metrics, load_metrics_from_file
 from collections import deque
+from typing import Optional
 
 TARGET_CLASSES = {
     "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -34,6 +35,7 @@ TARGET_CLASSES = {
     "hot dog", "pizza", "donut", "cake", "refrigerator", "clock", "vase", "scissors",
     "teddy bear", "hair drier", "toothbrush"
 }
+STREAM_STOP_EVENT = threading.Event()
 
 @lru_cache(maxsize=None)
 def create_validate_agent_obj() -> OrderValidator:
@@ -197,17 +199,64 @@ def process_video(video_file) -> Generator[Tuple[str, Any], None, None]:
     
     logger.info("Video processing completed successfully")
     yield " Agent Success: Grocery items identified and receipt generation complete.", result_json
+def rtsp_stream(rtsp_url: str, reconnect_delay: float = 1.5,
+                stop_event: Optional[threading.Event] = None):
+    cap = None
+    try:
+        while True:
+            if stop_event and stop_event.is_set():
+                break
+            if cap is None or not cap.isOpened():
+                if cap is not None:
+                    cap.release()
+                cap = cv2.VideoCapture(rtsp_url, cv2.CAP_FFMPEG)
+                if not cap.isOpened():
+                    waited = 0.0
+                    while waited < reconnect_delay:
+                        if stop_event and stop_event.is_set():
+                            break
+                        time.sleep(0.1)
+                        waited += 0.1
+                    continue
+            if stop_event and stop_event.is_set():
+                break
+            ok, frame = cap.read()
+            if stop_event and stop_event.is_set():
+                break
+            if not ok or frame is None:
+                cap.release()
+                cap = None
+                waited = 0.0
+                while waited < reconnect_delay:
+                    if stop_event and stop_event.is_set():
+                        break
+                    time.sleep(0.1)
+                    waited += 0.1
+                continue
+            yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            if stop_event and stop_event.is_set():
+                break
+            time.sleep(0.01)
+    finally:
+        if cap:
+            cap.release()
+        logger.info("[RTSP] Stream stopped cleanly")
 
-def webcam_stream():
-    cap = cv2.VideoCapture("/dev/video0")  # direct webcam device
-    while True:
-        ret, frame = cap.read()
-        if not ret:
+def start_live_stream(rtsp_url: str):
+    if not rtsp_url or not rtsp_url.startswith("rtsp://"):
+        raise gr.Error("Enter a valid RTSP URL starting with rtsp://")
+    STREAM_STOP_EVENT.clear()
+    logger.info(f"[LiveView] Starting stream: {rtsp_url}")
+    for frame in rtsp_stream(rtsp_url, stop_event=STREAM_STOP_EVENT):
+        if STREAM_STOP_EVENT.is_set():
             break
-        yield cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        time.sleep(0.05)  # ~20 fps
-    cap.release()
+        yield frame
 
+def stop_live_stream():
+    if not STREAM_STOP_EVENT.is_set():
+        STREAM_STOP_EVENT.set()
+        logger.info("[LiveView] Stop requested")
+    return gr.update(value=None)
 def build_interface():
     """Build and return the Gradio interface."""
     with gr.Blocks(css="""
@@ -353,6 +402,23 @@ def build_interface():
             border-radius:2px;
             pointer-events:none;
         }
+        .big-btn button {
+        font-size:1.05rem !important;
+        padding:14px 30px !important;
+        min-height:56px;
+        font-weight:600;
+    }
+    /* Smaller, subtle stream control buttons */
+        .stream-btn button {
+            font-size:.72rem !important;
+            padding:6px 14px !important;
+            min-height:34px;
+            font-weight:500;
+            background:#f2f4f6 !important;
+        }
+        .stream-btn button:hover {
+            background:#e3e8ec !important;
+        }
 
         /* ...existing CSS below remains unchanged... */
     """, title="Order Accuracy") as demo:
@@ -368,9 +434,14 @@ def build_interface():
                     with gr.Row():
                         with gr.Column(scale=1):
                             live_webcam = gr.Image(label="Live Stream", streaming=True)
-                            rtsp_input = gr.Textbox(label="Video Source", value="rtsp://localhost:8554/test")
-                            run_rtsp_summary_btn = gr.Button("Analyze Stream")
-                            stop_btn = gr.Button("Stop Stream")
+                            with gr.Row():
+                                rtsp_input = gr.Textbox( value="rtsp://localhost:8554/unicast",label="Video Source",placeholder="Enter RTSP URL (rtsp://...)",scale=4)
+                                with gr.Column(scale=1):
+                                    start_stream_btn = gr.Button("Start Stream", variant="secondary", elem_classes=["stream-btn"])
+                                    stop_stream_btn = gr.Button("Stop Stream", variant="secondary", elem_classes=["stream-btn"])
+                            with gr.Row():
+                                run_rtsp_summary_btn = gr.Button("Start Order Analyzer", variant="primary",  scale=1, elem_classes=["big-btn"] )
+                                stop_btn = gr.Button("Stop Analyzer", variant="stop",  scale=1, elem_classes=["big-btn"])
                         with gr.Column(scale=1):
                             status = gr.Textbox(label="Order Summary Status", interactive=False, lines=8, max_lines=10)
                             result = gr.JSON(label="Order Accuracy Result")
@@ -536,8 +607,8 @@ def build_interface():
                                            inputs=[], outputs=[get_order_col, recall_order_col, final_report_col])
                     accuracy_report_tab.click(fn=lambda: switch_tab("Accuracy Report"),
                                               inputs=[], outputs=[get_order_col, recall_order_col, final_report_col])
-
-                    demo.load(fn=webcam_stream, inputs=[], outputs=live_webcam)
+                    start_stream_btn.click(fn=start_live_stream, inputs=[rtsp_input], outputs=live_webcam)
+                    stop_stream_btn.click(fn=stop_live_stream, inputs=[], outputs=live_webcam)
                     run_rtsp_summary_btn.click(clips_runner, inputs=[rtsp_input], outputs=[status, result, validation_result])
                     stop_btn.click(stop_workflow)
 
