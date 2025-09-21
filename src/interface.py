@@ -312,7 +312,49 @@ def build_interface():
             background:#0a6ca9;
             border-radius:2px;
         }
-i        /* ...existing CSS below remains unchanged... */
+
+        /* NEW: Direct class-based persistent active (stronger visual) */
+        .oa-tab-btn.tab-active,
+        .oa-tab-btn.tab-active button {
+            background:#cfe5f1 !important;
+            border:1px solid #6aa8cc !important;
+            color:#084d78 !important;
+            box-shadow:0 2px 7px rgba(8,77,120,.35), 0 0 0 1px #a8d2e5 inset;
+            font-weight:700 !important;
+        }
+        .oa-tab-btn.tab-active::after,
+        .oa-tab-btn.tab-active button::after {
+            content:"";
+            position:absolute;
+            left:14px; right:14px; bottom:-7px;
+            height:3px;
+            background:#0a6ca9;
+            border-radius:2px;
+        }
+        .oa-tab-btn.tab-active:hover,
+        .oa-tab-btn.tab-active button:hover {
+            background:#c6deec !important;
+            color:#074669 !important;
+        }
+        /* Preserve look on hover while active */
+        .oa-tab-btn.tab-active:hover {
+            background:#c6deec !important;
+            color:#074669 !important;
+        }
+
+        /* Underline element injected by JS (no pseudo selector dependency) */
+        .oa-tab-underline {
+            position:absolute;
+            left:14px;
+            right:14px;
+            bottom:-7px;
+            height:3px;
+            background:#0a6ca9;
+            border-radius:2px;
+            pointer-events:none;
+        }
+
+        /* ...existing CSS below remains unchanged... */
     """, title="Order Accuracy") as demo:
         with gr.Column(elem_id="oa-shell"):
             with gr.Column(elem_id="oa-header"):
@@ -516,78 +558,54 @@ i        /* ...existing CSS below remains unchanged... */
     'rc-tab':'recall_order_col',
     'ar-tab':'final_report_col'
   };
-  const IDS = Object.keys(MAP);
-  const KEY = 'oa_active_tab_simple';
-  const bar = document.getElementById('oa-tabs-bar');
+  const ACTIVE_INLINE = 'background:#cfe5f1 !important;border:1px solid #6aa8cc !important;color:#084d78 !important;box-shadow:0 2px 7px rgba(8,77,120,.35), 0 0 0 1px #a8d2e5 inset;font-weight:700 !important;position:relative;';
+  const UNDERLINE_HTML = '<span class="oa-tab-underline" style="position:absolute;left:14px;right:14px;bottom:-7px;height:3px;background:#0a6ca9;border-radius:2px;pointer-events:none;"></span>';
 
-  function el(id){ return document.getElementById(id); }
-
-  function visible(id){
-    const n = el(id);
-    if(!n) return false;
-    if(n.hidden) return false;
-    const cs = getComputedStyle(n);
+  function $(id){ return document.getElementById(id); }
+  function isVisible(sectionId){
+    const el = $(sectionId);
+    if(!el) return false;
+    if(el.hidden) return false;
+    const cs = getComputedStyle(el);
     return cs.display !== 'none' && cs.visibility !== 'hidden' && cs.opacity !== '0';
   }
-
-  function detectVisible(){
-    for(const t of IDS){
-      if(visible(MAP[t])) return t;
-    }
-    return IDS[0];
-  }
-
-  function stored(){
-    const s = localStorage.getItem(KEY);
-    return IDS.includes(s) ? s : null;
-  }
-
-  function apply(id, persist=true){
-    if(!bar) return;
-    if(bar.dataset.active !== id){
-      bar.dataset.active = id;
-    }
-    if(persist) localStorage.setItem(KEY,id);
-  }
-
-  function handleClick(id){
-    apply(id,true);
-    setTimeout(()=>apply(detectVisible(),true),80);
-  }
-
-  function bind(){
-    IDS.forEach(id=>{
-      const b = el(id);
-      if(b && !b.dataset.bound){
-        b.dataset.bound='1';
-        b.style.cursor='pointer';
-        b.addEventListener('click', ()=>handleClick(id));
+  function setActive(tabId){
+    Object.keys(MAP).forEach(id=>{
+      const wrap = $(id);
+      if(!wrap) return;
+      if(id === tabId){
+        // Apply inline active styles
+        wrap.setAttribute('style', ACTIVE_INLINE);
+        // Ensure underline element exists (remove old duplicates)
+        [...wrap.querySelectorAll('.oa-tab-underline')].forEach(n=>n.remove());
+        wrap.insertAdjacentHTML('beforeend', UNDERLINE_HTML);
+      } else {
+        // Clear styles & underline
+        wrap.removeAttribute('style');
+        [...wrap.querySelectorAll('.oa-tab-underline')].forEach(n=>n.remove());
       }
     });
   }
-
-  function init(){
-    bind();
-    const s = stored();
-    if(s){
-      apply(s,false);
-      const vis = detectVisible();
-      if(vis !== s) apply(vis,true);
-    } else {
-      apply(detectVisible(), true);
+  function detectAndApply(){
+    for(const [tab, section] of Object.entries(MAP)){
+      if(isVisible(section)){
+        setActive(tab);
+        return;
+      }
     }
   }
-
-  const mo = new MutationObserver(()=>bind());
-  mo.observe(document.body,{subtree:true, childList:true});
-
-  setInterval(()=> {
-    const s = stored();
-    if(s) apply(s,false);
-  }, 2500);
-
-  if(document.readyState !== 'loading') init();
-  else document.addEventListener('DOMContentLoaded', init);
+  // Also apply on tab clicks ASAP
+  Object.keys(MAP).forEach(id=>{
+    const w = $(id);
+    if(w && !w.dataset.bound){
+      w.dataset.bound='1';
+      w.addEventListener('click', ()=> setTimeout(detectAndApply, 30));
+    }
+  });
+  // Poll (robust against Gradio re-renders)
+  setInterval(detectAndApply, 250);
+  // Initial run
+  detectAndApply();
 })();
 </script>
 """)
