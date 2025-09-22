@@ -37,11 +37,9 @@ def build_vlm_payload(frame_records: List[Dict[str, Any]], seed: int = 42) -> Di
                 Identify every distinct grocery item you see. 
                 Also, find and read the bill number from any receipt or screen present.
 
-                Special rules:
-                - If you see a Pen or Pencil, treat it as a Straw and add "Straw" to the items list with the correct count.
-                - If you see a Knife or Plastic Knife, treat it as a Knife and add "Knife" to the items list with the correct count.
+                Special rules:                
                 - Do not include any item with a count of zero in the output.
-                - BillNumber must always be a plain integer (e.g., 424) or null if it is not visible.
+                - BillNumber must always be a plain integer or null if it is not visible.
                 - Do not wrap BillNumber in an object, string, or special formatting.
 
                 Output format (strict JSON):
@@ -57,7 +55,7 @@ def build_vlm_payload(frame_records: List[Dict[str, Any]], seed: int = 42) -> Di
                 - Focus only on the checkout bay area.
                 - Ignore irrelevant frames (customers, unrelated inventory).
                 - Handle variations in lighting, angles, or item arrangements.
-                - Output must be valid JSON and follow the schema exactly.
+                - Please ensure Output must be a valid JSON and follow the schema exactly.
              """
         },
         {
