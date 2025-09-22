@@ -288,7 +288,6 @@ def build_interface():
             border-radius:4px;
         }
         #oa-content::-webkit-scrollbar-thumb:hover { background:#a9b4bd; }
-
         /* Header & Title (already present, kept) */
         #oa-header {
             position:sticky;
@@ -435,19 +434,79 @@ def build_interface():
                 with gr.Column(visible=True, elem_classes=["gradio-section"], elem_id="real-time-section") as get_order_col:
                     with gr.Row():
                         with gr.Column(scale=1):
-                            live_webcam = gr.Image(label="Live Stream", streaming=True)
+                            # Video source mode radio buttons
+                            video_source_mode = gr.Radio(
+                                choices=["Live Stream", "File Upload"],
+                                value="Live Stream",
+                                label="Video Source Mode",
+                                interactive=True
+                            )
+                            
+                            # Live stream block visible only when "Live Stream" selected
+                            with gr.Column(visible=True) as live_stream_col:
+                                # Center preview image on its own row
+                                with gr.Row():
+                                    live_webcam = gr.Image(label="Live Stream", streaming=True)
+                                
+                                # RTSP input and buttons on same row
+                                with gr.Row():
+                                    with gr.Column(scale=4):
+                                        rtsp_input = gr.Textbox(
+                                            value="rtsp://localhost:8554/unicast",
+                                            label="Video Source",
+                                            placeholder="Enter RTSP URL (rtsp://...)"
+                                        )
+                                    with gr.Column(scale=1):
+                                        start_stream_btn = gr.Button("Start Stream", variant="secondary", elem_classes=["stream-btn"])
+                                        stop_stream_btn = gr.Button("Stop Stream", variant="secondary", elem_classes=["stream-btn"])
+
+                            # File upload block visible only when "File Upload" selected
+                            with gr.Row(visible=False) as file_upload_row:
+                                uploaded_file = gr.File(
+                                    label="Upload Video File",
+                                    file_types=["video"],
+                                    file_count="single"
+                                )
+                            
+                            # Other buttons row
                             with gr.Row():
-                                rtsp_input = gr.Textbox( value="rtsp://localhost:8554/unicast",label="Video Source",placeholder="Enter RTSP URL (rtsp://...)",scale=4)
-                                with gr.Column(scale=1):
-                                    start_stream_btn = gr.Button("Start Stream", variant="secondary", elem_classes=["stream-btn"])
-                                    stop_stream_btn = gr.Button("Stop Stream", variant="secondary", elem_classes=["stream-btn"])
-                            with gr.Row():
-                                run_rtsp_summary_btn = gr.Button("Start Order Analyzer", variant="primary",  scale=1, elem_classes=["big-btn"] )
-                                stop_btn = gr.Button("Stop Analyzer", variant="stop",  scale=1, elem_classes=["big-btn"])
+                                run_rtsp_summary_btn = gr.Button(
+                                    "Start Order Analyzer",
+                                    variant="primary",
+                                    scale=1,
+                                    elem_classes=["big-btn"]
+                                )
+                                stop_btn = gr.Button(
+                                    "Stop Analyzer",
+                                    variant="stop",
+                                    scale=1,
+                                    elem_classes=["big-btn"]
+                                )
+                        
+                        # Right side status/result column
                         with gr.Column(scale=1):
-                            status = gr.Textbox(label="Order Summary Status", interactive=False, lines=8, max_lines=10)
+                            status = gr.Textbox(
+                                label="Order Summary Status",
+                                interactive=False,
+                                lines=8,
+                                max_lines=10
+                            )
                             result = gr.JSON(label="Order Accuracy Result")
                             validation_result = gr.JSON(label="Validation Results")
+
+                    # Toggle visibility function
+                    def toggle_video_source(mode):
+                        return (
+                            gr.update(visible=(mode == "Live Stream")),
+                            gr.update(visible=(mode == "File Upload"))
+                        )
+
+                    video_source_mode.change(
+                        fn=toggle_video_source,
+                        inputs=[video_source_mode],
+                        outputs=[live_stream_col, file_upload_row]
+                    )
+
 
                 with gr.Column(visible=False, elem_classes=["gradio-section"], elem_id="recall_order_col") as recall_order_col:
                     with gr.Row():
@@ -650,6 +709,7 @@ def build_interface():
                             gr.update(visible=(tab_name == "Recall Order")),
                             gr.update(visible=(tab_name == "Accuracy Report"))
                         )
+
 
                     real_time_tab.click(fn=lambda: switch_tab("Real-Time Tracking"),
                                         inputs=[], outputs=[get_order_col, recall_order_col, final_report_col])
