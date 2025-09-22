@@ -111,7 +111,7 @@ def process_video(video_file) -> Generator[Tuple[str, Any], None, None]:
 
     ok, video_id, err = upload_video(video_path, video_path)
     if not ok:
-        logger.error(f"Video upload failed: {err}")
+        logger.error(f"New Order failed: {err}")
         yield f"🚨 Agent Upload Error: {err}", None
         return
     yield f"Agent Upload Complete: Video ID {video_id} assigned. Activating AI pipeline...", None
@@ -199,6 +199,7 @@ def process_video(video_file) -> Generator[Tuple[str, Any], None, None]:
     
     logger.info("Video processing completed successfully")
     yield " Agent Success: Grocery items identified and receipt generation complete.", result_json
+
 def rtsp_stream(rtsp_url: str, reconnect_delay: float = 1.5,
                 stop_event: Optional[threading.Event] = None):
     cap = None
@@ -257,6 +258,7 @@ def stop_live_stream():
         STREAM_STOP_EVENT.set()
         logger.info("[LiveView] Stop requested")
     return gr.update(value=None)
+
 def build_interface():
     """Build and return the Gradio interface."""
     with gr.Blocks(css="""
@@ -467,28 +469,32 @@ def build_interface():
                     stop_event = threading.Event()
 
                     def clip_consumer():
+                        """
+                        Generator that yields updates from processing clips.
+                        Exits after receiving a None sentinel.
+                        """
                         logger.info("[Clips] Consumer started")
                         while True:
                             clip_path = clip_queue.get()
                             try:
                                 if clip_path is None:
-                                    logger.info("[Clips] Consumer received sentinel - exiting")
+                                    logger.info("[Consumer] received sentinel - exiting")
                                     break
-                                logger.info(f"[Clips] Processing clip: {clip_path}")
+                                logger.info(f"[Consumer] Processing {clip_path}")
                                 for update in runner(clip_path):
                                     yield update
-                                time.sleep(2)
+                                time.sleep(8)
                             except Exception as e:
-                                logger.exception(f"[Clips] Error processing {clip_path}: {e}")
+                                logger.exception(f"[Consumer] Error while running pipeline on {clip_path}: {e}")
                                 yield (f"🚨 Error processing clip {os.path.basename(clip_path)}: {e}", None, None)
                             finally:
                                 try:
                                     clip_queue.task_done()
                                 except Exception:
                                     pass
-                        logger.info("[Clips] Consumer done")
+                        logger.info("[Clips] Runner finished")
 
-                    def clips_runner(rtsp_url="rtsp://localhost:8554/test"):
+                    def clips_runner(rtsp_url="rtsp://localhost:8554/unicast"):
                         model = rtsp_video_util.load_model()
                         stop_event.clear()
                         t = threading.Thread(
@@ -507,7 +513,7 @@ def build_interface():
                     def runner(video):
                         try:
                             status_tree = {
-                                "Video Upload": "⏳ Pending",
+                                "New Order": "⏳ Pending",
                                 "Chunking": "⏳ Pending",
                                 "Object Detection": "⏳ Pending",
                                 "Getting Best Frames": "⏳ Pending",
@@ -515,83 +521,127 @@ def build_interface():
                                 "Validation Results": "⏳ Pending"
                             }
 
-                            def format_tree():
-                                return "\n".join([f"├── {k}: {v}" for k,v in status_tree.items()])
+                            def format_status_tree():
+                                return "\n".join([f"├── {k}: {v}" for k, v in status_tree.items()])
 
                             final_vlm_result = None
 
                             for status_text, result_json in process_video(video):
-                                if status_text:
-                                    st = status_text.lower()
-                                    if "waiting for video input" in st:
-                                        status_tree["Video Upload"] = "⏳ Waiting for input"
-                                    elif "validated" in st:
-                                        status_tree["Video Upload"] = "🔄 Validating..."
-                                    elif "upload complete" in st:
-                                        status_tree["Video Upload"] = "✅ Complete"
-                                        status_tree["Chunking"] = "🔄 Processing..."
-                                    elif "pipeline activated" in st or "frame analysis" in st:
+                                if status_text is not None:
+                                    status_str = str(status_text)
+                                    if ("video input" in status_str.lower() or
+                                        "validation" in status_str.lower() or
+                                        "upload" in status_str.lower()):
+                                        if "waiting for video input" in status_str.lower():
+                                            status_tree["New Order"] = "⏳ Waiting for input"
+                                        elif "validated" in status_str.lower():
+                                            status_tree["New Order"] = "🔄 Validating..."
+                                        elif "upload complete" in status_str.lower():
+                                            status_tree["New Order"] = "✅ Complete"
+                                            status_tree["Chunking"] = "🔄 Processing..."
+                                    elif ("pipeline activated" in status_str.lower() or
+                                          "frame analysis" in status_str.lower()):
                                         status_tree["Chunking"] = "✅ Complete"
                                         status_tree["Object Detection"] = "🔄 Running AI models..."
-                                    elif "real-time" in st and "processing" in st:
+                                    elif ("processing" in status_str.lower() and
+                                          "real-time" in status_str.lower()):
                                         status_tree["Object Detection"] = "🔄 Analyzing frames..."
-                                    elif "computer vision analysis complete" in st:
+                                    elif "computer vision analysis complete" in status_str.lower():
                                         status_tree["Object Detection"] = "✅ Complete"
                                         status_tree["Getting Best Frames"] = "🔄 Collecting insights..."
-                                    elif "decision making" in st and "selecting optimal candidates" in st:
+                                    elif ("decision making" in status_str.lower() and
+                                          "selecting optimal candidates" in status_str.lower()):
                                         status_tree["Getting Best Frames"] = "🔄 Analyzing frame quality..."
-                                    elif "chose top" in st and "engaging" in st:
+                                    elif ("agent selection" in status_str.lower() and
+                                          "chose top" in status_str.lower()):
                                         status_tree["Getting Best Frames"] = "✅ Complete"
+                                    elif "engaging vision-language model" in status_str.lower():
                                         status_tree["Order Accuracy Results"] = "🔄 Processing with VLM..."
-                                    elif "success" in st and "receipt generation complete" in st:
+                                    elif ("success" in status_str.lower() and
+                                          "complete" in status_str.lower()):
                                         status_tree["Order Accuracy Results"] = "✅ Complete"
                                         status_tree["Validation Results"] = "🔄 Validating order..."
                                         final_vlm_result = result_json
-                                    elif "error" in st or "failed" in st:
-                                        for k,v in status_tree.items():
-                                            if "⏳" in v or "🔄" in v:
-                                                status_tree[k] = "❌ Failed"
+                                    elif ("error" in status_str.lower() or
+                                          "failed" in status_str.lower()):
+                                        for stage in status_tree:
+                                            if "🔄" in status_tree[stage] or "⏳" in status_tree[stage]:
+                                                status_tree[stage] = "❌ Failed"
                                                 break
-                                yield (format_tree(), result_json if isinstance(result_json,(dict,list)) else None, None)
+
+                                yield (format_status_tree(),
+                                       result_json if isinstance(result_json, (dict, list)) else None,
+                                       None)
 
                             if final_vlm_result:
                                 try:
                                     status_tree["Validation Results"] = "🔄 Running validation agent..."
-                                    yield (format_tree(), final_vlm_result, None)
-                                    validated = call_validator_agent(final_vlm_result)
-                                    extra_items = validated.get("extra_items", [])
-                                    missing_items = validated.get("missing_items", [])
-                                    missing_addons = validated.get("missing_addons", [])
-                                    count_mismatches = validated.get("count_mismatches", [])
-                                    passed = not (extra_items or missing_items or missing_addons or count_mismatches)
-                                    update_metrics(success=passed)
+                                    yield (format_status_tree(), final_vlm_result, None)
+
+                                    validated_result = call_validator_agent(final_vlm_result)
+                                    extra_items = validated_result.get("extra_items", [])
+                                    missing_items = validated_result.get("missing_items", [])
+                                    missing_addons = validated_result.get("missing_addons", [])
+                                    count_mismatches = validated_result.get("count_mismatches", [])
+
+                                    validation_passed = (
+                                        len(extra_items) == 0 and
+                                        len(missing_items) == 0 and
+                                        len(missing_addons) == 0 and
+                                        len(count_mismatches) == 0
+                                    )
+
+                                    update_metrics(success=validation_passed)
+
                                     status_tree["Validation Results"] = "✅ Complete"
-                                    yield (format_tree(), final_vlm_result, validated)
-                                except Exception as ve:
-                                    logger.exception(f"Validation error: {ve}")
+                                    yield (format_status_tree(), final_vlm_result, validated_result)
+
+                                except Exception as validation_error:
+                                    logger.exception(f"Validation error: {validation_error}")
                                     status_tree["Validation Results"] = "❌ Validation failed"
-                                    yield (format_tree(), final_vlm_result, {"error": f"Validation failed: {ve}"})
+                                    yield (format_status_tree(),
+                                           final_vlm_result,
+                                           {"error": f"Validation failed: {str(validation_error)}"})
+
                         except Exception as e:
-                            logger.exception(f"Runner error: {e}")
-                            yield (f"🚨 System Error: {e}", None, None)
+                            logger.exception(f"Error in runner: {e}")
+                            for stage in status_tree:
+                                if "⏳" in status_tree[stage] or "🔄" in status_tree[stage]:
+                                    status_tree[stage] = "❌ Error occurred"
+                            yield (f"{format_status_tree()}\n\n🚨 System Error: {str(e)}", None, None)
 
                     def recall_order(order_number):
                         if not order_number or not str(order_number).strip():
                             return gr.update(value=None), gr.update(value=None), gr.update(value=None)
+                        
+                        # Fetch JSON (excluding video_id)
                         order_json = get_order_json_from_minio(order_number)
-                        if isinstance(order_json, dict) and "error" in order_json:
+                        
+                        # Handle error for missing order id
+                        if (
+                            isinstance(order_json, dict)
+                            and "error" in order_json
+                        ):
+                            # Return a valid JSON object for the JSON component
                             return {"error": "Order Id doesn't exist"}, None, {"error": "No validation results available"}
+                        
+                        # Remove video_id from JSON before showing on UI
                         if isinstance(order_json, dict) and "video_id" in order_json:
-                            vid = order_json.pop("video_id")
+                            video_id = order_json.pop("video_id")
                         else:
-                            vid = None
-                        video_url = get_video_url_from_minio(vid) if vid else None
+                            video_id = None
+                        video_url = get_video_url_from_minio(video_id) if video_id else None
+                        
+                        # Fetch validation results from MinIO
+                        validation_results = None
                         try:
+                            # Get validation results using the order number
                             MINIO_BUCKET = "order-accuracy-validate-results"
-                            validation_results = get_order_json_from_minio(order_number, bucket=MINIO_BUCKET)
+                            validation_results = get_order_json_from_minio(order_number,bucket=MINIO_BUCKET )
                         except Exception as e:
                             logger.error(f"Failed to fetch validation results: {e}")
-                            validation_results = {"error": f"Failed to fetch validation results: {e}"}
+                            validation_results = {"error": f"Failed to fetch validation results: {str(e)}"}
+                        
                         return order_json, video_url, validation_results
 
                     def switch_tab(tab_name):

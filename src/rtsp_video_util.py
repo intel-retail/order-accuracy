@@ -4,6 +4,7 @@ import os
 import queue
 import threading
 import subprocess
+import sys
 from config import logger
 
 # =========================
@@ -36,17 +37,42 @@ def analyze_frame(model, frame, target_classes):
 # =========================
 # FFmpeg helpers
 # =========================
-def start_ffmpeg_writer(rtsp_url, output_path):
-    """Start FFmpeg process to dump RTSP stream without re-encoding, streamable MP4."""
-    # -fflags +genpts can help with some RTSP sources; kept minimal here
-    return subprocess.Popen([
-        "ffmpeg", "-rtsp_transport", "tcp",
-        "-i", rtsp_url,
-        "-c", "copy",
-        "-an",                        # drop audio if not needed
-        "-movflags", "+faststart",    # make file streamable
-        "-y", output_path
-    ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+def start_ffmpeg_writer(source, output_path, fps=30):
+    """Start FFmpeg process to dump input (RTSP or webcam) into streamable MP4 with audio and better compatibility."""
+    cmd = ["ffmpeg"]
+
+    # Input source
+    if isinstance(source, str) and source.startswith("rtsp://"):
+        cmd += ["-rtsp_transport", "tcp", "-i", source]
+    else:
+        # Webcam input
+        if sys.platform.startswith("linux"):
+            cmd += ["-f", "v4l2", "-i", str(source)]
+        elif sys.platform.startswith("win"):
+            cmd += ["-f", "dshow", "-i", str(source)]
+        else:
+            raise RuntimeError("Unsupported platform for webcam input")
+
+    # Add silent audio input (DLStreamer may require audio track)
+    cmd += [
+        "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"
+    ]
+
+    # Video encoding options
+    cmd += [
+        "-c:v", "libx264",              # Use H.264 codec
+        "-profile:v", "baseline",       # Compatibility profile
+        "-pix_fmt", "yuv420p",          # Standard pixel format
+        "-preset", "ultrafast",         # Faster encoding
+        "-crf", "23",                   # Quality setting (lower = better)
+        "-g", str(int(fps * 2)),        # Keyframe every 2 seconds
+        "-shortest",                    # Trim to shortest input (video or audio)
+        "-movflags", "+faststart",      # Enable streaming playback
+        "-y", output_path               # Overwrite output file
+    ]
+
+    return subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
 
 def stop_ffmpeg_writer(proc):
     """Gracefully stop FFmpeg process."""
@@ -60,15 +86,23 @@ def stop_ffmpeg_writer(proc):
 # =========================
 # Real-time streaming & splitting
 # =========================
-def stream_and_split(rtsp_url, model, target_classes, clip_queue, stop_event, sample_interval=SAMPLE_INTERVAL):
+def stream_and_split(source, model, target_classes, clip_queue, stop_event, sample_interval=SAMPLE_INTERVAL):
     """
-    Producer: reads frames for detection and starts/stops ffmpeg subprocesses to produce lossless, faststart mp4 clips.
-    When finished (stop_event set and producer cleaned up), places a single None sentinel into clip_queue.
+    Producer: reads frames for detection and starts/stops ffmpeg subprocesses to produce streamable mp4 clips.
+    Works with RTSP or webcam input.
     """
-    cap = cv2.VideoCapture(rtsp_url)
+    cap_source = source
+    if isinstance(source, str) and source.startswith("/dev/video"):
+        try:
+            cap_source = int(source.replace("/dev/video", ""))
+        except ValueError:
+            logger.error(f"Invalid webcam device path: {source}")
+            clip_queue.put(None)
+            return
+ 
+    cap = cv2.VideoCapture(cap_source)
     if not cap.isOpened():
-        logger.error(f"Cannot open RTSP stream {rtsp_url}")
-        # If we can't open the stream, signal consumer to stop
+        logger.error(f"Cannot open source {source}")
         try:
             clip_queue.put(None)
         except Exception:
@@ -94,14 +128,13 @@ def stream_and_split(rtsp_url, model, target_classes, clip_queue, stop_event, sa
             # Start new clip if none active
             if ffmpeg_proc is None:
                 clip_name = os.path.join(OUTPUT_DIR, f"clip_{clip_idx:03d}.mp4")
-                ffmpeg_proc = start_ffmpeg_writer(rtsp_url, clip_name)
+                ffmpeg_proc = start_ffmpeg_writer(source, clip_name)
                 clip_start_frame = frame_count
                 logger.info(f"[Producer] Started new clip: {clip_name}")
 
             # Run YOLO only every SAMPLE_INTERVAL
             if frame_count % frame_step == 0:
                 if analyze_frame(model, frame, target_classes):
-                    # Close current recording
                     stop_ffmpeg_writer(ffmpeg_proc)
                     duration = (frame_count - clip_start_frame) / fps
 
@@ -115,15 +148,12 @@ def stream_and_split(rtsp_url, model, target_classes, clip_queue, stop_event, sa
                             pass
                         logger.info(f"[Producer] Skipped {clip_name} ({duration:.2f}s < {sample_interval}s)")
 
-                    # Prepare for next clip
                     clip_idx += 1
                     ffmpeg_proc, clip_name, clip_start_frame = None, None, None
 
-        # End while
     except Exception as e:
-        logger.exception(f"[Producer] Unexpected error in stream_and_split: {e}")
+        logger.exception(f"[Producer] Unexpected error: {e}")
     finally:
-        # Cleanup last active clip if any
         try:
             if ffmpeg_proc is not None:
                 stop_ffmpeg_writer(ffmpeg_proc)
@@ -143,7 +173,6 @@ def stream_and_split(rtsp_url, model, target_classes, clip_queue, stop_event, sa
         cap.release()
         logger.info("[Producer] Streaming finished")
 
-        # Signal consumer that no more clips will be produced
         try:
             clip_queue.put(None)
         except Exception:
@@ -152,18 +181,15 @@ def stream_and_split(rtsp_url, model, target_classes, clip_queue, stop_event, sa
 # =========================
 # Helper functions
 # =========================
-def start_stream(rtsp_url, model, target_classes, clip_queue, stop_event):
+def start_stream(source, model, target_classes, clip_queue, stop_event):
     t = threading.Thread(
         target=stream_and_split,
-        args=(rtsp_url, model, target_classes, clip_queue, stop_event),
+        args=(source, model, target_classes, clip_queue, stop_event),
         daemon=True
     )
     t.start()
     return t
 
 def stop_stream(stop_event):
-    """
-    Signal producer to stop. Producer will place None sentinel into the queue when done.
-    """
     logger.info("[System] Stop requested...")
     stop_event.set()
