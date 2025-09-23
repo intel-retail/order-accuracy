@@ -9,7 +9,7 @@ import tempfile
 import rtsp_video_util
 from typing import Generator, Tuple, Any, Dict
 import cv2
-
+import video_file_util 
 import gradio as gr
 import threading
 from config import logger, VSS_IP
@@ -23,6 +23,7 @@ from validate_addon import OrderValidator
 from final_report import update_metrics, load_metrics_from_file
 from collections import deque
 from typing import Optional
+
 
 TARGET_CLASSES = {
     "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -288,7 +289,6 @@ def build_interface():
             border-radius:4px;
         }
         #oa-content::-webkit-scrollbar-thumb:hover { background:#a9b4bd; }
-
         /* Header & Title (already present, kept) */
         #oa-header {
             position:sticky;
@@ -435,19 +435,97 @@ def build_interface():
                 with gr.Column(visible=True, elem_classes=["gradio-section"], elem_id="real-time-section") as get_order_col:
                     with gr.Row():
                         with gr.Column(scale=1):
-                            live_webcam = gr.Image(label="Live Stream", streaming=True)
-                            with gr.Row():
-                                rtsp_input = gr.Textbox( value="rtsp://localhost:8554/unicast",label="Video Source",placeholder="Enter RTSP URL (rtsp://...)",scale=4)
-                                with gr.Column(scale=1):
-                                    start_stream_btn = gr.Button("Start Stream", variant="secondary", elem_classes=["stream-btn"])
-                                    stop_stream_btn = gr.Button("Stop Stream", variant="secondary", elem_classes=["stream-btn"])
-                            with gr.Row():
-                                run_rtsp_summary_btn = gr.Button("Start Order Analyzer", variant="primary",  scale=1, elem_classes=["big-btn"] )
-                                stop_btn = gr.Button("Stop Analyzer", variant="stop",  scale=1, elem_classes=["big-btn"])
+                            # Video source mode radio buttons
+                            video_source_mode = gr.Radio(
+                                choices=["Live Stream", "File Upload"],
+                                value="Live Stream",
+                                label="Video Source Mode",
+                                interactive=True
+                            )
+                            
+                            # Live stream block visible only when "Live Stream" selected
+                            with gr.Column(visible=True) as live_stream_col:
+                                # Center preview image on its own row
+                                with gr.Row():
+                                    live_webcam = gr.Image(label="Live Stream", streaming=True)
+                                
+                                # RTSP input and buttons on same row
+                                with gr.Row():
+                                    with gr.Column(scale=4):
+                                        rtsp_input = gr.Textbox(
+                                            value="rtsp://localhost:8554/unicast",
+                                            label="Video Source",
+                                            placeholder="Enter RTSP URL (rtsp://...)"
+                                        )
+                                    with gr.Column(scale=1):
+                                        start_stream_btn = gr.Button("Start Stream", variant="secondary", elem_classes=["stream-btn"])
+                                        stop_stream_btn = gr.Button("Stop Stream", variant="secondary", elem_classes=["stream-btn"])
+
+                            # File upload block visible only when "File Upload" selected
+                            # with gr.Row(visible=False) as file_upload_row:
+                            #     uploaded_file = gr.File(
+                            #         label="Upload Video File",
+                            #         file_types=["video"],
+                            #         file_count="single"
+                            #     )
+                            
+                            # Other buttons row
+                                with gr.Row():
+                                    run_rtsp_summary_btn = gr.Button(
+                                        "Start Order Analyzer",
+                                        variant="primary",
+                                        scale=1,
+                                        elem_classes=["big-btn"]
+                                    )
+                                    stop_btn = gr.Button(
+                                        "Stop Analyzer",
+                                        variant="stop",
+                                        scale=1,
+                                        elem_classes=["big-btn"]
+                                    )
+                            with gr.Row(visible=False) as file_upload_row:
+    # File Upload input
+                                uploaded_file = gr.File(
+                                    label="Upload Video File",
+                                    file_types=["video"],
+                                    file_count="single"
+                                )
+
+                                # Status output for updates
+                                with gr.Row():# Start Analyzer button for File Upload
+                                    file_upload_analyzer_btn = gr.Button(
+                                        "Start File Upload Analyzer",
+                                        variant="primary",
+                                        scale=1,
+                                        elem_classes=["big-btn"]
+                                    )
+
+
+                                    # Bind the button click to the function
+                                   
+                        # Right side status/result column
                         with gr.Column(scale=1):
-                            status = gr.Textbox(label="Order Summary Status", interactive=False, lines=8, max_lines=10)
+                            status = gr.Textbox(
+                                label="Order Summary Status",
+                                interactive=False,
+                                lines=8,
+                                max_lines=10
+                            )
                             result = gr.JSON(label="Order Accuracy Result")
                             validation_result = gr.JSON(label="Validation Results")
+
+                    # Toggle visibility function
+                    def toggle_video_source(mode):
+                        return (
+                            gr.update(visible=(mode == "Live Stream")),
+                            gr.update(visible=(mode == "File Upload"))
+                        )
+
+                    video_source_mode.change(
+                        fn=toggle_video_source,
+                        inputs=[video_source_mode],
+                        outputs=[live_stream_col, file_upload_row]
+                    )
 
                 with gr.Column(visible=False, elem_classes=["gradio-section"], elem_id="recall_order_col") as recall_order_col:
                     with gr.Row():
@@ -493,6 +571,26 @@ def build_interface():
                                 except Exception:
                                     pass
                         logger.info("[Clips] Runner finished")
+
+                    def video_clips_runner(video_file):
+                        """
+                        Run billing detection on a static uploaded video.
+                        Splits into multiple clips and processes them sequentially.
+                        """
+                        model = video_file_util.load_model()
+
+                        # Call improved splitting function
+                        clips = video_file_util.split_video_on_empty(video_file, model, TARGET_CLASSES)
+
+                        # Process clips sequentially with runner()
+                        for clip_path in clips:
+                            try:
+                                for update in runner(clip_path):
+                                    yield update   # Pass updates back to Gradio UI
+                                    time.sleep(10)
+                            except Exception as e:
+                                yield (f"🚨 Error processing {clip_path}: {e}", None, None)
+
 
                     def clips_runner(rtsp_url="rtsp://localhost:8554/unicast"):
                         model = rtsp_video_util.load_model()
@@ -651,6 +749,7 @@ def build_interface():
                             gr.update(visible=(tab_name == "Accuracy Report"))
                         )
 
+
                     real_time_tab.click(fn=lambda: switch_tab("Real-Time Tracking"),
                                         inputs=[], outputs=[get_order_col, recall_order_col, final_report_col])
                     recall_order_tab.click(fn=lambda: switch_tab("Recall Order"),
@@ -660,6 +759,12 @@ def build_interface():
                     start_stream_btn.click(fn=start_live_stream, inputs=[rtsp_input], outputs=live_webcam)
                     stop_stream_btn.click(fn=stop_live_stream, inputs=[], outputs=live_webcam)
                     run_rtsp_summary_btn.click(clips_runner, inputs=[rtsp_input], outputs=[status, result, validation_result])
+                    file_upload_analyzer_btn.click(
+                                        fn=video_clips_runner,
+                                        inputs=[uploaded_file],
+                                        outputs=[status, result, validation_result]  # Updated outputs
+                                    )
+                                    
                     stop_btn.click(stop_workflow)
 
                     def get_final_report_metrics():
