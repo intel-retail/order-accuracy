@@ -25,6 +25,102 @@
         ]
     },
     {
+        "bill_number": "297",
+        "items": [
+            {
+                "name": "Banana",
+                "count": 2
+            },
+            
+            {
+                "name": "Lemon",
+                "count": 1
+            }
+           
+        ]
+    },
+    {
+        "bill_number": "125",
+        "items": [
+            {
+                "Name": "Coca-Cola" ,
+                "Count": 1 
+            },
+            
+            {
+                "name": "Aquafina Water",
+                "count": 1
+            }
+           
+        ]
+    },
+    {
+        "bill_number": "59",
+        "items": [
+            {
+                "Name": "Apple" ,
+                "Count": 1 
+                },
+            
+            {
+                "name": "Knife",
+                "count": 1
+            },
+            {
+                "name": "Water bottle",
+                "count": 2
+            },
+            
+            {
+                "name": "Lemon",
+                "count": 1
+            }
+           
+        ]
+    },
+    {
+        "bill_number": "470",
+        "items": [
+            {
+                "name": "coca-cola",
+                "count": 2
+            },
+            
+            {
+                "name": "Apple",
+                "count": 1
+            },
+            {
+                "name": "Banana",
+                "count": 1
+            }
+           
+        ]
+    },
+    {
+        "bill_number": "7",
+        "items": [
+            {
+                "name": "can",
+                "count": 4
+            },
+            
+            {
+                "name": "Chps",
+                "count": 1
+            },
+            {
+                "name": "chips",
+                "count": 1
+            },
+            {
+                "name": "Orange",
+                "count": 1
+            }
+           
+        ]
+    },
+    {
         "bill_number": "424",
         "items": [
             {
@@ -111,5 +207,89 @@
                 "count": 1
             }
         ]
-    }
+    },
+    {
+        "bill_number": "125",
+        "items": [
+            {
+                "name": "Banana",
+                "count": 1
+            },
+            {
+                "name": "Coca-Cola (Bottle)",
+                "count": 2
+            },
+            {
+                "name": "Apple",
+                "count": 1
+            }
+        ]
+    },
+	{
+	  "Items": [
+		{
+		  "Name": "Doritos",
+		  "Count": 1
+		},
+		{
+		  "Name": "Lay's Classic",
+		  "Count": 1
+		},
+		{
+		  "Name": "Orange",
+		  "Count": 1
+		},
+		{
+		  "Name": "Coca-Cola",
+		  "Count": 4
+		}
+	  ],
+	  "bill_number": 7
+	},
+	{
+	  "Items": [
+		{
+		  "Name": "Lay's Classic",
+		  "Count": 1
+		},
+		{
+		  "Name": "Vitto's Crunchy Chips",
+		  "Count": 1
+		},
+		{
+		  "Name": "Green Apple",
+		  "Count": 1
+		},
+		{
+		  "Name": "Orange",
+		  "Count": 1
+		}
+	  ],
+	  "bill_number": 876
+	},
+	{
+	  "Items": [
+		{
+		  "Name": "Banana",
+		  "Count": 2
+		},
+		{
+		  "Name": "Apple",
+		  "Count": 1
+		},
+		{
+		  "Name": "Orange",
+		  "Count": 1
+		},
+		{
+		  "Name": "Coca-Cola",
+		  "Count": 2
+		},
+		{
+		  "Name": "Lay's Classic",
+		  "Count": 1
+		}
+	  ],
+	  "bill_number": 315
+	}
 ]
