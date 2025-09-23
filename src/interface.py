@@ -483,25 +483,28 @@ def build_interface():
                                         scale=1,
                                         elem_classes=["big-btn"]
                                     )
-                            with gr.Row(visible=False) as file_upload_row:
-    # File Upload input
+                            
+                            with gr.Column(visible=False) as file_upload_row:
+                                # File Upload input and Video preview in same column
                                 uploaded_file = gr.File(
                                     label="Upload Video File",
                                     file_types=["video"],
                                     file_count="single"
                                 )
+                                
+                                uploaded_video_preview = gr.Video(
+                                    label="Video Preview",
+                                    height=400,
+                                    width=600,
+                                    autoplay=True
+                                )
 
-                                # Status output for updates
-                                with gr.Row():# Start Analyzer button for File Upload
-                                    file_upload_analyzer_btn = gr.Button(
-                                        "Start File Upload Analyzer",
-                                        variant="primary",
-                                        scale=1,
-                                        elem_classes=["big-btn"]
-                                    )
-
-
-                                    # Bind the button click to the function
+                                # Start Analyzer button for File Upload
+                                file_upload_analyzer_btn = gr.Button(
+                                    "Start File Upload Analyzer",
+                                    variant="primary",
+                                    elem_classes=["big-btn"]
+                                )
                                    
                         # Right side status/result column
                         with gr.Column(scale=1):
@@ -525,6 +528,13 @@ def build_interface():
                         fn=toggle_video_source,
                         inputs=[video_source_mode],
                         outputs=[live_stream_col, file_upload_row]
+                    )
+
+                    # Update video preview when file is uploaded
+                    uploaded_file.change(
+                        fn=lambda file: file if file else None,
+                        inputs=[uploaded_file],
+                        outputs=[uploaded_video_preview]
                     )
 
                 with gr.Column(visible=False, elem_classes=["gradio-section"], elem_id="recall_order_col") as recall_order_col:
