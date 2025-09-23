@@ -501,7 +501,7 @@ def build_interface():
 
                                 # Start Analyzer button for File Upload
                                 file_upload_analyzer_btn = gr.Button(
-                                    "Start File Upload Analyzer",
+                                    "Start Order Analyzer",
                                     variant="primary",
                                     elem_classes=["big-btn"]
                                 )
