@@ -11,7 +11,7 @@ from config import logger
 # Config
 # =========================
 MODEL_PATH = "yolo11n.pt"
-SAMPLE_INTERVAL = 4  # seconds
+SAMPLE_INTERVAL = 10  # seconds
 OUTPUT_DIR = "clips"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
  

@@ -9,7 +9,7 @@ import tempfile
 import rtsp_video_util
 from typing import Generator, Tuple, Any, Dict
 import cv2
-
+import video_file_util 
 import gradio as gr
 import threading
 from config import logger, VSS_IP
@@ -23,6 +23,7 @@ from validate_addon import OrderValidator
 from final_report import update_metrics, load_metrics_from_file
 from collections import deque
 from typing import Optional
+
 
 TARGET_CLASSES = {
     "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck", "boat",
@@ -461,28 +462,47 @@ def build_interface():
                                         stop_stream_btn = gr.Button("Stop Stream", variant="secondary", elem_classes=["stream-btn"])
 
                             # File upload block visible only when "File Upload" selected
+                            # with gr.Row(visible=False) as file_upload_row:
+                            #     uploaded_file = gr.File(
+                            #         label="Upload Video File",
+                            #         file_types=["video"],
+                            #         file_count="single"
+                            #     )
+                            
+                            # Other buttons row
+                                with gr.Row():
+                                    run_rtsp_summary_btn = gr.Button(
+                                        "Start Order Analyzer",
+                                        variant="primary",
+                                        scale=1,
+                                        elem_classes=["big-btn"]
+                                    )
+                                    stop_btn = gr.Button(
+                                        "Stop Analyzer",
+                                        variant="stop",
+                                        scale=1,
+                                        elem_classes=["big-btn"]
+                                    )
                             with gr.Row(visible=False) as file_upload_row:
+    # File Upload input
                                 uploaded_file = gr.File(
                                     label="Upload Video File",
                                     file_types=["video"],
                                     file_count="single"
                                 )
-                            
-                            # Other buttons row
-                            with gr.Row():
-                                run_rtsp_summary_btn = gr.Button(
-                                    "Start Order Analyzer",
-                                    variant="primary",
-                                    scale=1,
-                                    elem_classes=["big-btn"]
-                                )
-                                stop_btn = gr.Button(
-                                    "Stop Analyzer",
-                                    variant="stop",
-                                    scale=1,
-                                    elem_classes=["big-btn"]
-                                )
-                        
+
+                                # Status output for updates
+                                with gr.Row():# Start Analyzer button for File Upload
+                                    file_upload_analyzer_btn = gr.Button(
+                                        "Start File Upload Analyzer",
+                                        variant="primary",
+                                        scale=1,
+                                        elem_classes=["big-btn"]
+                                    )
+
+
+                                    # Bind the button click to the function
+                                   
                         # Right side status/result column
                         with gr.Column(scale=1):
                             status = gr.Textbox(
@@ -506,7 +526,6 @@ def build_interface():
                         inputs=[video_source_mode],
                         outputs=[live_stream_col, file_upload_row]
                     )
-
 
                 with gr.Column(visible=False, elem_classes=["gradio-section"], elem_id="recall_order_col") as recall_order_col:
                     with gr.Row():
@@ -552,6 +571,26 @@ def build_interface():
                                 except Exception:
                                     pass
                         logger.info("[Clips] Runner finished")
+
+                    def video_clips_runner(video_file):
+                        """
+                        Run billing detection on a static uploaded video.
+                        Splits into multiple clips and processes them sequentially.
+                        """
+                        model = video_file_util.load_model()
+
+                        # Call improved splitting function
+                        clips = video_file_util.split_video_on_empty(video_file, model, TARGET_CLASSES)
+
+                        # Process clips sequentially with runner()
+                        for clip_path in clips:
+                            try:
+                                for update in runner(clip_path):
+                                    yield update   # Pass updates back to Gradio UI
+                                    time.sleep(10)
+                            except Exception as e:
+                                yield (f"🚨 Error processing {clip_path}: {e}", None, None)
+
 
                     def clips_runner(rtsp_url="rtsp://localhost:8554/unicast"):
                         model = rtsp_video_util.load_model()
@@ -720,6 +759,12 @@ def build_interface():
                     start_stream_btn.click(fn=start_live_stream, inputs=[rtsp_input], outputs=live_webcam)
                     stop_stream_btn.click(fn=stop_live_stream, inputs=[], outputs=live_webcam)
                     run_rtsp_summary_btn.click(clips_runner, inputs=[rtsp_input], outputs=[status, result, validation_result])
+                    file_upload_analyzer_btn.click(
+                                        fn=video_clips_runner,
+                                        inputs=[uploaded_file],
+                                        outputs=[status, result, validation_result]  # Updated outputs
+                                    )
+                                    
                     stop_btn.click(stop_workflow)
 
                     def get_final_report_metrics():
