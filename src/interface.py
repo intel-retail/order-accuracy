@@ -509,13 +509,13 @@ def build_interface():
                         # Right side status/result column
                         with gr.Column(scale=1):
                             status = gr.Textbox(
-                                label="Order Summary Status",
+                                label="Order Processing Status",
                                 interactive=False,
                                 lines=8,
                                 max_lines=10
                             )
-                            result = gr.JSON(label="Order Accuracy Result")
-                            validation_result = gr.JSON(label="Validation Results")
+                            result = gr.JSON(label="Detected Orders")
+                            validation_result = gr.JSON(label="Order Reconciliation")
 
                     # Toggle visibility function
                     def toggle_video_source(mode):
@@ -625,8 +625,8 @@ def build_interface():
                                 "Chunking": "⏳ Pending",
                                 "Object Detection": "⏳ Pending",
                                 "Getting Best Frames": "⏳ Pending",
-                                "Order Accuracy Results": "⏳ Pending",
-                                "Validation Results": "⏳ Pending"
+                                "Detected Orders": "⏳ Pending",
+                                "Order Reconciliation": "⏳ Pending"
                             }
 
                             def format_status_tree():
@@ -664,11 +664,11 @@ def build_interface():
                                           "chose top" in status_str.lower()):
                                         status_tree["Getting Best Frames"] = "✅ Complete"
                                     elif "engaging vision-language model" in status_str.lower():
-                                        status_tree["Order Accuracy Results"] = "🔄 Processing with VLM..."
+                                        status_tree["Detected Orders"] = "🔄 Processing with VLM..."
                                     elif ("success" in status_str.lower() and
                                           "complete" in status_str.lower()):
-                                        status_tree["Order Accuracy Results"] = "✅ Complete"
-                                        status_tree["Validation Results"] = "🔄 Validating order..."
+                                        status_tree["Detected Orders"] = "✅ Complete"
+                                        status_tree["Order Reconciliation"] = "🔄 Validating order..."
                                         final_vlm_result = result_json
                                     elif ("error" in status_str.lower() or
                                           "failed" in status_str.lower()):
@@ -683,7 +683,7 @@ def build_interface():
 
                             if final_vlm_result:
                                 try:
-                                    status_tree["Validation Results"] = "🔄 Running validation agent..."
+                                    status_tree["Order Reconciliation"] = "🔄 Running validation agent..."
                                     yield (format_status_tree(), final_vlm_result, None)
 
                                     validated_result = call_validator_agent(final_vlm_result)
@@ -701,12 +701,12 @@ def build_interface():
 
                                     update_metrics(success=validation_passed)
 
-                                    status_tree["Validation Results"] = "✅ Complete"
+                                    status_tree["Order Reconciliation"] = "✅ Complete"
                                     yield (format_status_tree(), final_vlm_result, validated_result)
 
                                 except Exception as validation_error:
                                     logger.exception(f"Validation error: {validation_error}")
-                                    status_tree["Validation Results"] = "❌ Validation failed"
+                                    status_tree["Order Reconciliation"] = "❌ Validation failed"
                                     yield (format_status_tree(),
                                            final_vlm_result,
                                            {"error": f"Validation failed: {str(validation_error)}"})
