@@ -51,6 +51,13 @@ down:
 	@echo "🔹 Running setup.sh with --down"
 	cd edge-ai-libraries/sample-applications/video-search-and-summarization && \
 	./setup.sh --down
+	@echo "🔹 Cleaning up clips folder"
+	@if [ -d "clips" ]; then \
+		rm -rf clips/; \
+		echo "✅ clips/ folder and files deleted"; \
+	else \
+		echo "ℹ️  clips/ folder does not exist"; \
+	fi
 	@PID=$$(lsof -t -i:$(APP_HOST_PORT)); \
 	if [ -n "$$PID" ]; then \
 		echo "Order Accuracy VLM Application has been stopped successfully....."; \
@@ -58,4 +65,5 @@ down:
 	else \
 		echo "Order Accuracy VLM Application is not running......."; \
 	fi
+	
 
