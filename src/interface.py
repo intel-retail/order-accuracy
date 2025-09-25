@@ -698,8 +698,11 @@ def build_interface():
                                         len(missing_addons) == 0 and
                                         len(count_mismatches) == 0
                                     )
-
-                                    update_metrics(success=validation_passed)
+                                    if validation_passed:
+                                        logger.info("Validation passed: No discrepancies found.")
+                                        update_metrics(success=validation_passed)
+                                    else:
+                                        update_metrics(success=validation_passed, failed_order_id=validated_result.get("bill_number"))
 
                                     status_tree["Order Reconciliation"] = "✅ Complete"
                                     yield (format_status_tree(), final_vlm_result, validated_result)

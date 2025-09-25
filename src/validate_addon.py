@@ -112,7 +112,7 @@ class OrderValidator:
                 missing_items.append(name)
             elif detected_dict[name] != qty:
                 quantity_mismatches.append({
-                    "item": name,
+                    "item": name.title(),
                     "expected": qty,
                     "detected": detected_dict[name]
                 })
@@ -125,7 +125,7 @@ class OrderValidator:
         # Extras - only flag items that user didn't pay for AND are not legitimate addons
         for name in detected_dict:
             if name not in expected_dict and name not in all_valid_addons:
-                extra_items.append(name)
+                extra_items.append(name.title())
     
 
         # Check required addons
@@ -138,8 +138,8 @@ class OrderValidator:
                     # Check if the required addon exists in detected items
                     if addon not in detected_dict and (item, addon) not in seen_missing:
                         missing_addons.append({
-                            "item": item,
-                            "required_addon": addon
+                            "item": item.title(),
+                            "required_addon": addon.title()
                         })
                         seen_missing.add((item, addon))
 
