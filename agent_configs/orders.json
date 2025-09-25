@@ -1,17 +1,13 @@
 [
     {
-        "bill_number": "391",
+        "bill_number": "431",
         "items": [
             {
-                "name": "Bottle of Water",
+                "name": "Banana",
                 "count": 1
             },
             {
-                "name": "Jif Peanut Butter",
-                "count": 1
-            },
-            {
-                "name": "Apple",
+                "name": "Red Apple",
                 "count": 1
             },
             {
@@ -19,277 +15,227 @@
                 "count": 1
             },
             {
-                "name": "Cookies",
-                "count": 1
+                "name": "Coca-Cola",
+                "count": 2
             }
         ]
     },
     {
-        "bill_number": "297",
+        "bill_number": "298",
         "items": [
+            {
+                "name": "Water Bottle",
+                "count": 1
+            },
             {
                 "name": "Banana",
                 "count": 2
             },
-            
             {
-                "name": "Lemon",
+                "name": "Red Apple",
                 "count": 1
-            }
-           
-        ]
-    },
-    {
-        "bill_number": "125",
-        "items": [
-            {
-                "Name": "Coca-Cola" ,
-                "Count": 1 
             },
-            
-            {
-                "name": "Aquafina Water",
-                "count": 1
-            }
-           
-        ]
-    },
-    {
-        "bill_number": "59",
-        "items": [
-            {
-                "Name": "Apple" ,
-                "Count": 1 
-                },
-            
             {
                 "name": "Knife",
                 "count": 1
             },
             {
-                "name": "Water bottle",
-                "count": 2
+                "name": "Lemon",
+                "count": 1
+            }
+        ]
+    },
+    {
+        "bill_number": "797",
+        "items": [
+            {
+                "name": "Green Apple",
+                "count": 1
             },
-            
+            {
+                "name": "Knife",
+                "count": 1
+            },
+            {
+                "name": "Red Apple",
+                "count": 1
+            },
+            {
+                "name": "Water Bottle",
+                "count": 1
+            },
             {
                 "name": "Lemon",
                 "count": 1
             }
-           
         ]
     },
     {
         "bill_number": "470",
         "items": [
             {
-                "name": "coca-cola",
+                "name": "Water Bottle",
+                "count": 1
+            },
+            {
+                "name": "Coca-Cola",
+                "count": 1
+            }
+        ]
+    },
+    {
+        "bill_number": "385",
+        "items": [
+            {
+                "name": "Red Apple",
+                "count": 1
+            },
+            {
+                "name": "Knife",
+                "count": 1
+            },
+            {
+                "name": "Lemon",
+                "count": 1
+            },
+            {
+                "name": "Banana",
+                "count": 2
+            }
+        ]
+    },
+    {
+        "bill_number": "451",
+        "items": [
+            {
+                "name": "Coca-Cola",
                 "count": 2
             },
-            
             {
-                "name": "Apple",
+                "name": "Banana",
+                "count": 2
+            },
+            {
+                "name": "Red Apple",
+                "count": 1
+            },
+            {
+                "name": "Knife",
+                "count": 1
+            },
+            {
+                "name": "Lemon",
+                "count": 1
+            }
+        ]
+    },
+    {
+        "bill_number": "059",
+        "items": [
+            {
+                "name": "Lemon",
+                "count": 1
+            },
+            {
+                "name": "Green Apple",
+                "count": 1
+            },
+            {
+                "name": "Knife",
+                "count": 1
+            },
+            {
+                "name": "Water Bottle",
+                "count": 1
+            },
+            {
+                "name": "Red Apple",
                 "count": 1
             },
             {
                 "name": "Banana",
                 "count": 1
             }
-           
         ]
     },
     {
-        "bill_number": "7",
+        "bill_number": "039",
         "items": [
             {
-                "name": "can",
-                "count": 4
-            },
-            
-            {
-                "name": "Chps",
+                "name": "Green Apple",
                 "count": 1
             },
             {
-                "name": "chips",
-                "count": 1
-            },
-            {
-                "name": "Orange",
-                "count": 1
-            }
-           
-        ]
-    },
-    {
-        "bill_number": "424",
-        "items": [
-            {
-                "name": "Can",
-                "count": 1
-            },
-            {
-                "name": "Snack Pack",
-                "count": 1
-            },
-            {
-                "name": "Yogurt",
-                "count": 1
-            },
-            {
-                "name": "Chocolate Chip Bar",
-                "count": 1
-            },
-            {
-                "name": "Spoon",
-                "count": 1
-            },
-            {
-                "name": "Straw",
+                "name": "Knife",
                 "count": 1
             }
         ]
     },
     {
-        "bill_number": "807",
-        "items": [
-            {
-                "name": "Chips",
-                "count": 2
-            },
-            {
-                "name": "Jif Peanut Butter",
-                "count": 1
-            },
-            {
-                "name": "Plastic Knife",
-                "count": 1
-            }
-        ]
-    },
-    {
-        "bill_number": "580",
+        "bill_number": "345",
         "items": [
             {
                 "name": "Banana",
                 "count": 1
-            },
+            }
+        ]
+    },
+    {
+        "bill_number": "737",
+        "items": [
             {
-                "name": "Can",
+                "name": "Water Bottle",
                 "count": 1
             }
         ]
     },
     {
-        "bill_number": "313",
+        "bill_number": "369",
         "items": [
             {
-                "name": "Banana",
-                "count": 2
-            },
-            {
-                "name": "Orange",
-                "count": 1
-            },
-            {
-                "name": "Bottle of Water",
-                "count": 1
-            },
-            {
-                "name": "Beer Bottle",
-                "count": 1
-            },
-            {
-                "name": "Can of Protein Shake",
-                "count": 1
-            },
-            {
-                "name": "Straw",
+                "name": "Water Bottle",
                 "count": 1
             }
         ]
     },
     {
-        "bill_number": "125",
+        "bill_number": "642",
         "items": [
             {
-                "name": "Banana",
+                "name": "Red Apple",
                 "count": 1
             },
             {
-                "name": "Coca-Cola (Bottle)",
-                "count": 2
-            },
-            {
-                "name": "Apple",
+                "name": "Knife",
                 "count": 1
             }
         ]
     },
-	{
-	  "Items": [
-		{
-		  "Name": "Doritos",
-		  "Count": 1
-		},
-		{
-		  "Name": "Lay's Classic",
-		  "Count": 1
-		},
-		{
-		  "Name": "Orange",
-		  "Count": 1
-		},
-		{
-		  "Name": "Coca-Cola",
-		  "Count": 4
-		}
-	  ],
-	  "bill_number": 7
-	},
-	{
-	  "Items": [
-		{
-		  "Name": "Lay's Classic",
-		  "Count": 1
-		},
-		{
-		  "Name": "Vitto's Crunchy Chips",
-		  "Count": 1
-		},
-		{
-		  "Name": "Green Apple",
-		  "Count": 1
-		},
-		{
-		  "Name": "Orange",
-		  "Count": 1
-		}
-	  ],
-	  "bill_number": 876
-	},
-	{
-	  "Items": [
-		{
-		  "Name": "Banana",
-		  "Count": 2
-		},
-		{
-		  "Name": "Apple",
-		  "Count": 1
-		},
-		{
-		  "Name": "Orange",
-		  "Count": 1
-		},
-		{
-		  "Name": "Coca-Cola",
-		  "Count": 2
-		},
-		{
-		  "Name": "Lay's Classic",
-		  "Count": 1
-		}
-	  ],
-	  "bill_number": 315
-	}
+    {
+        "bill_number": "268",
+        "items": [
+            {
+                "name": "Lemon",
+                "count": 1
+            }
+        ]
+    },
+    {
+        "bill_number": "750",
+        "items": [
+            {
+                "name": "Coca-Cola",
+                "count": 1
+            }
+        ]
+    },
+    {
+        "bill_number": "453",
+        "items": [
+            {
+                "name": "Coca-Cola",
+                "count": 1
+            }
+        ]
+    }
 ]
