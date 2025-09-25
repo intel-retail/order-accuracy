@@ -97,8 +97,15 @@ def process_video(video_file) -> Generator[Tuple[str, Any], None, None]:
         
     logger.info(f"Processing video file: {video_path}")
     
-    if not video_path or not os.path.exists(video_path):
-        logger.error(f"Invalid video path: {video_path}")
+    # Retry a few times in case producer hasn't finished writing the file yet
+    max_retries = 5
+    for attempt in range(max_retries):
+        if video_path and os.path.exists(video_path):
+            break
+        logger.warning(f"Video not ready yet: {video_path} (attempt {attempt+1}/{max_retries})")
+        time.sleep(1)  # wait 1s before retrying
+    else:
+        logger.error(f"Invalid video path after retries: {video_path}")
         yield "🚨 Agent Error: Invalid video file detected. Please upload a valid video.", None
         return
 
