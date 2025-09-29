@@ -57,6 +57,7 @@ run_pipeline() {
       model=$MODEL_PATH \
       threshold=0.5 \
       device=$DEVICE \
+      inference-interval=3\
       ${PRE_PROCESS:+$PRE_PROCESS} ${DETECTION_OPTIONS:+$DETECTION_OPTIONS} \
   ! gvametaconvert \
   ! tee name=t \
