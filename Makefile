@@ -8,7 +8,7 @@
 MKDOCS_IMAGE ?= asc-mkdocs
 PIPELINE_COUNT ?= 1
 INIT_DURATION ?= 30
-TARGET_FPS ?= 14.95
+TARGET_FPS ?= 8
 CONTAINER_NAMES ?= gst0
 DOCKER_COMPOSE ?= docker-compose.yml
 DOCKER_COMPOSE_SENSORS ?= docker-compose-sensors.yml
@@ -84,7 +84,11 @@ run-demo:
 	@echo "Building order-accuracy app"	
 	$(MAKE) build
 	@echo Running order-accuracy pipeline
-	$(MAKE) run-render-mode
+	@if [ "$(RENDER_MODE)" != "0" ]; then \
+		$(MAKE) run-render-mode; \
+	else \
+		$(MAKE) run; \
+	fi
 
 run-headless: | download-models update-submodules download-sample-videos
 	@echo "Building order accuracy app"

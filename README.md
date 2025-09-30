@@ -46,16 +46,21 @@ make down
 ```
 
 ### 4. Run benchmarking on CPU/NPU/GPU.
->*By default, the configuration is set to use the CPU. If you want to benchmark the application on GPU or NPU, please update the device value in workload_to_pipeline.json.*
 
 ```sh
-make  benchmark
+make benchmark
 ```
+
+- By default, the configuration is set to use the CPU. If you want to benchmark the application on GPU or NPU, please update the `DEVICE_ENV` variable.
+
+  ```sh
+  make benchmark DEVICE_ENV=res/all-gpu.env
+  ```
 
 ### 5. See the benchmarking results.
 
 ```sh
-make  consolidate-metrics
+make consolidate-metrics
 
 cat benchmark/metrics.csv
 ```
@@ -74,5 +79,9 @@ cat benchmark/metrics.csv
 - `download-scripts/` — Scripts for downloading models and videos
 - `src/` — Main source code and pipeline runner scripts
 - `Makefile` — Build automation and workflow commands
+
+## ⓘ Learn More
+
+For detailed documentation and a comprehensive guide, please visit our [project website](https://intel-retail.github.io/documentation/use-cases/order-accuracy/order-accuracy.html).
 
 ---

@@ -20,7 +20,7 @@ cid="${cid:-0}"  # Set externally or defaults to 0
 
 # Input validation
 if [ -z "$inputsrc" ]; then
-  echo "❌ Error: inputsrc not specified."
+  echo "Error: inputsrc not specified."
   exit 1
 fi
 
@@ -57,6 +57,7 @@ run_pipeline() {
       model=$MODEL_PATH \
       threshold=0.5 \
       device=$DEVICE \
+      inference-interval=1 \
       ${PRE_PROCESS:+$PRE_PROCESS} ${DETECTION_OPTIONS:+$DETECTION_OPTIONS} \
   ! gvametaconvert \
   ! tee name=t \
@@ -72,7 +73,7 @@ case "$PIPELINE_ID" in
     run_pipeline "$PIPELINE_ID"
     ;;
   *)
-    echo "❌ Invalid PIPELINE_ID: $PIPELINE_ID"
+    echo "Invalid PIPELINE_ID: $PIPELINE_ID"
     exit 1
     ;;
 esac
