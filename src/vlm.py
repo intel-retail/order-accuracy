@@ -41,6 +41,9 @@ def build_vlm_payload(frame_records: List[Dict[str, Any]], seed: int = 42) -> Di
                 - Do not include any item with a count of zero in the output.
                 - BillNumber must always be a plain integer or null if it is not visible.
                 - Do not wrap BillNumber in an object, string, or special formatting.
+                - If any order starts with zero(0), example BillNumber=050 or 007, consider it as 50 or 7 only, please don't add in response.
+                - Dont add space in name and count key. It should be "Name" and "Count". Output format must be strictly followed.
+
 
                 Output format (strict JSON):
                 {
@@ -51,11 +54,27 @@ def build_vlm_payload(frame_records: List[Dict[str, Any]], seed: int = 42) -> Di
                 "BillNumber": 0
                 }
 
+                Additional Context: 
+                We only have the following items in our inventory: 
+                  - Red Apple
+                  - Green Apple
+                  - Banana
+                  - Coca-Cola
+                  - JIF Peanut Butter Packet
+                  - Mott's Apple Sauce
+                  - Lemon
+                  - Water Bottle
+                  - Plastic Knife
+                  - Plastic Spoon
+                  - Plastic Fork
+                  
+              
                 Additional considerations:
                 - Focus only on the checkout bay area.
                 - Ignore irrelevant frames (customers, unrelated inventory).
                 - Handle variations in lighting, angles, or item arrangements.
                 - Please ensure Output must be a valid JSON and follow the schema exactly.
+                - If any order starts with zero(0), please don't add in response.
              """
         },
         {

@@ -625,7 +625,7 @@ def build_interface():
                                 "Chunking": "⏳ Pending",
                                 "Object Detection": "⏳ Pending",
                                 "Getting Best Frames": "⏳ Pending",
-                                "Detected Orders": "⏳ Pending",
+                                "Detecting Orders": "⏳ Pending",
                                 "Order Reconciliation": "⏳ Pending"
                             }
 
@@ -664,10 +664,10 @@ def build_interface():
                                           "chose top" in status_str.lower()):
                                         status_tree["Getting Best Frames"] = "✅ Complete"
                                     elif "engaging vision-language model" in status_str.lower():
-                                        status_tree["Detected Orders"] = "🔄 Processing with VLM..."
+                                        status_tree["Detecting Orders"] = "🔄 Processing with VLM..."
                                     elif ("success" in status_str.lower() and
                                           "complete" in status_str.lower()):
-                                        status_tree["Detected Orders"] = "✅ Complete"
+                                        status_tree["Detecting Orders"] = "✅ Complete"
                                         status_tree["Order Reconciliation"] = "🔄 Validating order..."
                                         final_vlm_result = result_json
                                     elif ("error" in status_str.lower() or

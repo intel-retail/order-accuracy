@@ -43,13 +43,16 @@
         "bill_number": "125",
         "items": [
             {
-                "Name": "Coca-Cola" ,
-                "Count": 1 
-            },
-            
-            {
-                "name": "Aquafina Water",
+                "name": "Banana",
                 "count": 1
+            },
+            {
+                "name": "Apple",
+                "count": 1
+            },
+            {
+                "name": "Coca-Cola",
+                "count": 2
             }
            
         ]
@@ -79,47 +82,18 @@
         ]
     },
     {
-        "bill_number": "470",
         "items": [
             {
-                "name": "coca-cola",
-                "count": 2
-            },
-            
-            {
-                "name": "Apple",
+                "name": "Coca-Cola",
                 "count": 1
             },
             {
-                "name": "Banana",
+                "name": "Water Bottle",
                 "count": 1
             }
-           
-        ]
-    },
-    {
-        "bill_number": "7",
-        "items": [
-            {
-                "name": "can",
-                "count": 4
-            },
-            
-            {
-                "name": "Chps",
-                "count": 1
-            },
-            {
-                "name": "chips",
-                "count": 1
-            },
-            {
-                "name": "Orange",
-                "count": 1
-            }
-           
-        ]
-    },
+        ],
+        "bill_number": "470"
+    },   
     {
         "bill_number": "424",
         "items": [
@@ -224,28 +198,7 @@
                 "count": 1
             }
         ]
-    },
-	{
-	  "Items": [
-		{
-		  "Name": "Doritos",
-		  "Count": 1
-		},
-		{
-		  "Name": "Lay's Classic",
-		  "Count": 1
-		},
-		{
-		  "Name": "Orange",
-		  "Count": 1
-		},
-		{
-		  "Name": "Coca-Cola",
-		  "Count": 4
-		}
-	  ],
-	  "bill_number": 7
-	},
+    },	
 	{
 	  "Items": [
 		{
@@ -265,7 +218,7 @@
 		  "Count": 1
 		}
 	  ],
-	  "bill_number": 876
+	  "bill_number": "876"
 	},
 	{
 	  "Items": [
@@ -290,6 +243,61 @@
 		  "Count": 1
 		}
 	  ],
-	  "bill_number": 315
-	}
+	  "bill_number": "315"
+	},
+    {
+        "Items": [
+            {
+                "name": "Tortilla Chips",
+                "count": 1
+            },
+            {
+                "name": "Apple",
+                "count": 1
+            },
+            {
+                "name": "Lemon",
+                "count": 1
+            }
+        ],
+        "bill_number": "876"
+    },
+    {
+    "Items": [
+            {
+                "name": "Banana",
+                "count": 1
+            },
+            {
+                "name": "Coca-Cola",
+                "count": 3
+            },
+            {
+                "name": "Apple",
+                "count": 1
+            }
+        ],
+        "bill_number": "50"
+    },
+    {
+        "Items": [
+            {
+                "name": "Lay's Classic Chips",
+                "count": 1
+            },
+            {
+                "name": "Doritos Nacho Cheese",
+                "count": 1
+            },
+            {
+                "name": "Orange",
+                "count": 1
+            },
+            {
+                "name": "Coca-Cola",
+                "count": 2
+            }
+        ],
+        "bill_number": "7"
+    }
 ]
