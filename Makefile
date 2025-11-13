@@ -16,13 +16,45 @@ RETAIL_USE_CASE_ROOT ?= $(PWD)
 DENSITY_INCREMENT ?= 1
 RESULTS_DIR ?= $(shell pwd)/benchmark
 
+MODELDOWNLOADER_IMAGE ?= model-downloader-oa:latest
+
+# Registry image references
+REGISTRY_MODEL_DOWNLOADER ?= intel/model-downloader-oa:latest
+REGISTRY_PIPELINE_RUNNER ?= intel/pipeline-runner-oa:latest
+REGISTRY_BENCHMARK ?= intel/retail-benchmark:latest
+
+download-models: check-models-needed
+
+check-models-needed:
+	@chmod +x check_models.sh
+	@echo "Checking if models need to be downloaded..."
+	@if ./check_models.sh; then \
+        echo "Models need to be downloaded. Proceeding..."; \
+        $(MAKE) build-download-models; \
+        $(MAKE) run-download-models; \
+	else \
+	    echo "Models already exist. Skipping download."; \
+	fi
+
 download-models: | build-download-models run-download-models
 
 build-download-models:
-	docker build  --build-arg  HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t modeldownloader -f docker/Dockerfile.downloader .
+	@if [ "$(REGISTRY)" = "true" ]; then \
+        echo "Pulling prebuilt modeldownloader image from registry..."; \
+		docker pull $(REGISTRY_MODEL_DOWNLOADER); \
+		docker tag $(REGISTRY_MODEL_DOWNLOADER) $(MODELDOWNLOADER_IMAGE); \
+	else \
+        echo "Building modeldownloader image locally..."; \
+        docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(MODELDOWNLOADER_IMAGE) -f download_models/Dockerfile .; \
+	fi
 
 run-download-models:
-	docker run --rm -e HTTP_PROXY=${HTTP_PROXY} -e HTTPS_PROXY=${HTTPS_PROXY} -e MODELS_DIR=/workspace/models -v "$(shell pwd)/models:/workspace/models" modeldownloader
+	docker run --rm \
+        -e HTTP_PROXY=${HTTP_PROXY} \
+        -e HTTPS_PROXY=${HTTPS_PROXY} \
+        -e MODELS_DIR=/workspace/models \
+        -v "$(shell pwd)/models:/workspace/models" \
+        $(MODELDOWNLOADER_IMAGE)
 
 download-sample-videos:
 	cd performance-tools/benchmark-scripts && ./download_sample_videos.sh
@@ -42,10 +74,23 @@ update-submodules:
 	@git submodule update --remote --merge
 
 build: download-models update-submodules download-qsr-video download-sample-videos compress-qsr-video
-	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t dlstreamer:dev -f docker/Dockerfile.pipeline .
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		echo "############### Build dont need, as registry mode enabled ###############################"; \
+	else \
+		echo "Building pipeline-runner-oa img locally..."; \
+		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} --target build-default -t pipeline-runner-oa:latest -f src/Dockerfile src/; \
+	fi
 
 run:
-	docker compose -f src/$(DOCKER_COMPOSE) up -d
+	@if [ "$(REGISTRY)" = "true" ]; then \
+        echo "Running registry version..."; \
+        echo "###############Running registry mode###############################"; \
+        docker compose -f src/$(DOCKER_COMPOSE_REGISTRY) up -d; \
+	else \
+        echo "Running standard version..."; \
+        echo "###############Running STANDARD mode###############################"; \
+        docker compose -f src/$(DOCKER_COMPOSE) up -d; \
+	fi
 
 run-render-mode:
 	@if [ -z "$(DISPLAY)" ] || ! echo "$(DISPLAY)" | grep -qE "^:[0-9]+(\.[0-9]+)?$$"; then \
@@ -56,12 +101,23 @@ run-render-mode:
 		exit 1; \
 	fi
 	@echo "Using DISPLAY=$(DISPLAY)"
-	@xhost +local:docker
-	@RENDER_MODE=1 docker compose -f src/$(DOCKER_COMPOSE) up -d
+	@if [ "$(REGISTRY)" = "true" ]; then \
+        echo "Running registry version with render mode..."; \
+        RENDER_MODE=1 docker compose -f src/$(DOCKER_COMPOSE_REGISTRY) up -d; \
+	else \
+        echo "Running standard version with render mode..."; \
+        RENDER_MODE=1 docker compose -f src/$(DOCKER_COMPOSE) up -d; \
+	fi
 
 
 down:
-	docker compose -f src/$(DOCKER_COMPOSE) down
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		echo "Stopping registry demo containers..."; \
+		docker compose -f src/$(DOCKER_COMPOSE_REGISTRY) down; \
+		echo "Registry demo containers stopped and removed."; \
+	else \
+		docker compose -f src/$(DOCKER_COMPOSE) down; \
+	fi
 
 down-sensors:
 	docker compose -f src/${DOCKER_COMPOSE_SENSORS} down
@@ -96,13 +152,29 @@ run-headless: | download-models update-submodules download-sample-videos
 	@echo Running order accuracy pipeline
 	$(MAKE) run
 
-build-benchmark:
-	cd performance-tools && $(MAKE) build-benchmark-docker
+fetch-benchmark:
+	@echo "Fetching benchmark image from registry..."
+	docker pull $(REGISTRY_BENCHMARK)
+	@echo "Benchmark image ready"
 
-benchmark: build-benchmark download-models download-sample-videos
+build-benchmark:
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		$(MAKE) fetch-benchmark; \
+	else \
+		cd performance-tools && $(MAKE) build-benchmark-docker; \
+	fi
+
+benchmark: build-benchmark download-models download-sample-videos	
 	cd performance-tools/benchmark-scripts && \
-	pip3 install -r requirements.txt && \
-	python3 benchmark.py --compose_file ../../src/docker-compose.yml --pipeline $(PIPELINE_COUNT) --results_dir $(RESULTS_DIR)
+	python3 -m venv venv && \
+	. venv/bin/activate && \
+	pip install -r requirements.txt && \
+	if [ "$(REGISTRY)" = "true" ]; then \
+		python benchmark.py --compose_file ../../src/$(DOCKER_COMPOSE_REGISTRY) --pipeline $(PIPELINE_COUNT) --results_dir $(RESULTS_DIR) --benchmark_type reg; \
+	else \
+		python benchmark.py --compose_file ../../src/$(DOCKER_COMPOSE) --pipeline $(PIPELINE_COUNT) --results_dir $(RESULTS_DIR); \
+	fi && \
+	deactivate
 
 benchmark-stream-density: build-benchmark download-models
 	@if [ "$(OOM_PROTECTION)" = "0" ]; then \
@@ -120,13 +192,25 @@ benchmark-stream-density: build-benchmark download-models
     fi
 	cd performance-tools/benchmark-scripts && \
 	pip3 install -r requirements.txt && \
-	python3 benchmark.py \
-	  --compose_file ../../src/docker-compose.yml \
-	  --init_duration $(INIT_DURATION) \
-	  --target_fps $(TARGET_FPS) \
-	  --container_names $(CONTAINER_NAMES) \
-	  --density_increment $(DENSITY_INCREMENT) \
-	  --results_dir $(RESULTS_DIR)
+	if [ "$(REGISTRY)" = "true" ]; then \
+		python3 benchmark.py \
+			--compose_file ../../src/$(DOCKER_COMPOSE_REGISTRY) \
+			--init_duration $(INIT_DURATION) \
+			--target_fps $(TARGET_FPS) \
+			--container_names $(CONTAINER_NAMES) \
+			--density_increment $(DENSITY_INCREMENT) \
+			--benchmark_type reg \
+			--results_dir $(RESULTS_DIR); \
+	else \
+		python3 benchmark.py \
+			--compose_file ../../src/$(DOCKER_COMPOSE) \
+			--init_duration $(INIT_DURATION) \
+			--target_fps $(TARGET_FPS) \
+			--container_names $(CONTAINER_NAMES) \
+			--density_increment $(DENSITY_INCREMENT) \
+			--results_dir $(RESULTS_DIR); \
+	fi; \
+	deactivate
 
 benchmark-quickstart:
 	DEVICE_ENV=res/all-gpu.env RENDER_MODE=0 $(MAKE) benchmark
