@@ -12,6 +12,7 @@ TARGET_FPS ?= 8
 CONTAINER_NAMES ?= gst0
 DOCKER_COMPOSE ?= docker-compose.yml
 DOCKER_COMPOSE_SENSORS ?= docker-compose-sensors.yml
+DOCKER_COMPOSE_REGISTRY ?= docker-compose-reg.yml
 RETAIL_USE_CASE_ROOT ?= $(PWD)
 DENSITY_INCREMENT ?= 1
 RESULTS_DIR ?= $(shell pwd)/benchmark
@@ -44,7 +45,6 @@ build-download-models:
 	@if [ "$(REGISTRY)" = "true" ]; then \
         echo "Pulling prebuilt modeldownloader image from registry..."; \
 		docker pull $(REGISTRY_MODEL_DOWNLOADER); \
-		docker tag $(REGISTRY_MODEL_DOWNLOADER) $(MODELDOWNLOADER_IMAGE); \
 	else \
         echo "Building modeldownloader image locally..."; \
         docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(MODELDOWNLOADER_IMAGE) -f docker/Dockerfile.downloader .; \
@@ -79,7 +79,6 @@ build: download-models update-submodules download-qsr-video download-sample-vide
 	@if [ "$(REGISTRY)" = "true" ]; then \
 		echo "############### Build dont need, as registry mode enabled ###############################"; \
 		docker pull $(REGISTRY_PIPELINE_RUNNER); \
-		docker tag $(REGISTRY_PIPELINE_RUNNER) $(PIPELINERUNNER_IMAGE); \
 	else \
 		echo "Building pipeline-runner-oa img locally..."; \
 		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(PIPELINERUNNER_IMAGE) -f docker/Dockerfile.pipeline .; \
@@ -98,13 +97,14 @@ run:
 
 run-render-mode:
 	@if [ -z "$(DISPLAY)" ] || ! echo "$(DISPLAY)" | grep -qE "^:[0-9]+(\.[0-9]+)?$$"; then \
-		echo "ERROR: Invalid or missing DISPLAY environment variable."; \
-		echo "Please set DISPLAY in the format ':<number>' (e.g., ':0')."; \
-		echo "Usage: make <target> DISPLAY=:<number>"; \
-		echo "Example: make $@ DISPLAY=:0"; \
-		exit 1; \
+        echo "ERROR: Invalid or missing DISPLAY environment variable."; \
+        echo "Please set DISPLAY in the format ':<number>' (e.g., ':0')."; \
+        echo "Usage: make <target> DISPLAY=:<number>"; \
+        echo "Example: make $@ DISPLAY=:0"; \
+        exit 1; \
 	fi
 	@echo "Using DISPLAY=$(DISPLAY)"
+	@xhost +local:docker
 	@if [ "$(REGISTRY)" = "true" ]; then \
         echo "Running registry version with render mode..."; \
         RENDER_MODE=1 docker compose -f src/$(DOCKER_COMPOSE_REGISTRY) up -d; \
@@ -130,7 +130,6 @@ download-qsr-video:
 	@if [ "$(REGISTRY)" = "true" ]; then \
 		echo "###############download-qsr-video Build dont need, as registry mode enabled ###############################"; \
 		docker pull $(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE); \
-		docker tag $(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE) $(QSR_VIDEO_DOWNLOADER_IMAGE); \
 		docker run --rm \
 			-v $(shell pwd)/config/sample-videos:/sample-videos \
 			$(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE); \
@@ -147,7 +146,6 @@ compress-qsr-video:
 	@if [ "$(REGISTRY)" = "true" ]; then \
 		echo "###############download-qsr-video Build dont need, as registry mode enabled ###############################"; \
 		docker pull $(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE); \
-		docker tag $(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE) $(QSR_VIDEO_COMPRESSOR_IMAGE); \
 		docker run --rm \
 			-v $(shell pwd)/config/sample-videos:/sample-videos \
 			$(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE); \

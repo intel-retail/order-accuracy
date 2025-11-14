@@ -13,7 +13,7 @@ services:
       mode: replicated
       replicas: ${PIPELINE_COUNT:-1}
     network_mode: "host"
-    entrypoint: /script/entrypoint.sh --pipeline_script_choice ${PIPELINE_SCRIPT:-yolo11n.sh}
+    entrypoint: /home/pipeline-server/entrypoint.sh --pipeline_script_choice ${PIPELINE_SCRIPT:-run-pipeline.sh}
     privileged: true
     ipc: "host"
     env_file:
@@ -31,5 +31,4 @@ services:
       - ./res/:/home/pipeline-server/envs
       - ${RETAIL_USE_CASE_ROOT:-}/models:/home/pipeline-server/models
       - ../config/sample-videos/qsr-usecase.mp4:/sample-videos/
-      - ../performance-tools/sample-media:/home/pipeline-server/sample-media
     restart: on-failure  

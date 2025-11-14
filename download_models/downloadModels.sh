@@ -45,6 +45,15 @@ cd "$modelDir" || { echo "Failure to cd to $modelDir"; exit 1; }
 # Print the actual modelDir for debugging
 echo "[DEBUG] Downloading models to: $modelDir"
 
+# Detect if model artifacts already exist
+model_exists() {
+    # Look for common model files matching either MODEL_NAME or MODEL_TYPE
+    find "$modelDir" -type f \
+        \( -name "${MODEL_NAME}*.xml" -o -name "${MODEL_NAME}*.bin" -o -name "${MODEL_NAME}*.onnx" \
+         -o -name "${MODEL_TYPE}*.xml" -o -name "${MODEL_TYPE}*.bin" -o -name "${MODEL_TYPE}*.onnx" \) \
+        | grep -q .
+}
+
 if [ "$REFRESH_MODE" -eq 1 ]; then
     # cleaned up all downloaded files so it will re-download all files again
     echo "In refresh mode, clean the existing downloaded models if any..."
@@ -52,6 +61,12 @@ if [ "$REFRESH_MODE" -eq 1 ]; then
         cd "$MODEL_EXEC_PATH"/.. || echo "failed to cd to $MODEL_EXEC_PATH/.."
         make clean-models
     )
+else
+    # If not in refresh mode and model already exists, skip re-download
+    if model_exists; then
+        echo "Model artifacts already exist in $modelDir. Skipping download."
+        exit 0
+    fi
 fi
 
 pipelineZooModel="https://github.com/dlstreamer/pipeline-zoo-models/raw/main/storage/"
@@ -61,6 +76,4 @@ pipelineZooModel="https://github.com/dlstreamer/pipeline-zoo-models/raw/main/sto
 # Call export_yolo_model after Python conversion (if needed)
 export_yolo_model
 
-
-
-echo "###################### Model downloading has been completed successfully #########################"
+echo "###################### Model downloading has been completed successfully #########################

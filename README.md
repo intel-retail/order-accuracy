@@ -32,7 +32,7 @@ make run-render-mode
 
 
 ### 3. Run Order Accuracy appliaction with single command.
-
+### NOTE : If you want to run with pre-build container images, use REGISTRY=true
 
 ```sh
 make run-demo
