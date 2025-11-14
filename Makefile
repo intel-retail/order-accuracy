@@ -52,19 +52,19 @@ build-download-models:
 
 run-download-models:
 	@if [ "$(REGISTRY)" = "true" ]; then \
-        docker run --rm \
-        -e HTTP_PROXY=${HTTP_PROXY} \
-        -e HTTPS_PROXY=${HTTPS_PROXY} \
-        -e MODELS_DIR=/workspace/models \
-        -v "$(shell pwd)/models:/workspace/models" \
-        $(REGISTRY_MODEL_DOWNLOADER_IMAGE)
+		docker run --rm \
+			-e HTTP_PROXY=${HTTP_PROXY} \
+			-e HTTPS_PROXY=${HTTPS_PROXY} \
+			-e MODELS_DIR=/workspace/models \
+			-v "$(shell pwd)/models:/workspace/models" \
+			$(REGISTRY_MODEL_DOWNLOADER_IMAGE); \
 	else \
-       docker run --rm \
-        -e HTTP_PROXY=${HTTP_PROXY} \
-        -e HTTPS_PROXY=${HTTPS_PROXY} \
-        -e MODELS_DIR=/workspace/models \
-        -v "$(shell pwd)/models:/workspace/models" \
-        $(MODELDOWNLOADER_IMAGE)
+		docker run --rm \
+			-e HTTP_PROXY=${HTTP_PROXY} \
+			-e HTTPS_PROXY=${HTTPS_PROXY} \
+			-e MODELS_DIR=/workspace/models \
+			-v "$(shell pwd)/models:/workspace/models" \
+			$(MODELDOWNLOADER_IMAGE); \
 	fi
 	
 
