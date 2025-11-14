@@ -31,9 +31,16 @@ make run-render-mode
 > **User can directly run single make command that internally called all above command and run the Order Accuracy application.**
 
 
+
+### **NOTE:**  
+If you want to run the Application using pre-built container images, set the flag:
+
+```bash
+REGISTRY=true
+
+usage: make run-demo REGISTRY=true (applicable for all commands like benchmark, benchmark-stream-density..)
+```
 ### 3. Run Order Accuracy appliaction with single command.
-
-
 ```sh
 make run-demo
 

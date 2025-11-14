@@ -12,17 +12,61 @@ TARGET_FPS ?= 8
 CONTAINER_NAMES ?= gst0
 DOCKER_COMPOSE ?= docker-compose.yml
 DOCKER_COMPOSE_SENSORS ?= docker-compose-sensors.yml
+DOCKER_COMPOSE_REGISTRY ?= docker-compose-reg.yml
 RETAIL_USE_CASE_ROOT ?= $(PWD)
 DENSITY_INCREMENT ?= 1
 RESULTS_DIR ?= $(shell pwd)/benchmark
 
-download-models: | build-download-models run-download-models
+MODELDOWNLOADER_IMAGE ?= model-downloader-oa:latest
+PIPELINERUNNER_IMAGE ?= pipeline-runner-oa:latest
+QSR_VIDEO_DOWNLOADER_IMAGE ?= qsr-video-downloader-oa:latest
+QSR_VIDEO_COMPRESSOR_IMAGE ?= qsr-video-compressor-oa:latest
+# Registry image references
+REGISTRY_MODEL_DOWNLOADER_IMAGE ?= intel/model-downloader-oa:latest
+REGISTRY_PIPELINE_RUNNER_IMAGE ?= intel/pipeline-runner-oa:latest
+REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE ?= intel/qsr-video-downloader-oa:latest
+REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE ?= intel/qsr-video-compressor-oa:latest
+REGISTRY_BENCHMARK ?= intel/retail-benchmark:latest
+
+download-models: check-models-needed
+
+check-models-needed:
+	@chmod +x check_models.sh
+	@echo "Checking if models need to be downloaded..."
+	@if ./check_models.sh; then \
+        echo "Models need to be downloaded. Proceeding..."; \
+        $(MAKE) build-download-models; \
+        $(MAKE) run-download-models; \
+	else \
+	    echo "Models already exist. Skipping download."; \
+	fi
 
 build-download-models:
-	docker build  --build-arg  HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t modeldownloader -f docker/Dockerfile.downloader .
+	@if [ "$(REGISTRY)" = "true" ]; then \
+        echo "Pulling prebuilt modeldownloader image from registry..."; \
+		docker pull $(REGISTRY_MODEL_DOWNLOADER_IMAGE); \
+	else \
+        echo "Building modeldownloader image locally..."; \
+        docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(MODELDOWNLOADER_IMAGE) -f docker/Dockerfile.downloader .; \
+	fi
 
 run-download-models:
-	docker run --rm -e HTTP_PROXY=${HTTP_PROXY} -e HTTPS_PROXY=${HTTPS_PROXY} -e MODELS_DIR=/workspace/models -v "$(shell pwd)/models:/workspace/models" modeldownloader
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		docker run --rm \
+			-e HTTP_PROXY=${HTTP_PROXY} \
+			-e HTTPS_PROXY=${HTTPS_PROXY} \
+			-e MODELS_DIR=/workspace/models \
+			-v "$(shell pwd)/models:/workspace/models" \
+			$(REGISTRY_MODEL_DOWNLOADER_IMAGE); \
+	else \
+		docker run --rm \
+			-e HTTP_PROXY=${HTTP_PROXY} \
+			-e HTTPS_PROXY=${HTTPS_PROXY} \
+			-e MODELS_DIR=/workspace/models \
+			-v "$(shell pwd)/models:/workspace/models" \
+			$(MODELDOWNLOADER_IMAGE); \
+	fi
+	
 
 download-sample-videos:
 	cd performance-tools/benchmark-scripts && ./download_sample_videos.sh
@@ -42,45 +86,89 @@ update-submodules:
 	@git submodule update --remote --merge
 
 build: download-models update-submodules download-qsr-video download-sample-videos compress-qsr-video
-	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t dlstreamer:dev -f docker/Dockerfile.pipeline .
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		echo "############### Build dont need, as registry mode enabled ###############################"; \
+		#docker pull $(REGISTRY_PIPELINE_RUNNER_IMAGE); \
+	else \
+		echo "Building pipeline-runner-oa img locally..."; \
+		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(PIPELINERUNNER_IMAGE) -f docker/Dockerfile.pipeline .; \
+	fi
 
 run:
-	docker compose -f src/$(DOCKER_COMPOSE) up -d
+	@if [ "$(REGISTRY)" = "true" ]; then \
+        echo "Running registry version..."; \
+        echo "###############Running registry mode###############################"; \
+        docker compose -f src/$(DOCKER_COMPOSE_REGISTRY) up -d; \
+	else \
+        echo "Running standard version..."; \
+        echo "###############Running STANDARD mode###############################"; \
+        docker compose -f src/$(DOCKER_COMPOSE) up -d; \
+	fi
 
 run-render-mode:
 	@if [ -z "$(DISPLAY)" ] || ! echo "$(DISPLAY)" | grep -qE "^:[0-9]+(\.[0-9]+)?$$"; then \
-		echo "ERROR: Invalid or missing DISPLAY environment variable."; \
-		echo "Please set DISPLAY in the format ':<number>' (e.g., ':0')."; \
-		echo "Usage: make <target> DISPLAY=:<number>"; \
-		echo "Example: make $@ DISPLAY=:0"; \
-		exit 1; \
+        echo "ERROR: Invalid or missing DISPLAY environment variable."; \
+        echo "Please set DISPLAY in the format ':<number>' (e.g., ':0')."; \
+        echo "Usage: make <target> DISPLAY=:<number>"; \
+        echo "Example: make $@ DISPLAY=:0"; \
+        exit 1; \
 	fi
 	@echo "Using DISPLAY=$(DISPLAY)"
 	@xhost +local:docker
-	@RENDER_MODE=1 docker compose -f src/$(DOCKER_COMPOSE) up -d
+	@if [ "$(REGISTRY)" = "true" ]; then \
+        echo "Running registry version with render mode..."; \
+        RENDER_MODE=1 docker compose -f src/$(DOCKER_COMPOSE_REGISTRY) up -d; \
+	else \
+        echo "Running standard version with render mode..."; \
+        RENDER_MODE=1 docker compose -f src/$(DOCKER_COMPOSE) up -d; \
+	fi
 
 
 down:
-	docker compose -f src/$(DOCKER_COMPOSE) down
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		echo "Stopping registry demo containers..."; \
+		docker compose -f src/$(DOCKER_COMPOSE_REGISTRY) down; \
+		echo "Registry demo containers stopped and removed."; \
+	else \
+		docker compose -f src/$(DOCKER_COMPOSE) down; \
+	fi
 
 down-sensors:
 	docker compose -f src/${DOCKER_COMPOSE_SENSORS} down
 
 download-qsr-video:
-	@echo "Downloading additional QSR videos..."
-	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t qsr-video-downloader:vid -f docker/Dockerfile.qsrDownloader .
-	docker run --rm \
-        -v $(shell pwd)/config/sample-videos:/sample-videos \
-         qsr-video-downloader:vid
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		echo "###############download-qsr-video Build dont need, as registry mode enabled ###############################"; \
+		docker pull $(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE); \
+		docker run --rm \
+			-v $(shell pwd)/config/sample-videos:/sample-videos \
+			$(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE); \
+	else \
+		echo "Building $(QSR_VIDEO_DOWNLOADER_IMAGE) img locally..."; \
+		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(QSR_VIDEO_DOWNLOADER_IMAGE) -f docker/Dockerfile.qsrDownloader .; \
+		echo "Downloading additional QSR videos..."; \
+		docker run --rm \
+			-v $(shell pwd)/config/sample-videos:/sample-videos \
+			$(QSR_VIDEO_DOWNLOADER_IMAGE); \
+	fi
 
 compress-qsr-video:
-	@echo "Increasing the duration and Compressing the QSR video..."
-	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t qsr-video-compressor:0.0 -f docker/Dockerfile.videoDurationIncrease .
-	docker run --rm \
-        -v $(shell pwd)/config/sample-videos:/sample-videos \
-         qsr-video-compressor:0.0
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		echo "###############download-qsr-video Build dont need, as registry mode enabled ###############################"; \
+		docker pull $(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE); \
+		docker run --rm \
+			-v $(shell pwd)/config/sample-videos:/sample-videos \
+			$(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE); \
+	else \
+		echo "Building $(QSR_VIDEO_COMPRESSOR_IMAGE) locally, Increasing the duration and Compressing the QSR video..."; \
+		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(QSR_VIDEO_COMPRESSOR_IMAGE) -f docker/Dockerfile.videoDurationIncrease .; \
+		docker run --rm \
+			-v $(shell pwd)/config/sample-videos:/sample-videos \
+			$(QSR_VIDEO_COMPRESSOR_IMAGE); \
+	fi
+	
 
-run-demo:
+run-demo: 
 	@echo "Building order-accuracy app"	
 	$(MAKE) build
 	@echo Running order-accuracy pipeline
@@ -96,13 +184,29 @@ run-headless: | download-models update-submodules download-sample-videos
 	@echo Running order accuracy pipeline
 	$(MAKE) run
 
-build-benchmark:
-	cd performance-tools && $(MAKE) build-benchmark-docker
+fetch-benchmark:
+	@echo "Fetching benchmark image from registry..."
+	docker pull $(REGISTRY_BENCHMARK)
+	@echo "Benchmark image ready"
 
-benchmark: build-benchmark download-models download-sample-videos
+build-benchmark:
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		$(MAKE) fetch-benchmark; \
+	else \
+		cd performance-tools && $(MAKE) build-benchmark-docker; \
+	fi
+
+benchmark: build-benchmark download-models download-sample-videos	
 	cd performance-tools/benchmark-scripts && \
-	pip3 install -r requirements.txt && \
-	python3 benchmark.py --compose_file ../../src/docker-compose.yml --pipeline $(PIPELINE_COUNT) --results_dir $(RESULTS_DIR)
+	python3 -m venv venv && \
+	. venv/bin/activate && \
+	pip install -r requirements.txt && \
+	if [ "$(REGISTRY)" = "true" ]; then \
+		python benchmark.py --compose_file ../../src/$(DOCKER_COMPOSE_REGISTRY) --pipeline $(PIPELINE_COUNT) --results_dir $(RESULTS_DIR) --benchmark_type reg; \
+	else \
+		python benchmark.py --compose_file ../../src/$(DOCKER_COMPOSE) --pipeline $(PIPELINE_COUNT) --results_dir $(RESULTS_DIR); \
+	fi && \
+	deactivate
 
 benchmark-stream-density: build-benchmark download-models
 	@if [ "$(OOM_PROTECTION)" = "0" ]; then \
@@ -120,13 +224,25 @@ benchmark-stream-density: build-benchmark download-models
     fi
 	cd performance-tools/benchmark-scripts && \
 	pip3 install -r requirements.txt && \
-	python3 benchmark.py \
-	  --compose_file ../../src/docker-compose.yml \
-	  --init_duration $(INIT_DURATION) \
-	  --target_fps $(TARGET_FPS) \
-	  --container_names $(CONTAINER_NAMES) \
-	  --density_increment $(DENSITY_INCREMENT) \
-	  --results_dir $(RESULTS_DIR)
+	if [ "$(REGISTRY)" = "true" ]; then \
+		python3 benchmark.py \
+			--compose_file ../../src/$(DOCKER_COMPOSE_REGISTRY) \
+			--init_duration $(INIT_DURATION) \
+			--target_fps $(TARGET_FPS) \
+			--container_names $(CONTAINER_NAMES) \
+			--density_increment $(DENSITY_INCREMENT) \
+			--benchmark_type reg \
+			--results_dir $(RESULTS_DIR); \
+	else \
+		python3 benchmark.py \
+			--compose_file ../../src/$(DOCKER_COMPOSE) \
+			--init_duration $(INIT_DURATION) \
+			--target_fps $(TARGET_FPS) \
+			--container_names $(CONTAINER_NAMES) \
+			--density_increment $(DENSITY_INCREMENT) \
+			--results_dir $(RESULTS_DIR); \
+	fi; \
+	deactivate
 
 benchmark-quickstart:
 	DEVICE_ENV=res/all-gpu.env RENDER_MODE=0 $(MAKE) benchmark
