@@ -17,10 +17,14 @@ DENSITY_INCREMENT ?= 1
 RESULTS_DIR ?= $(shell pwd)/benchmark
 
 MODELDOWNLOADER_IMAGE ?= model-downloader-oa:latest
-
+PIPELINERUNNER_IMAGE ?= pipeline-runner-oa:latest
+QSR_VIDEO_DOWNLOADER_IMAGE ?= qsr-video-downloader-oa:latest
+QSR_VIDEO_COMPRESSOR_IMAGE ?= qsr-video-compressor-oa:latest
 # Registry image references
 REGISTRY_MODEL_DOWNLOADER ?= intel/model-downloader-oa:latest
 REGISTRY_PIPELINE_RUNNER ?= intel/pipeline-runner-oa:latest
+REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE ?= intel/qsr-video-downloader-oa:latest
+REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE ?= intel/qsr-video-compressor-oa:latest
 REGISTRY_BENCHMARK ?= intel/retail-benchmark:latest
 
 download-models: check-models-needed
@@ -36,8 +40,6 @@ check-models-needed:
 	    echo "Models already exist. Skipping download."; \
 	fi
 
-download-models: | build-download-models run-download-models
-
 build-download-models:
 	@if [ "$(REGISTRY)" = "true" ]; then \
         echo "Pulling prebuilt modeldownloader image from registry..."; \
@@ -45,7 +47,7 @@ build-download-models:
 		docker tag $(REGISTRY_MODEL_DOWNLOADER) $(MODELDOWNLOADER_IMAGE); \
 	else \
         echo "Building modeldownloader image locally..."; \
-        docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(MODELDOWNLOADER_IMAGE) -f download_models/Dockerfile .; \
+        docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(MODELDOWNLOADER_IMAGE) -f docker/Dockerfile.downloader .; \
 	fi
 
 run-download-models:
@@ -76,9 +78,11 @@ update-submodules:
 build: download-models update-submodules download-qsr-video download-sample-videos compress-qsr-video
 	@if [ "$(REGISTRY)" = "true" ]; then \
 		echo "############### Build dont need, as registry mode enabled ###############################"; \
+		docker pull $(REGISTRY_PIPELINE_RUNNER); \
+		docker tag $(REGISTRY_PIPELINE_RUNNER) $(PIPELINERUNNER_IMAGE); \
 	else \
 		echo "Building pipeline-runner-oa img locally..."; \
-		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} --target build-default -t pipeline-runner-oa:latest -f src/Dockerfile src/; \
+		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(PIPELINERUNNER_IMAGE) -f docker/Dockerfile.pipeline .; \
 	fi
 
 run:
@@ -123,20 +127,40 @@ down-sensors:
 	docker compose -f src/${DOCKER_COMPOSE_SENSORS} down
 
 download-qsr-video:
-	@echo "Downloading additional QSR videos..."
-	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t qsr-video-downloader:vid -f docker/Dockerfile.qsrDownloader .
-	docker run --rm \
-        -v $(shell pwd)/config/sample-videos:/sample-videos \
-         qsr-video-downloader:vid
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		echo "###############download-qsr-video Build dont need, as registry mode enabled ###############################"; \
+		docker pull $(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE); \
+		docker tag $(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE) $(QSR_VIDEO_DOWNLOADER_IMAGE); \
+		docker run --rm \
+			-v $(shell pwd)/config/sample-videos:/sample-videos \
+			$(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE); \
+	else \
+		echo "Building $(QSR_VIDEO_DOWNLOADER_IMAGE) img locally..."; \
+		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(QSR_VIDEO_DOWNLOADER_IMAGE) -f docker/Dockerfile.qsrDownloader .; \
+		echo "Downloading additional QSR videos..."; \
+		docker run --rm \
+			-v $(shell pwd)/config/sample-videos:/sample-videos \
+			$(QSR_VIDEO_DOWNLOADER_IMAGE); \
+	fi
 
 compress-qsr-video:
-	@echo "Increasing the duration and Compressing the QSR video..."
-	docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t qsr-video-compressor:0.0 -f docker/Dockerfile.videoDurationIncrease .
-	docker run --rm \
-        -v $(shell pwd)/config/sample-videos:/sample-videos \
-         qsr-video-compressor:0.0
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		echo "###############download-qsr-video Build dont need, as registry mode enabled ###############################"; \
+		docker pull $(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE); \
+		docker tag $(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE) $(QSR_VIDEO_COMPRESSOR_IMAGE); \
+		docker run --rm \
+			-v $(shell pwd)/config/sample-videos:/sample-videos \
+			$(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE); \
+	else \
+		echo "Building $(QSR_VIDEO_COMPRESSOR_IMAGE) locally, Increasing the duration and Compressing the QSR video..."; \
+		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(QSR_VIDEO_COMPRESSOR_IMAGE) -f docker/Dockerfile.videoDurationIncrease .; \
+		docker run --rm \
+			-v $(shell pwd)/config/sample-videos:/sample-videos \
+			$(QSR_VIDEO_COMPRESSOR_IMAGE); \
+	fi
+	
 
-run-demo:
+run-demo: 
 	@echo "Building order-accuracy app"	
 	$(MAKE) build
 	@echo Running order-accuracy pipeline
