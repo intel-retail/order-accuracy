@@ -32,7 +32,14 @@ make run-render-mode
 
 
 ### 3. Run Order Accuracy appliaction with single command.
-### NOTE : If you want to run with pre-build container images, use REGISTRY=true
+### **NOTE:**  
+If you want to run the project using pre-built container images, set the flag:
+
+```bash
+REGISTRY=true
+
+usage: make run-demo REGISTRY=true (applicable for all commands like benchmark, benchmark-stream-density..)
+
 
 ```sh
 make run-demo
