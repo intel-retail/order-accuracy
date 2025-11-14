@@ -22,8 +22,8 @@ PIPELINERUNNER_IMAGE ?= pipeline-runner-oa:latest
 QSR_VIDEO_DOWNLOADER_IMAGE ?= qsr-video-downloader-oa:latest
 QSR_VIDEO_COMPRESSOR_IMAGE ?= qsr-video-compressor-oa:latest
 # Registry image references
-REGISTRY_MODEL_DOWNLOADER ?= intel/model-downloader-oa:latest
-REGISTRY_PIPELINE_RUNNER ?= intel/pipeline-runner-oa:latest
+REGISTRY_MODEL_DOWNLOADER_IMAGE ?= intel/model-downloader-oa:latest
+REGISTRY_PIPELINE_RUNNER_IMAGE ?= intel/pipeline-runner-oa:latest
 REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE ?= intel/qsr-video-downloader-oa:latest
 REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE ?= intel/qsr-video-compressor-oa:latest
 REGISTRY_BENCHMARK ?= intel/retail-benchmark:latest
@@ -44,19 +44,29 @@ check-models-needed:
 build-download-models:
 	@if [ "$(REGISTRY)" = "true" ]; then \
         echo "Pulling prebuilt modeldownloader image from registry..."; \
-		docker pull $(REGISTRY_MODEL_DOWNLOADER); \
+		docker pull $(REGISTRY_MODEL_DOWNLOADER_IMAGE); \
 	else \
         echo "Building modeldownloader image locally..."; \
         docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(MODELDOWNLOADER_IMAGE) -f docker/Dockerfile.downloader .; \
 	fi
 
 run-download-models:
-	docker run --rm \
+	@if [ "$(REGISTRY)" = "true" ]; then \
+        docker run --rm \
+        -e HTTP_PROXY=${HTTP_PROXY} \
+        -e HTTPS_PROXY=${HTTPS_PROXY} \
+        -e MODELS_DIR=/workspace/models \
+        -v "$(shell pwd)/models:/workspace/models" \
+        $(REGISTRY_MODEL_DOWNLOADER_IMAGE)
+	else \
+       docker run --rm \
         -e HTTP_PROXY=${HTTP_PROXY} \
         -e HTTPS_PROXY=${HTTPS_PROXY} \
         -e MODELS_DIR=/workspace/models \
         -v "$(shell pwd)/models:/workspace/models" \
         $(MODELDOWNLOADER_IMAGE)
+	fi
+	
 
 download-sample-videos:
 	cd performance-tools/benchmark-scripts && ./download_sample_videos.sh
@@ -78,7 +88,7 @@ update-submodules:
 build: download-models update-submodules download-qsr-video download-sample-videos compress-qsr-video
 	@if [ "$(REGISTRY)" = "true" ]; then \
 		echo "############### Build dont need, as registry mode enabled ###############################"; \
-		docker pull $(REGISTRY_PIPELINE_RUNNER); \
+		#docker pull $(REGISTRY_PIPELINE_RUNNER_IMAGE); \
 	else \
 		echo "Building pipeline-runner-oa img locally..."; \
 		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(PIPELINERUNNER_IMAGE) -f docker/Dockerfile.pipeline .; \
