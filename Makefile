@@ -83,7 +83,6 @@ run-smoke-tests: | download-models update-submodules download-sample-videos
 
 update-submodules:
 	@git submodule update --init --recursive
-	@git submodule update --remote --merge
 
 build: download-models update-submodules download-qsr-video download-sample-videos compress-qsr-video
 	@if [ "$(REGISTRY)" = "true" ]; then \
