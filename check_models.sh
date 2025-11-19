@@ -110,11 +110,11 @@ if [[ -z "$PIPELINE_SCRIPT" ]]; then
     XML_COUNT=$(find ./models -name "*.xml" | wc -l)
     echo "Found $XML_COUNT XML model files"
     
-    if [ $XML_COUNT -ge 12 ]; then
-        echo "Sufficient models exist ($XML_COUNT >= 12). Skipping download."
+    if [ $XML_COUNT -ge 3 ]; then
+        echo "Sufficient models exist ($XML_COUNT >= 3). Skipping download."
         exit 1  # Skip download
     else
-        echo "Insufficient models ($XML_COUNT < 12). Need to download."
+        echo "Insufficient models ($XML_COUNT < 3). Need to download."
         exit 0  # Need to download
     fi
 else

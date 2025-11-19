@@ -15,38 +15,64 @@ The Order Accuracy Pipeline System is an open-source reference implementation fo
 
 ## 🚀 QuickStart
 
-> The first run will download models, videos, and build Docker images. This may take some time.
+### **NOTE:** 
 
-
-### 1. Download models and videos, and run the Order Accuracy application.
-
-```sh
-make download-models
-make update-submodules
-make download-sample-videos
-make run-render-mode
-```
-
-
-> **User can directly run single make command that internally called all above command and run the Order Accuracy application.**
-
-
-
-### **NOTE:**  
-If you want to run the Application using pre-built container images, set the flag:
+By default the application runs by pulling the pre-built images. If you want to build the images locally and then run the application, set the flag:
 
 ```bash
-REGISTRY=true
+REGISTRY=false
 
-usage: make run-demo REGISTRY=true (applicable for all commands like benchmark, benchmark-stream-density..)
-```
-### 3. Run Order Accuracy appliaction with single command.
-```sh
-make run-demo
-
+usage: make <command> REGISTRY=false (applicable for all commands like benchmark, benchmark-stream-density..)
+Example: make run-demo REGISTRY=false
 ```
 
-### 4. Stop all containers
+(If this is the first time, it will take some time to download videos, models, docker images and build images)
+
+### 1. Step by step instructions:
+
+1.1 Download the models using download_models/downloadModels.sh
+
+  ```bash
+  make download-models
+  ```
+
+1.2 Update github submodules
+
+  ```bash
+  make update-submodules
+  ```
+
+1.3 Download sample videos used by the performance tools
+
+  ```bash
+  make download-sample-videos
+  ```
+
+1.4 Start Order Accuracy using the Docker Compose file.
+
+  ```bash
+  make run-render-mode
+  ```
+
+- The above series of commands can be executed using only one command:
+    
+  ```bash
+  make run-demo
+  ```
+### 2. To build the images locally step by step:
+- Follow the following steps:
+  ```bash
+  make download-models REGISTRY=false
+  make update-submodules REGISTRY=false
+  make download-sample-videos
+  make run-render-mode REGISTRY=false
+  ```
+- The above series of commands can be executed using only one command:
+    ```bash
+    make run-demo REGISTRY=false
+    ```
+
+### 3. Stop all containers
 
 ```sh
 make down
