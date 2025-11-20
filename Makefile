@@ -5,6 +5,11 @@
 .PHONY: build-telegraf run-telegraf run-portainer clean-all clean-results clean-telegraf clean-models down-portainer
 .PHONY: download-models clean-test run-demo run-headless
 
+HTTP_PROXY := $(or $(HTTP_PROXY),$(http_proxy))
+HTTPS_PROXY := $(or $(HTTPS_PROXY),$(https_proxy))
+export HTTP_PROXY
+export HTTPS_PROXY
+
 MKDOCS_IMAGE ?= asc-mkdocs
 PIPELINE_COUNT ?= 1
 INIT_DURATION ?= 30
@@ -17,16 +22,19 @@ RETAIL_USE_CASE_ROOT ?= $(PWD)
 DENSITY_INCREMENT ?= 1
 RESULTS_DIR ?= $(shell pwd)/benchmark
 
-MODELDOWNLOADER_IMAGE ?= model-downloader-oa:latest
-PIPELINERUNNER_IMAGE ?= pipeline-runner-oa:latest
-QSR_VIDEO_DOWNLOADER_IMAGE ?= qsr-video-downloader-oa:latest
-QSR_VIDEO_COMPRESSOR_IMAGE ?= qsr-video-compressor-oa:latest
+REGISTRY ?= true
+TAG ?= rc1
+
+MODELDOWNLOADER_IMAGE ?= model-downloader-oa:$(TAG)
+PIPELINERUNNER_IMAGE ?= pipeline-runner-oa:$(TAG)
+QSR_VIDEO_DOWNLOADER_IMAGE ?= qsr-video-downloader-oa:$(TAG)
+QSR_VIDEO_COMPRESSOR_IMAGE ?= qsr-video-compressor-oa:$(TAG)
 # Registry image references
-REGISTRY_MODEL_DOWNLOADER_IMAGE ?= intel/model-downloader-oa:latest
-REGISTRY_PIPELINE_RUNNER_IMAGE ?= intel/pipeline-runner-oa:latest
-REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE ?= intel/qsr-video-downloader-oa:latest
-REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE ?= intel/qsr-video-compressor-oa:latest
-REGISTRY_BENCHMARK ?= intel/retail-benchmark:latest
+REGISTRY_MODEL_DOWNLOADER_IMAGE ?= intel/model-downloader-oa:$(TAG)
+REGISTRY_PIPELINE_RUNNER_IMAGE ?= intel/pipeline-runner-oa:$(TAG)
+REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE ?= intel/qsr-video-downloader-oa:$(TAG)
+REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE ?= intel/qsr-video-compressor-oa:$(TAG)
+REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
 
 download-models: check-models-needed
 
@@ -45,6 +53,7 @@ build-download-models:
 	@if [ "$(REGISTRY)" = "true" ]; then \
         echo "Pulling prebuilt modeldownloader image from registry..."; \
 		docker pull $(REGISTRY_MODEL_DOWNLOADER_IMAGE); \
+		docker tag $(REGISTRY_MODEL_DOWNLOADER_IMAGE) $(MODELDOWNLOADER_IMAGE); \
 	else \
         echo "Building modeldownloader image locally..."; \
         docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(MODELDOWNLOADER_IMAGE) -f docker/Dockerfile.downloader .; \
@@ -87,7 +96,8 @@ update-submodules:
 build: download-models update-submodules download-qsr-video download-sample-videos compress-qsr-video
 	@if [ "$(REGISTRY)" = "true" ]; then \
 		echo "############### Build dont need, as registry mode enabled ###############################"; \
-		#docker pull $(REGISTRY_PIPELINE_RUNNER_IMAGE); \
+		docker pull $(REGISTRY_PIPELINE_RUNNER_IMAGE); \
+		docker tag $(REGISTRY_PIPELINE_RUNNER_IMAGE) $(PIPELINERUNNER_IMAGE); \
 	else \
 		echo "Building pipeline-runner-oa img locally..."; \
 		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(PIPELINERUNNER_IMAGE) -f docker/Dockerfile.pipeline .; \
@@ -96,11 +106,11 @@ build: download-models update-submodules download-qsr-video download-sample-vide
 run:
 	@if [ "$(REGISTRY)" = "true" ]; then \
         echo "Running registry version..."; \
-        echo "###############Running registry mode###############################"; \
+        echo "############### Running registry mode ###############################"; \
         docker compose -f src/$(DOCKER_COMPOSE_REGISTRY) up -d; \
 	else \
         echo "Running standard version..."; \
-        echo "###############Running STANDARD mode###############################"; \
+        echo "############### Running STANDARD mode ###############################"; \
         docker compose -f src/$(DOCKER_COMPOSE) up -d; \
 	fi
 
@@ -137,8 +147,9 @@ down-sensors:
 
 download-qsr-video:
 	@if [ "$(REGISTRY)" = "true" ]; then \
-		echo "###############download-qsr-video Build dont need, as registry mode enabled ###############################"; \
+		echo "############### download-qsr-video Build dont need, as registry mode enabled ###############################"; \
 		docker pull $(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE); \
+		docker tag $(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE) $(QSR_VIDEO_DOWNLOADER_IMAGE); \
 		docker run --rm \
 			-v $(shell pwd)/config/sample-videos:/sample-videos \
 			$(REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE); \
@@ -155,6 +166,7 @@ compress-qsr-video:
 	@if [ "$(REGISTRY)" = "true" ]; then \
 		echo "###############download-qsr-video Build dont need, as registry mode enabled ###############################"; \
 		docker pull $(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE); \
+		docker tag $(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE) $(QSR_VIDEO_COMPRESSOR_IMAGE); \
 		docker run --rm \
 			-v $(shell pwd)/config/sample-videos:/sample-videos \
 			$(REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE); \
@@ -186,16 +198,21 @@ run-headless: | download-models update-submodules download-sample-videos
 fetch-benchmark:
 	@echo "Fetching benchmark image from registry..."
 	docker pull $(REGISTRY_BENCHMARK)
+	docker tag $(REGISTRY_BENCHMARK) benchmark:latest
 	@echo "Benchmark image ready"
 
 build-benchmark:
 	@if [ "$(REGISTRY)" = "true" ]; then \
+		docker pull $(REGISTRY_PIPELINE_RUNNER_IMAGE); \
+		docker tag $(REGISTRY_PIPELINE_RUNNER_IMAGE) $(PIPELINERUNNER_IMAGE); \
 		$(MAKE) fetch-benchmark; \
 	else \
+		echo "Building pipeline-runner-oa img locally..."; \
+		docker build --build-arg HTTPS_PROXY=${HTTPS_PROXY} --build-arg HTTP_PROXY=${HTTP_PROXY} -t $(PIPELINERUNNER_IMAGE) -f docker/Dockerfile.pipeline .; \
 		cd performance-tools && $(MAKE) build-benchmark-docker; \
 	fi
 
-benchmark: build-benchmark download-models download-sample-videos	
+benchmark: build-benchmark download-models download-sample-videos
 	cd performance-tools/benchmark-scripts && \
 	python3 -m venv venv && \
 	. venv/bin/activate && \
@@ -302,3 +319,4 @@ plot-metrics:
 	python3 usage_graph_plot.py --dir $(RESULTS_DIR)  && \
 	deactivate \
 	)
+
