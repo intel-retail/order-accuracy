@@ -17,11 +17,11 @@ The Order Accuracy Pipeline System is an open-source reference implementation fo
 
 Clone the repo with the below command
 ```
-git clone -b <release-or-tag> --single-branch https://github.com/intel-retail/automated-self-checkout
+git clone -b <release-or-tag> --single-branch https://github.com/intel-retail/order-accuracy
 ```
 >Replace <release-or-tag> with the version you want to clone (for example, **v1.1.0**).
 ```
-git clone -b v1.1.0 --single-branch https://github.com/intel-retail/automated-self-checkout
+git clone -b v1.1.0 --single-branch https://github.com/intel-retail/order-accuracy
 ```
 
 ### **NOTE:** 
