@@ -83,8 +83,16 @@ Example: make run-demo REGISTRY=false
 
 ### 3. Stop all containers
 
+When pre-built images are pulled-
+
 ```sh
 make down
+```
+
+When images are built locally-
+
+```sh
+make down REGISTRY=false
 ```
 
 ### 4. Run benchmarking on CPU/NPU/GPU.
