@@ -23,18 +23,18 @@ DENSITY_INCREMENT ?= 1
 RESULTS_DIR ?= $(shell pwd)/benchmark
 
 REGISTRY ?= true
-TAG ?= rc1
+TAG ?= rc2
 
-MODELDOWNLOADER_IMAGE ?= model-downloader-oa:$(TAG)
-PIPELINERUNNER_IMAGE ?= pipeline-runner-oa:$(TAG)
-QSR_VIDEO_DOWNLOADER_IMAGE ?= qsr-video-downloader-oa:$(TAG)
-QSR_VIDEO_COMPRESSOR_IMAGE ?= qsr-video-compressor-oa:$(TAG)
+MODELDOWNLOADER_IMAGE ?= model-downloader-oa:1.2.1-$(TAG)
+PIPELINERUNNER_IMAGE ?= pipeline-runner-oa:1.2.1-$(TAG)
+QSR_VIDEO_DOWNLOADER_IMAGE ?= qsr-video-downloader-oa:1.2.1-$(TAG)
+QSR_VIDEO_COMPRESSOR_IMAGE ?= qsr-video-compressor-oa:1.2.1-$(TAG)
 # Registry image references
-REGISTRY_MODEL_DOWNLOADER_IMAGE ?= intel/model-downloader-oa:$(TAG)
-REGISTRY_PIPELINE_RUNNER_IMAGE ?= intel/pipeline-runner-oa:$(TAG)
-REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE ?= intel/qsr-video-downloader-oa:$(TAG)
-REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE ?= intel/qsr-video-compressor-oa:$(TAG)
-REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
+REGISTRY_MODEL_DOWNLOADER_IMAGE ?= intel/model-downloader-oa:1.2.1-$(TAG)
+REGISTRY_PIPELINE_RUNNER_IMAGE ?= intel/pipeline-runner-oa:1.2.1-$(TAG)
+REGISTRY_QSR_VIDEO_DOWNLOADER_IMAGE ?= intel/qsr-video-downloader-oa:1.2.1-$(TAG)
+REGISTRY_QSR_VIDEO_COMPRESSOR_IMAGE ?= intel/qsr-video-compressor-oa:1.2.1-$(TAG)
+REGISTRY_BENCHMARK ?= intel/retail-benchmark:3.3.0-$(TAG)
 
 download-models: check-models-needed
 
