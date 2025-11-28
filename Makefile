@@ -129,6 +129,7 @@ run-render-mode:
         RENDER_MODE=1 docker compose -f src/$(DOCKER_COMPOSE_REGISTRY) up -d; \
 	else \
         echo "Running standard version with render mode..."; \
+		docker compose -f src/$(DOCKER_COMPOSE) build pipeline-runner; \
         RENDER_MODE=1 docker compose -f src/$(DOCKER_COMPOSE) up -d; \
 	fi
 

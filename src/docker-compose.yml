@@ -7,7 +7,13 @@
 
  ## Current Developer Toolbox doesn't support environment files, make sure to remove any files or environment variables starting with $
 services:
-  ClientGst:
+  pipeline-runner:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.pipeline
+      args:
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
     image: pipeline-runner-oa:1.2.1-${TAG:-rc2}
     deploy:
       mode: replicated
