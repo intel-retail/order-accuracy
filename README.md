@@ -10,7 +10,9 @@ The Order Accuracy Pipeline System is an open-source reference implementation fo
 - [Docker](https://docs.docker.com/engine/install/)
 - [Make](https://www.gnu.org/software/make/) (`sudo apt install make`)
 - Intel hardware (CPU, iGPU, dGPU, NPU)
-- Intel drivers (see [Intel GPU drivers](https://dgpu-docs.intel.com/driver/client/overview.html))
+- Intel drivers:
+  - [Intel GPU drivers](https://dgpu-docs.intel.com/driver/client/overview.html)
+  - [NPU](https://dlstreamer.github.io/dev_guide/advanced_install/advanced_install_guide_prerequisites.html#prerequisite-2-install-intel-npu-drivers)
 - Sufficient disk space for models, videos, and results
 
 ## 🚀 QuickStart
