@@ -6,7 +6,7 @@ The Order Accuracy Pipeline System is an open-source reference implementation fo
 
 ## 📋 Prerequisites
 
-- Ubuntu 24.04 or newer (Linux recommended)
+- Ubuntu 24.04 or newer (Linux recommended), Desktop edition (or Server edition with GUI installed).
 - [Docker](https://docs.docker.com/engine/install/)
 - [Make](https://www.gnu.org/software/make/) (`sudo apt install make`)
 - Intel hardware (CPU, iGPU, dGPU, NPU)
