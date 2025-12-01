@@ -72,7 +72,7 @@ Example: make run-demo REGISTRY=false
 - Follow the following steps:
   ```bash
   make download-models REGISTRY=false
-  make update-submodules REGISTRY=false
+  make update-submodules
   make download-sample-videos
   make run-render-mode REGISTRY=false
   ```
