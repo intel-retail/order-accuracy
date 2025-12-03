@@ -114,7 +114,7 @@ run:
         docker compose -f src/$(DOCKER_COMPOSE) up -d; \
 	fi
 
-run-render-mode:
+run-render-mode: download-qsr-video compress-qsr-video
 	@if [ -z "$(DISPLAY)" ] || ! echo "$(DISPLAY)" | grep -qE "^:[0-9]+(\.[0-9]+)?$$"; then \
         echo "ERROR: Invalid or missing DISPLAY environment variable."; \
         echo "Please set DISPLAY in the format ':<number>' (e.g., ':0')."; \
