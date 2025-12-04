@@ -8,7 +8,7 @@
  ## Current Developer Toolbox doesn't support environment files, make sure to remove any files or environment variables starting with $
 services:
   ClientGst:
-    image: intel/pipeline-runner-oa:1.2.1-${TAG:-rc2}
+    image: intel/pipeline-runner-oa:1.2.2
     deploy:
       mode: replicated
       replicas: ${PIPELINE_COUNT:-1}
