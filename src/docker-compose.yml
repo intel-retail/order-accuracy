@@ -14,7 +14,7 @@ services:
       args:
         - HTTP_PROXY=${HTTP_PROXY}
         - HTTPS_PROXY=${HTTPS_PROXY}
-    image: pipeline-runner-oa:1.2.1-${TAG:-rc2}
+    image: pipeline-runner-oa:1.2.2
     deploy:
       mode: replicated
       replicas: ${PIPELINE_COUNT:-1}
