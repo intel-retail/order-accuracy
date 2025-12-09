@@ -26,7 +26,7 @@ fi
 
 # Choose OUTPUT sink
 if [ "$RENDER_MODE" == "1" ]; then
-    OUTPUT="gvawatermark ! videoconvert ! fpsdisplaysink video-sink=autovideosink text-overlay=false signal-fps-measurements=true"
+    OUTPUT="gvawatermark ! vapostproc ! fpsdisplaysink video-sink=autovideosink text-overlay=false signal-fps-measurements=true"
 elif [ "$RTSP_OUTPUT" == "1" ]; then
     OUTPUT="gvawatermark ! x264enc ! video/x-h264,profile=baseline ! rtspclientsink location=$RTSP_SERVER/$RTSP_PATH protocols=tcp timeout=0"
 else
