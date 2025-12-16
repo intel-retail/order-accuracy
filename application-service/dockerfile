@@ -1,12 +1,82 @@
-FROM python:3.10-slim
+FROM intel/dlstreamer:2025.2.0-ubuntu22
 
-RUN apt-get update && apt-get install -y \
-    libgl1 libglib2.0-0 tesseract-ocr ffmpeg && \
-    rm -rf /var/lib/apt/lists/*
+USER root
 
+# -------------------------------
+# Proxy support
+# -------------------------------
+ARG HTTP_PROXY
+ARG HTTPS_PROXY
+ARG NO_PROXY
+
+ENV HTTP_PROXY=${HTTP_PROXY}
+ENV HTTPS_PROXY=${HTTPS_PROXY}
+ENV NO_PROXY=${NO_PROXY}
+
+ENV http_proxy=${HTTP_PROXY}
+ENV https_proxy=${HTTPS_PROXY}
+ENV no_proxy=${NO_PROXY}
+ENV PYTHONPATH="/app:/opt/intel/dlstreamer/python:${PYTHONPATH}"
+
+
+RUN if [ -n "$HTTP_PROXY$HTTPS_PROXY" ]; then \
+      echo "Acquire::http::Proxy \"$HTTP_PROXY\";"  >  /etc/apt/apt.conf.d/99proxy; \
+      echo "Acquire::https::Proxy \"$HTTPS_PROXY\";" >> /etc/apt/apt.conf.d/99proxy; \
+    fi
+
+# -------------------------------
+# Prevent interactive tzdata prompt
+# -------------------------------
+ENV DEBIAN_FRONTEND=noninteractive
+ENV TZ=UTC
+
+# -------------------------------
+# Install python + gstreamer + opencv
+# -------------------------------
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        tzdata \
+        python3 python3-pip python3-gi \
+        python3-gst-1.0 python3-opencv \
+    && rm -rf /var/lib/apt/lists/*
+
+    
+# -------------------------------
+# Install Python deps
+# -------------------------------
 WORKDIR /app
 COPY app/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-COPY app /app
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-CMD ["python", "main.py"]
+# -------------------------------
+# Copy frame_to_minio pipeline code
+# -------------------------------
+COPY app /app
+ENV PYTHONPATH="/app:${PYTHONPATH}"
+
+# -------------------------------
+# Pipeline env
+# -------------------------------
+ENV VIDEO_SOURCE="/videos/sample.mp4"
+ENV YOLO_MODEL_PATH="/models/yolo11n.xml"
+ENV YOLO_MODEL_PROC="/models/yolo11n.json"
+
+# -------------------------------
+# Entry
+# -------------------------------
+ENTRYPOINT ["/bin/bash", "-lc"]
+
+CMD ["gst-launch-1.0 -v -e \
+    filesrc location=${VIDEO_SOURCE} ! \
+    decodebin ! \
+    videoconvert ! video/x-raw,format=BGR ! \
+    videorate ! video/x-raw,framerate=1/1 ! \
+    gvapython module=frame_to_minio function=process_frame ! \
+    fakesink sync=false ; \
+    tail -f /dev/null"]
+
+
+
+#gvadetect model=${YOLO_MODEL_PATH} model-proc=${YOLO_MODEL_PROC} device=CPU ! \
+
+# CMD ["tail", "-f", "/dev/null"]

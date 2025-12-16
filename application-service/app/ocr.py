@@ -8,7 +8,8 @@ CONFIG = {
     "fps_process": 1,
 }
 
-reader = easyocr.Reader(['en'], gpu=False)
+reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+
 
 def now_ms():
     return int(time.time() * 1000)

@@ -1,9 +1,8 @@
+minio==7.2.9
+pytesseract
 opencv-python-headless
-easyocr
-minio
 ultralytics
+torch
+torchvision
 numpy
-Pillow
-fastapi
-python-multipart
-
+easyocr
