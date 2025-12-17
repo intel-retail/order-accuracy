@@ -12,17 +12,14 @@ ARG NO_PROXY
 ENV HTTP_PROXY=${HTTP_PROXY}
 ENV HTTPS_PROXY=${HTTPS_PROXY}
 ENV NO_PROXY=${NO_PROXY}
-
 ENV http_proxy=${HTTP_PROXY}
 ENV https_proxy=${HTTPS_PROXY}
 ENV no_proxy=${NO_PROXY}
+
+# -------------------------------
+# Python path
+# -------------------------------
 ENV PYTHONPATH="/app:/opt/intel/dlstreamer/python:${PYTHONPATH}"
-
-
-RUN if [ -n "$HTTP_PROXY$HTTPS_PROXY" ]; then \
-      echo "Acquire::http::Proxy \"$HTTP_PROXY\";"  >  /etc/apt/apt.conf.d/99proxy; \
-      echo "Acquire::https::Proxy \"$HTTPS_PROXY\";" >> /etc/apt/apt.conf.d/99proxy; \
-    fi
 
 # -------------------------------
 # Prevent interactive tzdata prompt
@@ -31,52 +28,64 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
 # -------------------------------
-# Install python + gstreamer + opencv
+# Install system dependencies
 # -------------------------------
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         tzdata \
-        python3 python3-pip python3-gi \
-        python3-gst-1.0 python3-opencv \
+        python3 \
+        python3-pip \
+        python3-gi \
+        python3-gst-1.0 \
+        python3-opencv \
     && rm -rf /var/lib/apt/lists/*
 
-    
 # -------------------------------
-# Install Python deps
+# Install Python deps (EXPLICIT)
 # -------------------------------
 WORKDIR /app
 COPY app/requirements.txt .
-RUN pip3 install --no-cache-dir -r requirements.txt
+
+RUN pip3 install --no-cache-dir \
+    fastapi \
+    uvicorn \
+    -r requirements.txt
 
 # -------------------------------
-# Copy frame_to_minio pipeline code
+# Copy application code
 # -------------------------------
 COPY app /app
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # -------------------------------
-# Pipeline env
+# Runtime env
 # -------------------------------
 ENV VIDEO_SOURCE="/videos/sample.mp4"
 ENV YOLO_MODEL_PATH="/models/yolo11n.xml"
 ENV YOLO_MODEL_PROC="/models/yolo11n.json"
 
 # -------------------------------
-# Entry
+# Single correct entry command
 # -------------------------------
-ENTRYPOINT ["/bin/bash", "-lc"]
-
-CMD ["gst-launch-1.0 -v -e \
-    filesrc location=${VIDEO_SOURCE} ! \
-    decodebin ! \
-    videoconvert ! video/x-raw,format=BGR ! \
-    videorate ! video/x-raw,framerate=1/1 ! \
-    gvapython module=frame_to_minio function=process_frame ! \
-    fakesink sync=false ; \
-    tail -f /dev/null"]
-
-
-
-#gvadetect model=${YOLO_MODEL_PATH} model-proc=${YOLO_MODEL_PROC} device=CPU ! \
-
-# CMD ["tail", "-f", "/dev/null"]
+CMD ["/bin/bash", "-lc", "\
+    echo '[application] Starting FastAPI...' && \
+    uvicorn main:app --host 0.0.0.0 --port 8000 & \
+    \
+    echo '[application] Waiting for FastAPI to be ready...' && \
+    until curl -s http://127.0.0.1:8000/docs > /dev/null; do \
+        sleep 0.5; \
+    done && \
+    echo '[application] FastAPI is ready' && \
+    \
+    echo '[application] Starting GStreamer pipeline...' && \
+    gst-launch-1.0 -v -e \
+        filesrc location=${VIDEO_SOURCE} ! \
+        decodebin ! \
+        videoconvert ! video/x-raw,format=BGR ! \
+        videorate ! video/x-raw,framerate=1/1 ! \
+        gvapython module=frame_to_minio function=process_frame ! \
+        fakesink sync=false ; \
+    \
+    echo '[application] Video finished, keeping container alive' && \
+    tail -f /dev/null \
+"]

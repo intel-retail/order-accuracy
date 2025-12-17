@@ -6,3 +6,4 @@ torch
 torchvision
 numpy
 easyocr
+fastapi

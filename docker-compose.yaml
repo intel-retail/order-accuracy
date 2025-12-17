@@ -7,6 +7,8 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
+      NO_PROXY: "localhost,127.0.0.1,application-service,minio"
+      no_proxy: "localhost,127.0.0.1,application-service,minio"
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -24,11 +26,22 @@ services:
       MINIO_SECRET: "minioadmin"
       MINIO_BUCKET: "frames"
       VIDEO_SOURCE: "/videos/sample.mp4"
+      NO_PROXY: "localhost,127.0.0.1,application-service,minio"
+      no_proxy: "localhost,127.0.0.1,application-service,minio"
+
     volumes:
       - ./storage/videos:/videos
+      - ./models:/models
+    ports:
+      - "8000:8000"
     depends_on:
       - minio
-    restart: unless-stopped
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/docs"]
+      interval: 5s
+      timeout: 2s
+      retries: 12
 
   frame-selector:
     build: ./frame-selector-service
@@ -39,6 +52,8 @@ services:
       MINIO_SECRET: "minioadmin"
       MINIO_BUCKET: "frames"
       SELECTED_BUCKET: "selected"
+      NO_PROXY: "localhost,127.0.0.1,application-service,minio"
+      no_proxy: "localhost,127.0.0.1,application-service,minio"
     depends_on:
       - application-service
     restart: unless-stopped

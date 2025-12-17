@@ -251,7 +251,8 @@ def process_frame(frame: "VideoFrame"):
         order_id = READ_ORDER_ID_FN(image)
 
         if not order_id:
-            order_id = "000"
+            # order_id = "000"
+            return True
 
 
             #return True
