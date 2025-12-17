@@ -3,12 +3,47 @@ import io
 import time
 import cv2
 import numpy as np
+import asyncio
 from minio import Minio
 from minio.error import S3Error
 from ultralytics import YOLO
 
+from vlm_service import run_vlm
+import requests
+
+VLM_ENDPOINT = os.getenv(
+    "VLM_ENDPOINT",
+    "http://application-service:8000/run_vlm"
+)
+
+def call_vlm(order_id, retries=5, timeout=5):
+    payload = {
+        "order_id": order_id
+    }
+
+    for attempt in range(1, retries + 1):
+        try:
+            resp = requests.post(
+                VLM_ENDPOINT,
+                json=payload,
+                timeout=timeout,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        except requests.exceptions.RequestException as e:
+            print(
+                f"[frame-selector] VLM attempt {attempt}/{retries} failed: {e}",
+                flush=True
+            )
+            if attempt == retries:
+                raise
+            time.sleep(1)
+
+
+
 # =====================================================
-# CONFIG FROM ENV (matches docker-compose)
+# CONFIG
 # =====================================================
 
 MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
@@ -18,16 +53,15 @@ MINIO_SECRET_KEY = os.getenv("MINIO_SECRET", "minioadmin")
 FRAMES_BUCKET = os.getenv("MINIO_BUCKET", "frames")
 SELECTED_BUCKET = os.getenv("SELECTED_BUCKET", "selected")
 
-TOP_K = 3  # max frames to pick per order
-
+TOP_K = 3
+POLL_INTERVAL = 1.5  # seconds
 
 # =====================================================
-# YOLO MODEL (for item counting)
+# YOLO MODEL
 # =====================================================
 
-print("[frame-selector] Loading YOLO model (yolov8n.pt)...")
+print("[frame-selector] Loading YOLO model (yolov8n.pt)...", flush=True)
 model = YOLO("yolov8n.pt")
-
 
 # =====================================================
 # MINIO CLIENT
@@ -40,84 +74,151 @@ client = Minio(
     secure=False,
 )
 
+# =====================================================
+# HELPERS
+# =====================================================
 
 def wait_for_bucket(bucket: str):
-    """Wait until a bucket exists."""
     while True:
         try:
             if client.bucket_exists(bucket):
-                print(f"[frame-selector] Bucket ready: {bucket}")
+                print(f"[frame-selector] Bucket ready: {bucket}", flush=True)
                 return
         except Exception as e:
-            print(f"[frame-selector] Bucket check error for {bucket}: {e}")
+            print(f"[frame-selector] Bucket check error: {e}", flush=True)
         time.sleep(1)
 
 
 def ensure_buckets():
     wait_for_bucket(FRAMES_BUCKET)
     if not client.bucket_exists(SELECTED_BUCKET):
-        print(f"[frame-selector] Creating bucket: {SELECTED_BUCKET}")
+        print(f"[frame-selector] Creating bucket: {SELECTED_BUCKET}", flush=True)
         client.make_bucket(SELECTED_BUCKET)
 
 
-# =====================================================
-# HELPERS
-# =====================================================
-
-def load_image(bucket: str, key: str):
-    """Load an image from MinIO and decode using cv2."""
-    try:
-        resp = client.get_object(bucket, key)
-        data = resp.read()
-        resp.close()
-        resp.release_conn()
-
-        img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-        if img is None:
-            print(f"[frame-selector] cv2.imdecode returned None for {key}")
-        return img
-    except Exception as e:
-        print(f"[frame-selector] ERROR loading {key}: {e}")
-        return None
-
-
-def count_items(frame) -> int:
-    """Count non-hand objects from YOLO detection."""
-    # Use recommended call: model(frame)[0]
-    result = model(frame, conf=0.1, verbose=False)[0]
-    count = 0
-    for box in result.boxes:
-        cls_id = int(box.cls)
-        cls_name = result.names.get(cls_id, "").lower()  # use result.names
-        if cls_name in {"hand", "person"}:
-            continue
-        count += 1
-    return count
-
-
-def list_orders_and_frames():
+def list_frames_sorted():
     """
-    Reads frames bucket and groups keys by order ID.
-    Expects structure: frames/<order_id>/<frame>.jpg
+    Returns list of (order_id, key) sorted by frame index.
+    Assumes upstream guarantees frames of one order are contiguous.
     """
-    objects = client.list_objects(FRAMES_BUCKET, recursive=True)
-
-    orders = {}
-    for obj in objects:
+    frames = []
+    for obj in client.list_objects(FRAMES_BUCKET, recursive=True):
         key = obj.object_name
-
         if not key.lower().endswith(".jpg"):
             continue
 
         parts = key.split("/", 1)
         if len(parts) != 2:
-            # malformed key, ignore
             continue
 
-        order_id = parts[0]
-        orders.setdefault(order_id, []).append(key)
+        frames.append((parts[0], key))
 
-    return orders
+    frames.sort(key=lambda x: x[1])
+    return frames
+
+
+def load_image(key: str):
+    try:
+        resp = client.get_object(FRAMES_BUCKET, key)
+        data = resp.read()
+        resp.close()
+        resp.release_conn()
+        return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    except Exception as e:
+        print(f"[frame-selector] ERROR loading {key}: {e}", flush=True)
+        return None
+
+
+def count_items(frame) -> int:
+    result = model(frame, conf=0.1, verbose=False)[0]
+    count = 0
+    for box in result.boxes:
+        cls_name = result.names.get(int(box.cls), "").lower()
+        if cls_name not in {"hand", "person"}:
+            count += 1
+    return count
+
+
+# =====================================================
+# ORDER FINALIZATION
+# =====================================================
+
+def process_completed_order(order_id, keys):
+    """
+    Called EXACTLY ONCE per order.
+    All frames of the order must already be present.
+    """
+    if not keys:
+        return
+
+    print(
+        f"\n[frame-selector] Finalizing order {order_id} "
+        f"with {len(keys)} frames",
+        flush=True
+    )
+
+    scored = []
+
+    for key in keys:
+        img = load_image(key)
+        if img is None:
+            continue
+
+        items = count_items(img)
+        scored.append((items, key, img))
+        print(f"[frame-selector]   {key} → items={items}", flush=True)
+
+    if not scored:
+        print(f"[frame-selector] No usable frames for order {order_id}", flush=True)
+        return
+
+    # Sort by items DESC, frame index DESC
+    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
+    topk = scored[:min(TOP_K, len(scored))]
+
+    selected_keys = []
+
+    for rank, (items, key, frame) in enumerate(topk, 1):
+        out_key = f"{order_id}/rank_{rank}.jpg"
+        ok, buf = cv2.imencode(".jpg", frame)
+        if not ok:
+            continue
+
+        client.put_object(
+            SELECTED_BUCKET,
+            out_key,
+            io.BytesIO(buf.tobytes()),
+            len(buf),
+            content_type="image/jpeg",
+        )
+
+        selected_keys.append(out_key)
+        print(
+            f"[frame-selector]   Saved {out_key} (items={items})",
+            flush=True
+        )
+
+    # -------------------------------------------------
+    # VLM CALL (SKIP DUMMY ORDER 000)
+    # -------------------------------------------------
+
+    if order_id == "000":
+        print("[frame-selector] Skipping VLM for order 000", flush=True)
+        return
+
+    print(f"[frame-selector] Calling VLM for order {order_id}", flush=True)
+
+    # try:
+    #     response = asyncio.run(run_vlm(order_id, selected_keys))
+    #     print("[frame-selector] VLM response:", response, flush=True)
+    # except Exception as e:
+    #     print("[frame-selector] VLM call failed:", e, flush=True)
+    try:
+        response = call_vlm(order_id)
+        print("[frame-selector] VLM response:", response, flush=True)
+    except Exception as e:
+        print("[frame-selector] VLM call failed:", e, flush=True)
+
 
 
 # =====================================================
@@ -125,74 +226,44 @@ def list_orders_and_frames():
 # =====================================================
 
 if __name__ == "__main__":
-    print("[frame-selector] Starting...")
+    print("[frame-selector] Starting...", flush=True)
     ensure_buckets()
-    print(f"[frame-selector] Connected to MinIO: {MINIO_ENDPOINT}")
-    print("[frame-selector] Watching for frames...")
 
-    processed_orders = set()
+    processed_keys = set()
+    current_order = None
+    current_keys = []
+
+    print("[frame-selector] Watching frames...", flush=True)
 
     while True:
         try:
-            all_orders = list_orders_and_frames()
+            frames = list_frames_sorted()
         except S3Error as e:
-            print("[frame-selector] ERROR listing objects:", e)
-            time.sleep(2)
+            print("[frame-selector] MinIO list error:", e, flush=True)
+            time.sleep(POLL_INTERVAL)
             continue
 
-        for order_id, keys in all_orders.items():
-            if order_id in processed_orders:
-                continue  # already handled once
-
-            print(f"\n[frame-selector] Processing order {order_id}: {len(keys)} frames")
-
-            scored_frames = []
-
-            for key in sorted(keys):
-                img = load_image(FRAMES_BUCKET, key)
-                if img is None:
-                    continue
-
-                items = count_items(img)
-                scored_frames.append((items, key, img))
-                print(f"[frame-selector]   frame={key}  items={items}")
-
-            if not scored_frames:
-                print(f"[frame-selector] No valid frames for order {order_id}")
-                processed_orders.add(order_id)
+        for order_id, key in frames:
+            if key in processed_keys:
                 continue
 
-            # Sort: item_count DESC, then filename DESC (later frames win on tie)
-            scored_frames.sort(key=lambda x: (x[0], x[1]), reverse=True)
+            # First frame
+            if current_order is None:
+                current_order = order_id
 
-            # Pick up to TOP_K frames (max 3 or fewer if not enough)
-            k = min(TOP_K, len(scored_frames))
-            topk = scored_frames[:k]
+            # 🔁 ORDER SWITCH = ORDER COMPLETE
+            if order_id != current_order:
+                process_completed_order(current_order, current_keys)
+                current_order = order_id
+                current_keys = []
 
-            print(f"[frame-selector] Selected top {k} frames for order {order_id}:")
-            for items, key, _ in topk:
-                print(f"    -> {key} (items={items})")
+            current_keys.append(key)
+            processed_keys.add(key)
 
-            # Upload selected frames to SELECTED_BUCKET
-            for rank, (items, key, frame) in enumerate(topk, 1):
-                out_key = f"{order_id}/rank_{rank}.jpg"
-                ok, buf = cv2.imencode(".jpg", frame)
-                if not ok:
-                    print(f"[frame-selector]   ! Failed to encode {key}")
-                    continue
+            print(
+                f"[frame-selector] Collected {key} "
+                f"(order={order_id}, total={len(current_keys)})",
+                flush=True
+            )
 
-                data = buf.tobytes()
-                client.put_object(
-                    SELECTED_BUCKET,
-                    out_key,
-                    io.BytesIO(data),
-                    len(data),
-                    content_type="image/jpeg",
-                )
-
-                print(f"[frame-selector]   Saved: {out_key} (items={items})")
-
-            processed_orders.add(order_id)
-            print(f"[frame-selector] Done for order {order_id}")
-
-        time.sleep(2)
+        time.sleep(POLL_INTERVAL)
