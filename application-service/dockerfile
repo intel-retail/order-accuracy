@@ -67,25 +67,5 @@ ENV YOLO_MODEL_PROC="/models/yolo11n.json"
 # -------------------------------
 # Single correct entry command
 # -------------------------------
-CMD ["/bin/bash", "-lc", "\
-    echo '[application] Starting FastAPI...' && \
-    uvicorn main:app --host 0.0.0.0 --port 8000 & \
-    \
-    echo '[application] Waiting for FastAPI to be ready...' && \
-    until curl -s http://127.0.0.1:8000/docs > /dev/null; do \
-        sleep 0.5; \
-    done && \
-    echo '[application] FastAPI is ready' && \
-    \
-    echo '[application] Starting GStreamer pipeline...' && \
-    gst-launch-1.0 -v -e \
-        filesrc location=${VIDEO_SOURCE} ! \
-        decodebin ! \
-        videoconvert ! video/x-raw,format=BGR ! \
-        videorate ! video/x-raw,framerate=1/1 ! \
-        gvapython module=frame_to_minio function=process_frame ! \
-        fakesink sync=false ; \
-    \
-    echo '[application] Video finished, keeping container alive' && \
-    tail -f /dev/null \
-"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+

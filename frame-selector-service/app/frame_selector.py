@@ -7,14 +7,31 @@ import asyncio
 from minio import Minio
 from minio.error import S3Error
 from ultralytics import YOLO
-
-from vlm_service import run_vlm
 import requests
+from config_loader import load_config
+cfg = load_config()
 
-VLM_ENDPOINT = os.getenv(
-    "VLM_ENDPOINT",
-    "http://application-service:8000/run_vlm"
-)
+MINIO = cfg["minio"]
+BUCKETS = cfg["buckets"]
+FS_CFG = cfg["frame_selector"]
+VLM_CFG = cfg["vlm"]
+
+MINIO_ENDPOINT = MINIO["endpoint"]
+FRAMES_BUCKET = BUCKETS["frames"]
+SELECTED_BUCKET = BUCKETS["selected"]
+
+TOP_K = FS_CFG["top_k"]
+POLL_INTERVAL = FS_CFG["poll_interval_sec"]
+SKIP_LABELS = set(FS_CFG["skip_labels"])
+
+VLM_ENDPOINT = VLM_CFG["endpoint"]
+VLM_RETRIES = VLM_CFG["retries"]
+VLM_TIMEOUT = VLM_CFG["timeout_sec"]
+
+# VLM_ENDPOINT = os.getenv(
+#     "VLM_ENDPOINT",
+#     "http://application-service:8000/run_vlm"
+# )
 
 def call_vlm(order_id, retries=5, timeout=5):
     payload = {
@@ -46,15 +63,15 @@ def call_vlm(order_id, retries=5, timeout=5):
 # CONFIG
 # =====================================================
 
-MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
-MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS", "minioadmin")
-MINIO_SECRET_KEY = os.getenv("MINIO_SECRET", "minioadmin")
+# MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
+# MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS", "minioadmin")
+# MINIO_SECRET_KEY = os.getenv("MINIO_SECRET", "minioadmin")
 
-FRAMES_BUCKET = os.getenv("MINIO_BUCKET", "frames")
-SELECTED_BUCKET = os.getenv("SELECTED_BUCKET", "selected")
+# FRAMES_BUCKET = os.getenv("MINIO_BUCKET", "frames")
+# SELECTED_BUCKET = os.getenv("SELECTED_BUCKET", "selected")
 
-TOP_K = 3
-POLL_INTERVAL = 1.5  # seconds
+# TOP_K = 3
+# POLL_INTERVAL = 1.5  # seconds
 
 # =====================================================
 # YOLO MODEL
@@ -69,9 +86,9 @@ model = YOLO("yolov8n.pt")
 
 client = Minio(
     MINIO_ENDPOINT,
-    access_key=MINIO_ACCESS_KEY,
-    secret_key=MINIO_SECRET_KEY,
-    secure=False,
+    access_key=MINIO["access_key"],
+    secret_key=MINIO["secret_key"],
+    secure=MINIO.get("secure", False),
 )
 
 # =====================================================
@@ -134,7 +151,7 @@ def count_items(frame) -> int:
     count = 0
     for box in result.boxes:
         cls_name = result.names.get(int(box.cls), "").lower()
-        if cls_name not in {"hand", "person"}:
+        if cls_name not in SKIP_LABELS:
             count += 1
     return count
 

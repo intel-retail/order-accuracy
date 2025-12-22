@@ -4,23 +4,61 @@ from io import BytesIO
 from ultralytics import YOLO
 from minio import Minio
 from fastapi import FastAPI, Body
-from ocr import read_order_id
+from ocr_component import read_order_id
 from vlm_service import run_vlm
+from pipeline_runner import run_pipeline_async
+from config_loader import load_config
+cfg = load_config()
+
+MINIO = cfg["minio"]
+BUCKETS = cfg["buckets"]
+
+FRAMES_BUCKET = BUCKETS["frames"]
+SELECTED_BUCKET = BUCKETS["selected"]
+
+
+VIDEO_SOURCE = cfg["video"]["default_source"]
+FPS_TARGET = cfg["video"]["fps_target"]
+
 
 # =========================
 # CONFIG
 # =========================
-VIDEO_SOURCE = "/videos/sample.mp4"
+# VIDEO_SOURCE = "/videos/sample.mp4"
 CONF_THRESHOLD = 0.1
 IOU_THRESHOLD = 0.7
-FPS_TARGET = 1
+# FPS_TARGET = 1
 HAND_LABELS = {"hand", "person"}
-BUCKET = "frames"
+# BUCKET = "frames"
 
 # =========================
 # FASTAPI APP (API ONLY)
 # =========================
 app = FastAPI()
+
+
+@app.post("/run-video")
+def run_video(payload: dict = Body(...)):
+    video_path = payload.get("video_path")
+
+    if not video_path:
+        return {"status": "error", "reason": "video_path_missing"}
+
+    try:
+        run_pipeline_async(video_path)
+    except FileNotFoundError:
+        return {
+            "status": "error",
+            "reason": "file_not_found",
+            "path": video_path
+        }
+
+    return {
+        "status": "started",
+        "video": video_path
+    }
+
+
 
 @app.post("/run_vlm")
 async def run_vlm_endpoint(payload: dict = Body(...)):
@@ -30,8 +68,8 @@ async def run_vlm_endpoint(payload: dict = Body(...)):
             "status": "error",
             "reason": "order_id_missing"
         }
-
     return await run_vlm(order_id)
+
 # =========================
 # VIDEO PIPELINE (ISOLATED)
 # =========================

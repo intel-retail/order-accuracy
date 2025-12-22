@@ -7,3 +7,5 @@ torchvision
 numpy
 easyocr
 fastapi
+pyyaml
+

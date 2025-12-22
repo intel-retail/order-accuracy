@@ -2,6 +2,15 @@ import os
 import asyncio
 from minio import Minio
 from minio.error import S3Error
+from config_loader import load_config
+cfg = load_config()
+
+MINIO = cfg["minio"]
+BUCKETS = cfg["buckets"]
+
+FRAMES_BUCKET = BUCKETS["frames"]
+SELECTED_BUCKET = BUCKETS["selected"]
+
 
 # -------------------------
 # MinIO config

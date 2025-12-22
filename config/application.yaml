@@ -1,0 +1,28 @@
+minio:
+  endpoint: minio:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  secure: false
+
+buckets:
+  frames: frames
+  selected: selected
+
+video:
+  default_source: /videos/sample.mp4
+  fps_target: 1
+
+frame_selector:
+  top_k: 3
+  poll_interval_sec: 1.5
+  skip_labels:
+    - hand
+    - person
+
+vlm:
+  endpoint: http://application-service:8000/run_vlm
+  retries: 5
+  timeout_sec: 5
+
+ocr:
+  prefer_digits: 3

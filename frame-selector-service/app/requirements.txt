@@ -3,3 +3,4 @@ numpy
 minio==7.2.9
 ultralytics==8.3.0
 requests
+pyyaml
