@@ -7,8 +7,6 @@ services:
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
-      NO_PROXY: "localhost,127.0.0.1,minio,application-service,frame-selector"
-      no_proxy: "localhost,127.0.0.1,minio,application-service,frame-selector"
     command: server /data --console-address ":9001"
     ports:
       - "9000:9000"
@@ -22,12 +20,11 @@ services:
     container_name: oa_application
     volumes:
       - ./storage/videos:/videos
-      - ./models:/models
+      - ./model:/model
       - ./config:/config:ro
     environment:
       APP_CONFIG: /config/application.yaml
-      NO_PROXY: "localhost,127.0.0.1,minio,application-service,frame-selector"
-      no_proxy: "localhost,127.0.0.1,minio,application-service,frame-selector"
+      VLM_MODEL_PATH: /model/Qwen2.5-VL-7B-Instruct-ov-int8
     ports:
       - "8000:8000"
     depends_on:
@@ -40,8 +37,6 @@ services:
       - ./config:/config:ro
     environment:
       APP_CONFIG: /config/application.yaml
-      NO_PROXY: "localhost,127.0.0.1,minio,application-service,frame-selector"
-      no_proxy: "localhost,127.0.0.1,minio,application-service,frame-selector"
     depends_on:
       - application-service
 

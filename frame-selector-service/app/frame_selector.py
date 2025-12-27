@@ -33,29 +33,17 @@ VLM_TIMEOUT = VLM_CFG["timeout_sec"]
 #     "http://application-service:8000/run_vlm"
 # )
 
-def call_vlm(order_id, retries=5, timeout=5):
-    payload = {
-        "order_id": order_id
-    }
+def call_vlm(order_id, timeout=120):
+    payload = {"order_id": order_id}
 
-    for attempt in range(1, retries + 1):
-        try:
-            resp = requests.post(
-                VLM_ENDPOINT,
-                json=payload,
-                timeout=timeout,
-            )
-            resp.raise_for_status()
-            return resp.json()
+    resp = requests.post(
+        VLM_ENDPOINT,
+        json=payload,
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
-        except requests.exceptions.RequestException as e:
-            print(
-                f"[frame-selector] VLM attempt {attempt}/{retries} failed: {e}",
-                flush=True
-            )
-            if attempt == retries:
-                raise
-            time.sleep(1)
 
 
 

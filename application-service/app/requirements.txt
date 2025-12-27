@@ -9,3 +9,5 @@ easyocr
 fastapi
 pyyaml
 
+openvino
+openvino-genai
