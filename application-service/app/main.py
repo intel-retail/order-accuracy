@@ -39,24 +39,23 @@ app = FastAPI()
 
 @app.post("/run-video")
 def run_video(payload: dict = Body(...)):
-    video_path = payload.get("video_path")
+    source_type = payload.get("source_type")  # file | rtsp | webcam | http
+    source = payload.get("source")
 
-    if not video_path:
-        return {"status": "error", "reason": "video_path_missing"}
-
-    try:
-        run_pipeline_async(video_path)
-    except FileNotFoundError:
+    if not source_type or not source:
         return {
             "status": "error",
-            "reason": "file_not_found",
-            "path": video_path
+            "reason": "source_type_or_source_missing"
         }
+
+    run_pipeline_async(source_type, source)
 
     return {
         "status": "started",
-        "video": video_path
+        "source_type": source_type,
+        "source": source
     }
+
 
 
 

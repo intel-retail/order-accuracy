@@ -28,11 +28,6 @@ VLM_ENDPOINT = VLM_CFG["endpoint"]
 VLM_RETRIES = VLM_CFG["retries"]
 VLM_TIMEOUT = VLM_CFG["timeout_sec"]
 
-# VLM_ENDPOINT = os.getenv(
-#     "VLM_ENDPOINT",
-#     "http://application-service:8000/run_vlm"
-# )
-
 def call_vlm(order_id, timeout=120):
     payload = {"order_id": order_id}
 
@@ -44,26 +39,6 @@ def call_vlm(order_id, timeout=120):
     resp.raise_for_status()
     return resp.json()
 
-
-
-
-# =====================================================
-# CONFIG
-# =====================================================
-
-# MINIO_ENDPOINT = os.getenv("MINIO_ENDPOINT", "minio:9000")
-# MINIO_ACCESS_KEY = os.getenv("MINIO_ACCESS", "minioadmin")
-# MINIO_SECRET_KEY = os.getenv("MINIO_SECRET", "minioadmin")
-
-# FRAMES_BUCKET = os.getenv("MINIO_BUCKET", "frames")
-# SELECTED_BUCKET = os.getenv("SELECTED_BUCKET", "selected")
-
-# TOP_K = 3
-# POLL_INTERVAL = 1.5  # seconds
-
-# =====================================================
-# YOLO MODEL
-# =====================================================
 
 print("[frame-selector] Loading YOLO model (yolov8n.pt)...", flush=True)
 model = YOLO("yolov8n.pt")
