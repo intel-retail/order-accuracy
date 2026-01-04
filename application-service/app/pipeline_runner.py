@@ -2,16 +2,13 @@ import subprocess
 import os
 import threading
 
-
-
-
-
 def build_gstreamer_pipeline(source_type: str, source: str) -> str:
     if source_type == "file":
         src = f"filesrc location={source}"
 
     elif source_type == "rtsp":
-        src = f"rtspsrc location={source} latency=200"
+        source = normalize_rtsp_url(source)
+        src = f"rtspsrc location={source} protocols=tcp latency=200"
 
     elif source_type == "webcam":
         src = f"v4l2src device={source}"
@@ -35,15 +32,12 @@ def build_gstreamer_pipeline(source_type: str, source: str) -> str:
 
     return pipeline
 
-
 def run_pipeline(source_type: str, source: str):
     pipeline = build_gstreamer_pipeline(source_type, source)
 
     cmd = f"gst-launch-1.0 -v -e {pipeline}"
 
     subprocess.run(cmd, shell=True, check=True)
-
-
 
 def run_pipeline_async(source_type: str, source: str):
     t = threading.Thread(
@@ -52,3 +46,12 @@ def run_pipeline_async(source_type: str, source: str):
         daemon=True
     )
     t.start()
+
+def normalize_rtsp_url(url: str) -> str:
+    if url.startswith("rtsp://localhost"):
+        return url.replace("rtsp://localhost", "rtsp://host.docker.internal", 1)
+
+    if url.startswith("rtsp://127.0.0.1"):
+        return url.replace("rtsp://127.0.0.1", "rtsp://host.docker.internal", 1)
+
+    return url

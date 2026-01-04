@@ -3,10 +3,14 @@ import os
 from io import BytesIO
 from ultralytics import YOLO
 from minio import Minio
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Body, UploadFile, File
 from ocr_component import read_order_id
 from vlm_service import run_vlm
 from pipeline_runner import run_pipeline_async
+from order_results import get_results
+import uuid
+import shutil
+
 from config_loader import load_config
 cfg = load_config()
 
@@ -36,6 +40,32 @@ HAND_LABELS = {"hand", "person"}
 # =========================
 app = FastAPI()
 
+@app.post("/upload-video")
+async def upload_and_run_video(file: UploadFile = File(...)):
+    if not file.filename.lower().endswith((".mp4", ".avi", ".mkv", ".mov")):
+        return {
+            "status": "error",
+            "reason": "unsupported_file_type"
+        }
+
+    video_id = str(uuid.uuid4())
+    save_path = f"/uploads/{video_id}_{file.filename}"
+
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    # Trigger pipeline
+    run_pipeline_async(
+        source_type="file",
+        source=save_path
+    )
+
+    return {
+        "status": "started",
+        "video_id": video_id,
+        "path": save_path
+    }
+
 
 @app.post("/run-video")
 def run_video(payload: dict = Body(...)):
@@ -57,7 +87,11 @@ def run_video(payload: dict = Body(...)):
     }
 
 
-
+@app.get("/vlm/results")
+def get_latest_vlm_results():
+    return {
+        "results": get_results()
+    }
 
 @app.post("/run_vlm")
 async def run_vlm_endpoint(payload: dict = Body(...)):

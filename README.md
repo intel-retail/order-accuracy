@@ -1,10 +1,22 @@
 # **Order Accuracy**
 
-This project processes a video, extracts valid order-ID frames, uploads them to **MinIO**, and then selects the **top frames** per order based on item count.
+This project processes a video or RTSP stream, extracts **valid order-ID frames**, uploads them to **MinIO**, selects the **top frames per order**, and runs **VLM inference** to extract ordered items.
 
 ---
 
-## 📦 **Project Structure**
+## 📦 **What the system does**
+
+* Accepts **video file uploads** or **RTSP streams**
+* Extracts frames using **GStreamer + gvapython**
+* Detects **order ID using OCR**
+* Stores frames in **MinIO**
+* Selects **Top-K frames** per order using **YOLO**
+* Runs **VLM (OpenVINO GenAI)** for item & quantity extraction
+* Provides a **Gradio UI** for interaction
+
+---
+
+## 📁 **Project Structure**
 
 ```
 order-accuracy/
@@ -14,9 +26,9 @@ order-accuracy/
 ├── application-service/
 │   ├── Dockerfile
 │   └── app/
-│       ├── main.py               # Extracts frames, OCR, YOLO item detection
-│       ├── ocr_reader.py
-│       ├── frame_preprocessor.py
+│       ├── main.py               # API + pipeline trigger
+│       ├── pipeline_runner.py    # GStreamer launcher
+│       ├── frame_pipeline.py     # OCR + frame upload
 │       └── requirements.txt
 │
 ├── frame-selector-service/
@@ -25,28 +37,26 @@ order-accuracy/
 │       ├── frame_selector.py     # Selects top frames
 │       └── requirements.txt
 │
+├── gradio-ui/
+│   ├── Dockerfile
+│   └── gradio_app.py             # Web UI
+│
+├── config/
+│   └── application.yaml
+│
+├── model/
+│   └── Qwen2.5-VL-7B-Instruct-ov-int8/
+│
 └── storage/
-    └── videos/
-        └── sample.mp4            # Input video (replace with your own)
+    ├── videos/
+    └── uploads/
 ```
 
 ---
 
 ## ▶️ **How to Run**
 
-### **1. Add your input video**
-
-Place your video here:
-
-```
-storage/videos/sample.mp4
-```
-
-(or modify `VIDEO_SOURCE` in the compose file)
-
----
-
-### **2. Start all services**
+### **1. Start all services**
 
 ```bash
 docker compose up --build
@@ -54,27 +64,56 @@ docker compose up --build
 
 This launches:
 
-* **MinIO**
-* **Application Service** → Extracts valid frames to MinIO
-* **Frame Selector Service** → Picks best frames and writes to MinIO
+* **MinIO** (frame storage)
+* **Application Service** (GStreamer + OCR + VLM API)
+* **Frame Selector Service** (YOLO ranking)
+* **Gradio UI**
 
 ---
 
-## 🖼 View frames in MinIO UI
-
-Open:
-
-```
-http://localhost:9001
-```
-
-Login:
+Login for MinIO:
 
 ```
 minioadmin / minioadmin
 ```
 
-### **Extracted Frames (input frames)**
+---
+
+## 🎥 **How to Use**
+
+### **Upload a Video (UI)**
+
+1. Open Gradio UI
+2. Upload `.mp4 / .avi / .mkv`
+3. Click **Upload & Start**
+
+The pipeline starts automatically.
+
+---
+
+### **RTSP Stream**
+
+RTSP example:
+
+```
+rtsp://192.168.1.5:8554/test
+```
+
+API call:
+
+```bash
+curl -X POST http://localhost:8000/run-video \
+  -H "Content-Type: application/json" \
+  -d '{"source_type":"rtsp","source":"rtsp://192.168.1.5:8554/test"}'
+```
+
+> If `localhost` is provided in RTSP, the backend safely normalizes it for Docker.
+
+---
+
+## 🖼 **View Frames in MinIO**
+
+### Extracted Frames
 
 ```
 frames/
@@ -84,7 +123,7 @@ frames/
       └── 76.jpg
 ```
 
-### **Selected Frames (top frames)**
+### Selected Frames
 
 ```
 selected/
@@ -96,49 +135,23 @@ selected/
 
 ---
 
-## 🔄 **Clean Restart (recommended)**
-
-Sometimes MinIO retains old state.
-Use these commands for a fresh restart.
-
-### **1. Stop all services**
-
-```bash
-docker compose down
-```
-
-### **2. Remove orphan containers**
+## 🔄 **Clean Restart (Recommended)**
 
 ```bash
 docker compose down --remove-orphans
-```
-
-### **3. Remove dangling images/containers**
-
-```bash
-docker system prune -f
-```
-
-### **4. Remove MinIO volume completely**
-
-> **WARNING:** This deletes all previously stored frames.
-
-```bash
 docker volume rm order-accuracy_minio_data
-```
-
-### **5. Restart the complete system**
-
-```bash
 docker compose up --build
 ```
 
----
-
-## 🔁 **Run again with a different video**
-
-1. Replace `storage/videos/sample.mp4`
-2. Clean restart (optional)
-3. Run `docker compose up --build`
+⚠️ This deletes all stored frames.
 
 ---
+
+## ✅ **TL;DR**
+
+```bash
+docker compose up --build
+open http://localhost:7860
+```
+
+Upload video or RTSP → frames extracted → top frames selected → VLM results available.

@@ -9,6 +9,7 @@ from minio import Minio
 from minio.error import S3Error
 from openvino_genai import VLMPipeline, GenerationConfig
 from config_loader import load_config
+from order_results import add_result
 
 # ============================================================
 # CONFIG
@@ -203,6 +204,8 @@ async def _run_vlm_internal(order_id: str):
         "order_id": order_id,
         "status": "ok"
     })
+
+    add_result(result)
 
     return result
 

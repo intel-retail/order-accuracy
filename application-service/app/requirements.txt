@@ -11,3 +11,5 @@ pyyaml
 
 openvino
 openvino-genai
+python-multipart
+
