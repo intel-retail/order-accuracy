@@ -1,6 +1,7 @@
 import subprocess
-import os
+import os, io
 import threading
+from minio import Minio
 
 def build_gstreamer_pipeline(source_type: str, source: str) -> str:
     if source_type == "file":
@@ -38,6 +39,24 @@ def run_pipeline(source_type: str, source: str):
     cmd = f"gst-launch-1.0 -v -e {pipeline}"
 
     subprocess.run(cmd, shell=True, check=True)
+    
+      # 🔔 EOS MARKER (CRITICAL)
+    print("[application] Pipeline finished. Writing EOS marker.")
+
+    client = Minio(
+        "minio:9000",
+        access_key="minioadmin",
+        secret_key="minioadmin",
+        secure=False,
+    )
+
+    client.put_object(
+        "frames",
+        "__EOS__",
+        io.BytesIO(b"done"),
+        length=4,
+        content_type="text/plain",
+    )
 
 def run_pipeline_async(source_type: str, source: str):
     t = threading.Thread(
