@@ -20,6 +20,10 @@ services:
   application-service:
     build: ./application-service
     container_name: oa_application
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
     volumes:
       - ./storage/videos:/videos
       - ./storage/uploads:/uploads
@@ -28,6 +32,7 @@ services:
     environment:
       APP_CONFIG: /config/application.yaml
       VLM_MODEL_PATH: /model/Qwen2.5-VL-7B-Instruct-ov-int8
+      OPENVINO_DEVICE: GPU
       NO_PROXY: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
       no_proxy: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
     ports:

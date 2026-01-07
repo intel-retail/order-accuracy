@@ -28,8 +28,6 @@ VLM_ENDPOINT = VLM_CFG["endpoint"]
 VLM_RETRIES = VLM_CFG["retries"]
 VLM_TIMEOUT = VLM_CFG["timeout_sec"]
 
-
-
 def call_vlm(order_id, timeout=120):
     payload = {"order_id": order_id}
 
@@ -79,24 +77,24 @@ def ensure_buckets():
 
 
 def list_frames_sorted():
+    """
+    Returns list of (order_id, key) sorted by frame index.
+    Assumes upstream guarantees frames of one order are contiguous.
+    """
     frames = []
-    eos_seen = False
-
     for obj in client.list_objects(FRAMES_BUCKET, recursive=True):
-        if obj.object_name == "__EOS__":
-            eos_seen = True
+        key = obj.object_name
+        if not key.lower().endswith(".jpg"):
             continue
 
-        if not obj.object_name.lower().endswith(".jpg"):
+        parts = key.split("/", 1)
+        if len(parts) != 2:
             continue
 
-        parts = obj.object_name.split("/", 1)
-        if len(parts) == 2:
-            frames.append((parts[0], obj.object_name))
+        frames.append((parts[0], key))
 
     frames.sort(key=lambda x: x[1])
-    return frames, eos_seen
-
+    return frames
 
 
 def load_image(key: str):
@@ -217,12 +215,9 @@ if __name__ == "__main__":
 
     print("[frame-selector] Watching frames...", flush=True)
 
-    LAST_FRAME_TIME = None
-    ORDER_TIMEOUT_SEC = 3.0  # tweak if needed
-
     while True:
         try:
-            frames, eos_seen = list_frames_sorted()
+            frames = list_frames_sorted()
         except S3Error as e:
             print("[frame-selector] MinIO list error:", e, flush=True)
             time.sleep(POLL_INTERVAL)
@@ -244,33 +239,11 @@ if __name__ == "__main__":
 
             current_keys.append(key)
             processed_keys.add(key)
-            LAST_FRAME_TIME = time.time()
 
             print(
                 f"[frame-selector] Collected {key} "
                 f"(order={order_id}, total={len(current_keys)})",
                 flush=True
             )
-
-            # ⏱️ FINALIZE LAST ORDER ON INACTIVITY
-            now = time.time()
-            if current_order and LAST_FRAME_TIME:
-                if now - LAST_FRAME_TIME > ORDER_TIMEOUT_SEC:
-                    print(
-                        f"[frame-selector] Timeout reached. Finalizing order {current_order}",
-                        flush=True
-                    )
-                    process_completed_order(current_order, current_keys)
-                    current_order = None
-                    current_keys = []
-                    LAST_FRAME_TIME = None
-        if eos_seen and current_order and current_keys:
-            print(
-                f"[frame-selector] EOS detected. Finalizing last order {current_order}",
-                flush=True
-            )
-            process_completed_order(current_order, current_keys)
-            current_order = None
-            current_keys = []
 
         time.sleep(POLL_INTERVAL)
