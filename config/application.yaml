@@ -23,6 +23,8 @@ vlm:
   endpoint: http://application-service:8000/run_vlm
   retries: 5
   timeout_sec: 5
+  model: Qwen/Qwen2.5-VL-7B-Instruct
+  precision: int8
 
 ocr:
   prefer_digits: 3

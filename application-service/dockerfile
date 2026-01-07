@@ -33,6 +33,10 @@ ENV TZ=UTC
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         tzdata \
+        git \
+        curl \
+        ca-certificates \
+        jq \
         python3 \
         python3-pip \
         python3-gi \
@@ -46,15 +50,30 @@ RUN apt-get update && \
 WORKDIR /app
 COPY app/requirements.txt .
 
+RUN python3 -m pip install --upgrade pip setuptools wheel
+
 RUN pip3 install --no-cache-dir \
     fastapi \
     uvicorn \
-    -r requirements.txt
+    opencv-python-headless \
+    yq
+
+# OpenVINO + Optimum (for model export)
+RUN pip3 install --no-cache-dir \
+    "optimum[openvino]"
+
+# App-specific deps
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # -------------------------------
 # Copy application code
 # -------------------------------
 COPY app /app
+COPY scripts /scripts
+COPY entrypoint.sh /entrypoint.sh
+
+RUN chmod +x /entrypoint.sh /scripts/*.sh
+
 ENV PYTHONPATH="/app:${PYTHONPATH}"
 
 # -------------------------------
@@ -64,8 +83,8 @@ ENV VIDEO_SOURCE="/videos/sample.mp4"
 ENV YOLO_MODEL_PATH="/models/yolo11n.xml"
 ENV YOLO_MODEL_PROC="/models/yolo11n.json"
 
-# -------------------------------
-# Single correct entry command
-# -------------------------------
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
+# ------------------------------------------------------------
+# Entrypoint
+# ------------------------------------------------------------
+ENTRYPOINT ["/entrypoint.sh"]
 
