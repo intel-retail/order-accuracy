@@ -29,12 +29,9 @@ MODEL_PATH = os.getenv(
     VLM_CFG.get("model_path", "/models/Qwen2.5-VL-7B-Instruct-ov-int8")
 )
 
-DEVICE = os.getenv(
-    "OPENVINO_DEVICE",
-    VLM_CFG.get("device", "CPU")
-)
+DEVICE = VLM_CFG.get("device", "CPU")
 MAX_NEW_TOKENS = VLM_CFG.get("max_new_tokens", 512)
-TEMPERATURE = VLM_CFG.get("temperature", 0.2)
+TEMPERATURE = VLM_CFG.get("temperature", 0.0)
 
 # ============================================================
 # MINIO CLIENT (single instance)
@@ -51,10 +48,6 @@ client = Minio(
 # VLM MODEL (SINGLETON, LOADED ONCE)
 # ============================================================
 
-BLACKLIST = {
-    "total", "total items", "items", "quantity",
-    "subtotal", "tax", "bill", "amount", "price"
-}
 class VLMComponent:
     _model = None
     _config_key = None
@@ -64,11 +57,7 @@ class VLMComponent:
 
         if VLMComponent._model is None or VLMComponent._config_key != config_key:
             print(f"[VLM] Loading model from {model_path} on {device}", flush=True)
-            core = ov.Core()
-            if device.upper().startswith("GPU"):
-                core.set_property("GPU", {
-                    "GPU_THROUGHPUT_STREAMS": "1"
-                })
+
             VLMComponent._model = VLMPipeline(
                 models_path=model_path,
                 device=device
@@ -94,11 +83,7 @@ class VLMComponent:
             if not clean_name.isdigit():
                 items[clean_name] = int(qty)
 
-        clean_items = {}
-        for k, v in items.items():
-            if not any(b in k for b in BLACKLIST):
-                clean_items[k] = v
-        return clean_items
+        return items
 
     def process(self, images: list[np.ndarray]):
         if not images:
@@ -111,10 +96,8 @@ class VLMComponent:
 
         prompt = (
             f"You will receive {num_frames} frames.\n"
-            f"Extract ONLY real product/item names visible in the images.\n"
-            f"DO NOT include words like total, quantity, subtotal, tax, bill, items.\n"
-            f"Format strictly as: item_name x number\n"
-            f"If no real items are visible, output 'NO_ITEMS'.\n"
+            f"List all items on the table and the bill number.\n"
+            f"Format each item as 'name x quantity'.\n"
             f"{img_tags}"
         )
 
