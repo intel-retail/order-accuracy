@@ -75,12 +75,68 @@ def fetch_results():
 
 
 # -----------------------------
+# FORMAT RESULTS (NEW)
+# -----------------------------
+
+def format_detected_orders():
+    results = fetch_results()
+
+    if not results:
+        return [], "No orders processed yet."
+
+    rows = []
+    summaries = []
+
+    for r in results:
+        order_id = r.get("order_id", "UNKNOWN")
+        detected_items = r.get("detected_items", [])
+        validation = r.get("validation", {})
+        status = r.get("status", "unknown")
+
+        missing = validation.get("missing", [])
+        extra = validation.get("extra", [])
+        qty_mismatch = validation.get("quantity_mismatch", [])
+
+        item_lines = []
+
+        for item in detected_items:
+            name = item["name"]
+            qty = item["quantity"]
+
+            label = "OK"
+
+            if any(m["name"] == name for m in missing):
+                label = "Missing"
+            elif any(e["name"] == name for e in extra):
+                label = "Extra"
+            elif any(q["name"] == name for q in qty_mismatch):
+                label = "Qty Mismatch"
+
+            item_lines.append(f"{name} x{qty} ({label})")
+
+        rows.append([
+            order_id,
+            "\n".join(item_lines),
+            "✅ VALIDATED" if status == "validated" else "❌ MISMATCH"
+        ])
+
+        summaries.append(
+            f"### Order {order_id}\n"
+            f"- Status: {'✅ VALIDATED' if status == 'validated' else '❌ MISMATCH'}\n"
+            f"- Missing: {missing or 'None'}\n"
+            f"- Extra: {extra or 'None'}\n"
+            f"- Quantity Mismatch: {qty_mismatch or 'None'}"
+        )
+
+    return rows, "\n\n".join(summaries)
+
+# -----------------------------
 # UI
 # -----------------------------
 
-with gr.Blocks(title="Order Accuracy – Video Analyzer") as demo:
+with gr.Blocks(title="Order Accuracy") as demo:
 
-    gr.Markdown("## 📦 Order Accuracy – Video Analyzer")
+    gr.Markdown("## 📦 Order Accuracy")
 
     with gr.Tabs():
 
@@ -121,15 +177,25 @@ with gr.Blocks(title="Order Accuracy – Video Analyzer") as demo:
             )
 
         # ======================
-        # RESULTS TAB
+        # RESULTS TAB (UPDATED)
         # ======================
         with gr.Tab("📊 Detected Orders"):
-            results_box = gr.JSON(label="VLM Detected Orders")
+            results_table = gr.Dataframe(
+                headers=["Order ID", "Items (Bill View)", "Order Status"],
+                interactive=False
+            )
+
+
+            validation_summary = gr.Textbox(
+                label="Validation Summary",
+                lines=6
+            )
 
             refresh_btn = gr.Button("🔄 Refresh Results")
+
             refresh_btn.click(
-                fetch_results,
-                outputs=results_box
+                format_detected_orders,
+                outputs=[results_table, validation_summary]
             )
 
 

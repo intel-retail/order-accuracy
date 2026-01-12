@@ -10,6 +10,8 @@ from minio.error import S3Error
 from openvino_genai import VLMPipeline, GenerationConfig
 from config_loader import load_config
 from order_results import add_result
+from validation_agent import validate_order
+import json
 
 # ============================================================
 # CONFIG
@@ -31,13 +33,39 @@ MODEL_PATH = os.getenv(
 
 DEVICE = os.getenv(
     "OPENVINO_DEVICE",
-    VLM_CFG.get("device", "CPU")
+    VLM_CFG.get("device", "GPU")
 )
+
 MAX_NEW_TOKENS = VLM_CFG.get("max_new_tokens", 512)
 TEMPERATURE = VLM_CFG.get("temperature", 0.2)
 
 # ============================================================
-# MINIO CLIENT (single instance)
+# INVENTORY
+# ============================================================
+
+INVENTORY = cfg.get("inventory", [])
+
+if not INVENTORY:
+    print("[VLM] WARNING: Inventory list is empty", flush=True)
+
+INVENTORY_TEXT = "\n".join(f"- {item}" for item in INVENTORY)
+
+# ============================================================
+# LOAD EXPECTED ORDERS
+# ============================================================
+
+ORDERS_FILE = "/config/orders.json"
+
+try:
+    with open(ORDERS_FILE, "r") as f:
+        EXPECTED_ORDERS = json.load(f)
+    print(f"[VLM] Loaded orders.json with {len(EXPECTED_ORDERS)} orders", flush=True)
+except Exception as e:
+    print("[VLM] ERROR loading orders.json:", e, flush=True)
+    EXPECTED_ORDERS = {}
+
+# ============================================================
+# MINIO CLIENT
 # ============================================================
 
 client = Minio(
@@ -48,13 +76,14 @@ client = Minio(
 )
 
 # ============================================================
-# VLM MODEL (SINGLETON, LOADED ONCE)
+# VLM MODEL SINGLETON
 # ============================================================
 
 BLACKLIST = {
     "total", "total items", "items", "quantity",
     "subtotal", "tax", "bill", "amount", "price"
 }
+
 class VLMComponent:
     _model = None
     _config_key = None
@@ -64,16 +93,12 @@ class VLMComponent:
 
         if VLMComponent._model is None or VLMComponent._config_key != config_key:
             print(f"[VLM] Loading model from {model_path} on {device}", flush=True)
+
             core = ov.Core()
             if device.upper().startswith("GPU"):
-                core.set_property("GPU", {
-                    "GPU_THROUGHPUT_STREAMS": "1"
-                })
-            VLMComponent._model = VLMPipeline(
-                models_path=model_path,
-                device=device
-            )
+                core.set_property("GPU", {"GPU_THROUGHPUT_STREAMS": "1"})
 
+            VLMComponent._model = VLMPipeline(models_path=model_path, device=device)
             VLMComponent._config_key = config_key
             print("[VLM] Model loaded successfully", flush=True)
 
@@ -98,6 +123,7 @@ class VLMComponent:
         for k, v in items.items():
             if not any(b in k for b in BLACKLIST):
                 clean_items[k] = v
+
         return clean_items
 
     def process(self, images: list[np.ndarray]):
@@ -109,12 +135,16 @@ class VLMComponent:
 
         img_tags = "".join(f"<ov_genai_image_{i}>" for i in range(num_frames))
 
+        # ===== Inventory-aware prompt =====
         prompt = (
-            f"You will receive {num_frames} frames.\n"
-            f"Extract ONLY real product/item names visible in the images.\n"
-            f"DO NOT include words like total, quantity, subtotal, tax, bill, items.\n"
-            f"Format strictly as: item_name x number\n"
-            f"If no real items are visible, output 'NO_ITEMS'.\n"
+            f"You will receive {num_frames} frames.\n\n"
+            f"Recognize products ONLY from this inventory list:\n"
+            f"{INVENTORY_TEXT}\n\n"
+            f"Rules:\n"
+            f"- Always choose the closest matching inventory item name.\n"
+            f"- Never invent new product names outside the list.\n"
+            f"- Format strictly as: inventory_item_name x quantity\n"
+            f"- If no inventory items are visible, output NO_ITEMS.\n"
             f"{img_tags}"
         )
 
@@ -127,7 +157,6 @@ class VLMComponent:
         )
 
         elapsed = time.perf_counter() - start
-
         raw_text = output.texts[0]
         items = self.extract_items(raw_text)
 
@@ -136,8 +165,8 @@ class VLMComponent:
             "num_frames": num_frames,
             "inference_time_sec": round(elapsed, 3),
         }
-        print("VLM -->> ")
-        print(response)
+
+        print("[VLM] Output:", response, flush=True)
         return response
 
 
@@ -153,7 +182,7 @@ vlm_instance = VLMComponent(
 )
 
 # ============================================================
-# QUEUE + WORKER (SEQUENTIAL EXECUTION)
+# QUEUE + WORKER
 # ============================================================
 
 vlm_queue: asyncio.Queue = asyncio.Queue()
@@ -178,9 +207,8 @@ async def _vlm_worker():
         finally:
             vlm_queue.task_done()
 
-
 # ============================================================
-# INTERNAL VLM LOGIC (UNCHANGED SEMANTICS)
+# INTERNAL EXECUTION
 # ============================================================
 
 async def _run_vlm_internal(order_id: str):
@@ -196,17 +224,10 @@ async def _run_vlm_internal(order_id: str):
             if obj.object_name.lower().endswith(".jpg"):
                 frames.append(obj.object_name)
     except S3Error:
-        return {
-            "order_id": order_id,
-            "status": "error",
-            "reason": "minio_list_failed"
-        }
+        return {"order_id": order_id, "status": "error", "reason": "minio_list_failed"}
 
     if not frames:
-        return {
-            "order_id": order_id,
-            "status": "no_frames"
-        }
+        return {"order_id": order_id, "status": "no_frames"}
 
     frames.sort()
 
@@ -216,28 +237,42 @@ async def _run_vlm_internal(order_id: str):
         img = Image.open(data).convert("RGB").resize((512, 512))
         images.append(np.array(img))
 
-    result = vlm_instance.process(images)
-    result.update({
+    # ---- Run VLM ----
+    vlm_result = vlm_instance.process(images)
+    detected_items = vlm_result["items"]
+
+    expected_items = EXPECTED_ORDERS.get(order_id)
+    if expected_items is None:
+        return {"order_id": order_id, "status": "error", "reason": "order_not_found"}
+
+    # ---- Validate (uses VLM semantic reasoning internally) ----
+    validation = validate_order(expected_items, detected_items, vlm_instance.vlm)
+
+    has_errors = (
+        validation["missing"] or
+        validation["extra"] or
+        validation["quantity_mismatch"]
+    )
+
+    final_result = {
         "order_id": order_id,
-        "status": "ok"
-    })
+        "expected_items": expected_items,
+        "detected_items": detected_items,
+        "validation": validation,
+        "status": "validated" if not has_errors else "mismatch",
+        "num_frames": vlm_result["num_frames"],
+        "inference_time_sec": vlm_result["inference_time_sec"]
+    }
 
-    add_result(result)
-
-    return result
+    add_result(final_result)
+    return final_result
 
 
 # ============================================================
-# PUBLIC ENTRYPOINT (API CALLS THIS)
+# PUBLIC API
 # ============================================================
 
 async def run_vlm(order_id: str):
-    """
-    ✔ Adds request to queue
-    ✔ WAITS for its turn
-    ✔ RETURNS final VLM response
-    """
-
     global _worker_started
 
     loop = asyncio.get_running_loop()
@@ -245,16 +280,10 @@ async def run_vlm(order_id: str):
 
     await vlm_queue.put((order_id, future))
 
-    print(
-        f"[VLM-QUEUE] Registered order {order_id} "
-        f"(queue_size={vlm_queue.qsize()})",
-        flush=True
-    )
+    print(f"[VLM-QUEUE] Registered order {order_id} (queue_size={vlm_queue.qsize()})", flush=True)
 
     if not _worker_started:
         asyncio.create_task(_vlm_worker())
         _worker_started = True
 
-    # IMPORTANT:
-    # This await BLOCKS (async) until VLM finishes
     return await future

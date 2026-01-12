@@ -18,6 +18,7 @@ frame_selector:
   skip_labels:
     - hand
     - person
+  min_frames_per_order: 2
 
 vlm:
   endpoint: http://application-service:8000/run_vlm
@@ -26,3 +27,13 @@ vlm:
 
 ocr:
   prefer_digits: 3
+
+inventory:
+  - green apple
+  - apple
+  - water bottle
+  - coke 2 liter bottle
+  - coke large bottle
+  - coke bottle
+  - pepsi can
+  - banana
