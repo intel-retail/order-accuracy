@@ -3,14 +3,11 @@ import io
 import time
 import cv2
 import numpy as np
-import asyncio
 from minio import Minio
 from minio.error import S3Error
 from ultralytics import YOLO
 import requests
 from config_loader import load_config
-from pathlib import Path
-import shutil
 
 cfg = load_config()
 
@@ -27,76 +24,31 @@ TOP_K = FS_CFG["top_k"]
 POLL_INTERVAL = FS_CFG["poll_interval_sec"]
 SKIP_LABELS = set(FS_CFG["skip_labels"])
 
+# How many consecutive frames required to confirm a new order
+MIN_FRAMES_PER_ORDER = FS_CFG.get("min_frames_per_order", 2)
+
 VLM_ENDPOINT = VLM_CFG["endpoint"]
-VLM_RETRIES = VLM_CFG["retries"]
-VLM_TIMEOUT = VLM_CFG["timeout_sec"]
+
+processed_orders = set()
 
 
+# =====================================================
+# VLM Caller
+# =====================================================
 
 def call_vlm(order_id, timeout=120):
     payload = {"order_id": order_id}
-
-    resp = requests.post(
-        VLM_ENDPOINT,
-        json=payload,
-        timeout=timeout,
-    )
+    resp = requests.post(VLM_ENDPOINT, json=payload, timeout=timeout)
     resp.raise_for_status()
     return resp.json()
 
 
-print("[frame-selector] Loading YOLOv11 model...", flush=True)
-
-# Define model paths (use /app/models for persistence)
-model_dir = Path("/app/models")
-model_dir.mkdir(exist_ok=True)
-
-# Define dataset paths (use /app/datasets for persistence)
-dataset_dir = Path("/app/datasets")
-dataset_dir.mkdir(exist_ok=True)
-
-# Set dataset directory for ultralytics
-os.environ['YOLO_DATASETS_DIR'] = str(dataset_dir)
-
-yolo_model = model_dir / "yolo11n.pt"
-openvino_fp32_path = model_dir / "yolo11n_openvino_model"
-openvino_int8_path = model_dir / "yolo11n_int8_openvino_model"
-
-# Step 1: Download YOLOv11 model (if not exists)
-if not yolo_model.exists():
-    print(f"[frame-selector] Downloading {yolo_model}...", flush=True)
-    model_pt = YOLO(str(yolo_model))
-    print("[frame-selector] YOLOv11 model downloaded.", flush=True)
-
-# Step 2: Convert to OpenVINO FP32 format (if not exists)
-if not openvino_fp32_path.exists():
-    print("[frame-selector] Converting YOLOv11 to OpenVINO FP32 format...", flush=True)
-    model_pt = YOLO(str(yolo_model))
-    model_pt.export(format="openvino", half=False)
-    # Export already saves to /app/models/yolo11n_openvino_model/
-    print("[frame-selector] OpenVINO FP32 conversion complete.", flush=True)
-
-# Step 3: Quantize to INT8 (if not exists)
-if not openvino_int8_path.exists():
-    print("[frame-selector] Quantizing model to INT8...", flush=True)
-    model_pt = YOLO(str(yolo_model))
-    model_pt.export(format="openvino", int8=True, data="coco128.yaml")
-    
-    # Rename from default to int8 path
-    default_output = model_dir / "yolo11n_openvino_model"
-    if default_output.exists() and not openvino_int8_path.exists():
-        default_output.rename(openvino_int8_path)
-    
-    print("[frame-selector] INT8 quantization complete.", flush=True)
-
-# Step 4: Load the INT8 OpenVINO model
-print("[frame-selector] Loading INT8 OpenVINO model...", flush=True)
-model = YOLO(str(openvino_int8_path), task="detect")
-print("[frame-selector] INT8 OpenVINO model loaded successfully.", flush=True)
-
 # =====================================================
-# MINIO CLIENT
+# Model + MinIO
 # =====================================================
+
+print("[frame-selector] Loading YOLO model...", flush=True)
+model = YOLO("yolov8n.pt")
 
 client = Minio(
     MINIO_ENDPOINT,
@@ -105,25 +57,24 @@ client = Minio(
     secure=MINIO.get("secure", False),
 )
 
+
 # =====================================================
-# HELPERS
+# Helpers
 # =====================================================
 
-def wait_for_bucket(bucket: str):
+def wait_for_bucket(bucket):
     while True:
         try:
             if client.bucket_exists(bucket):
-                print(f"[frame-selector] Bucket ready: {bucket}", flush=True)
                 return
-        except Exception as e:
-            print(f"[frame-selector] Bucket check error: {e}", flush=True)
+        except:
+            pass
         time.sleep(1)
 
 
 def ensure_buckets():
     wait_for_bucket(FRAMES_BUCKET)
     if not client.bucket_exists(SELECTED_BUCKET):
-        print(f"[frame-selector] Creating bucket: {SELECTED_BUCKET}", flush=True)
         client.make_bucket(SELECTED_BUCKET)
 
 
@@ -136,78 +87,83 @@ def list_frames_sorted():
             eos_seen = True
             continue
 
-        if not obj.object_name.lower().endswith(".jpg"):
-            continue
-
-        parts = obj.object_name.split("/", 1)
-        if len(parts) == 2:
-            frames.append((parts[0], obj.object_name))
+        if obj.object_name.lower().endswith(".jpg"):
+            parts = obj.object_name.split("/", 1)
+            if len(parts) == 2:
+                frames.append((parts[0], obj.object_name))
 
     frames.sort(key=lambda x: x[1])
     return frames, eos_seen
 
 
-
-def load_image(key: str):
-    try:
-        resp = client.get_object(FRAMES_BUCKET, key)
-        data = resp.read()
-        resp.close()
-        resp.release_conn()
-        return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
-    except Exception as e:
-        print(f"[frame-selector] ERROR loading {key}: {e}", flush=True)
-        return None
+def load_image(key):
+    resp = client.get_object(FRAMES_BUCKET, key)
+    data = resp.read()
+    resp.close()
+    resp.release_conn()
+    return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
 
 
-def count_items(frame) -> int:
+def count_items(frame):
     result = model(frame, conf=0.1, verbose=False)[0]
+
+    # If ANY skip-label (like person/hand) is present → discard frame
+    for box in result.boxes:
+        cls_name = result.names.get(int(box.cls), "").lower()
+        if cls_name in SKIP_LABELS:
+            return -1   # mark frame as invalid
+
+    # Otherwise count valid objects
     count = 0
     for box in result.boxes:
         cls_name = result.names.get(int(box.cls), "").lower()
         if cls_name not in SKIP_LABELS:
             count += 1
+
     return count
 
 
+
 # =====================================================
-# ORDER FINALIZATION
+# Order Finalization
 # =====================================================
 
 def process_completed_order(order_id, keys):
-    """
-    Called EXACTLY ONCE per order.
-    All frames of the order must already be present.
-    """
     if not keys:
         return
 
-    print(
-        f"\n[frame-selector] Finalizing order {order_id} "
-        f"with {len(keys)} frames",
-        flush=True
-    )
+    # Prevent duplicate VLM calls
+    if order_id in processed_orders:
+        print(f"[frame-selector] Order {order_id} already processed — skipping", flush=True)
+        return
+
+    # Ignore tiny OCR-noise orders
+    if len(keys) < MIN_FRAMES_PER_ORDER:
+        print(f"[frame-selector] Ignoring order {order_id} (only {len(keys)} frame — OCR noise)", flush=True)
+        return
+
+    print(f"\n[frame-selector] Finalizing order {order_id} with {len(keys)} frames", flush=True)
 
     scored = []
-
     for key in keys:
         img = load_image(key)
         if img is None:
             continue
-
         items = count_items(img)
+
+        # Skip frames containing person/hand etc.
+        if items < 0:
+            print(f"[frame-selector] Skipping {key} (contains person/hand)", flush=True)
+            continue
+
         scored.append((items, key, img))
-        print(f"[frame-selector]   {key} → items={items}", flush=True)
 
     if not scored:
-        print(f"[frame-selector] No usable frames for order {order_id}", flush=True)
         return
 
-    # Sort by items DESC, frame index DESC
+    # Pick TOP_K best frames
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     topk = scored[:min(TOP_K, len(scored))]
-
-    selected_keys = []
 
     for rank, (items, key, frame) in enumerate(topk, 1):
         out_key = f"{order_id}/rank_{rank}.jpg"
@@ -223,33 +179,20 @@ def process_completed_order(order_id, keys):
             content_type="image/jpeg",
         )
 
-        selected_keys.append(out_key)
-        print(
-            f"[frame-selector]   Saved {out_key} (items={items})",
-            flush=True
-        )
+        print(f"[frame-selector]   Saved {out_key} (items={items})", flush=True)
 
-    # -------------------------------------------------
-    # VLM CALL (SKIP DUMMY ORDER 000)
-    # -------------------------------------------------
-
+    # Skip dummy order
     if order_id == "000":
-        print("[frame-selector] Skipping VLM for order 000", flush=True)
         return
 
     print(f"[frame-selector] Calling VLM for order {order_id}", flush=True)
 
-    # try:
-    #     response = asyncio.run(run_vlm(order_id, selected_keys))
-    #     print("[frame-selector] VLM response:", response, flush=True)
-    # except Exception as e:
-    #     print("[frame-selector] VLM call failed:", e, flush=True)
     try:
         response = call_vlm(order_id)
         print("[frame-selector] VLM response:", response, flush=True)
+        processed_orders.add(order_id)
     except Exception as e:
         print("[frame-selector] VLM call failed:", e, flush=True)
-
 
 
 # =====================================================
@@ -257,17 +200,17 @@ def process_completed_order(order_id, keys):
 # =====================================================
 
 if __name__ == "__main__":
-    print("[frame-selector] Starting...", flush=True)
     ensure_buckets()
+    print("[frame-selector] Watching frames...", flush=True)
 
     processed_keys = set()
+
     current_order = None
     current_keys = []
 
-    print("[frame-selector] Watching frames...", flush=True)
-
-    LAST_FRAME_TIME = None
-    ORDER_TIMEOUT_SEC = 3.0  # tweak if needed
+    # For debouncing new order detection
+    pending_order = None
+    pending_count = 0
 
     while True:
         try:
@@ -281,43 +224,47 @@ if __name__ == "__main__":
             if key in processed_keys:
                 continue
 
-            # First frame
+            # First frame ever
             if current_order is None:
                 current_order = order_id
 
-            # 🔁 ORDER SWITCH = ORDER COMPLETE
-            if order_id != current_order:
+            # Same order → normal collection
+            if order_id == current_order:
+                pending_order = None
+                pending_count = 0
+
+            # Potential new order
+            else:
+                if pending_order == order_id:
+                    pending_count += 1
+                else:
+                    pending_order = order_id
+                    pending_count = 1
+
+                # New order not stable yet → ignore this frame
+                if pending_count < MIN_FRAMES_PER_ORDER:
+                    print(f"[frame-selector] Pending new order {order_id} ({pending_count}/{MIN_FRAMES_PER_ORDER})", flush=True)
+                    processed_keys.add(key)
+                    continue
+
+                # New order confirmed stable → close current
+                print(f"[frame-selector] New order {order_id} confirmed. Closing order {current_order}", flush=True)
                 process_completed_order(current_order, current_keys)
+
                 current_order = order_id
                 current_keys = []
+                pending_order = None
+                pending_count = 0
 
+            # Collect frame into current order
             current_keys.append(key)
             processed_keys.add(key)
-            LAST_FRAME_TIME = time.time()
 
-            print(
-                f"[frame-selector] Collected {key} "
-                f"(order={order_id}, total={len(current_keys)})",
-                flush=True
-            )
+            print(f"[frame-selector] Collected {key} (order={order_id}, total={len(current_keys)})", flush=True)
 
-            # ⏱️ FINALIZE LAST ORDER ON INACTIVITY
-            now = time.time()
-            if current_order and LAST_FRAME_TIME:
-                if now - LAST_FRAME_TIME > ORDER_TIMEOUT_SEC:
-                    print(
-                        f"[frame-selector] Timeout reached. Finalizing order {current_order}",
-                        flush=True
-                    )
-                    process_completed_order(current_order, current_keys)
-                    current_order = None
-                    current_keys = []
-                    LAST_FRAME_TIME = None
+        # End-of-stream closes last order
         if eos_seen and current_order and current_keys:
-            print(
-                f"[frame-selector] EOS detected. Finalizing last order {current_order}",
-                flush=True
-            )
+            print(f"[frame-selector] EOS closing order {current_order}", flush=True)
             process_completed_order(current_order, current_keys)
             current_order = None
             current_keys = []
