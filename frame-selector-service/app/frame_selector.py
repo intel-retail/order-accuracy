@@ -8,6 +8,8 @@ from minio.error import S3Error
 from ultralytics import YOLO
 import requests
 from config_loader import load_config
+from pathlib import Path
+import shutil
 
 cfg = load_config()
 
@@ -47,8 +49,65 @@ def call_vlm(order_id, timeout=120):
 # Model + MinIO
 # =====================================================
 
-print("[frame-selector] Loading YOLO model...", flush=True)
-model = YOLO("yolov8n.pt")
+print("[frame-selector] Loading YOLOv11 model...", flush=True)
+
+# Define model paths (use /app/models for persistence)
+model_dir = Path("/app/models")
+model_dir.mkdir(exist_ok=True)
+
+# Define dataset paths (use /app/datasets for persistence)
+dataset_dir = Path("/app/datasets")
+dataset_dir.mkdir(exist_ok=True)
+
+# Set dataset directory for ultralytics
+os.environ['YOLO_DATASETS_DIR'] = str(dataset_dir)
+
+yolo_model = model_dir / "yolo11n.pt"
+openvino_fp32_path = model_dir / "yolo11n_openvino_model"
+openvino_int8_path = model_dir / "yolo11n_int8_openvino_model"
+
+# Step 1: Download YOLOv11 model (if not exists)
+if not yolo_model.exists():
+    print(f"[frame-selector] Downloading {yolo_model}...", flush=True)
+    model_pt = YOLO(str(yolo_model))
+    print("[frame-selector] YOLOv11 model downloaded.", flush=True)
+
+# Step 2: Convert to OpenVINO FP32 format (if not exists)
+if not openvino_fp32_path.exists():
+    print("[frame-selector] Converting YOLOv11 to OpenVINO FP32 format...", flush=True)
+    # Change to model directory before export
+    original_dir = os.getcwd()
+    os.chdir(str(model_dir))
+    
+    model_pt = YOLO(str(yolo_model))
+    model_pt.export(format="openvino", half=False)
+    
+    os.chdir(original_dir)
+    print("[frame-selector] OpenVINO FP32 conversion complete.", flush=True)
+
+# Step 3: Quantize to INT8 (if not exists)
+if not openvino_int8_path.exists():
+    print("[frame-selector] Quantizing model to INT8...", flush=True)
+    
+    # Change to model directory before export
+    original_dir = os.getcwd()
+    os.chdir(str(model_dir))
+    
+    model_pt = YOLO(str(yolo_model))
+    model_pt.export(format="openvino", int8=True, data="coco128.yaml")
+    
+    # Rename from default to int8 path
+    default_output = Path("yolo11n_openvino_model")
+    if default_output.exists() and not openvino_int8_path.exists():
+        default_output.rename(openvino_int8_path.name)
+    
+    os.chdir(original_dir)
+    print("[frame-selector] INT8 quantization complete.", flush=True)
+
+# Step 4: Load the INT8 OpenVINO model
+print("[frame-selector] Loading INT8 OpenVINO model...", flush=True)
+model = YOLO(str(openvino_int8_path), task="detect")
+print("[frame-selector] INT8 OpenVINO model loaded successfully.", flush=True)
 
 client = Minio(
     MINIO_ENDPOINT,

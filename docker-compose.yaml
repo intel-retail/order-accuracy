@@ -47,6 +47,8 @@ services:
     container_name: oa_frame_selector
     volumes:
       - ./config:/config:ro
+      - ./model:/app/models
+      - ./datasets:/app/datasets
     environment:
       APP_CONFIG: /config/application.yaml
       NO_PROXY: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
