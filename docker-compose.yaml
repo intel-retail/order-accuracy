@@ -1,0 +1,72 @@
+version: "3.8"
+
+services:
+  minio:
+    image: minio/minio
+    container_name: oa_minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      NO_PROXY: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
+      no_proxy: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+
+  application-service:
+    build: ./application-service
+    container_name: oa_application
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    volumes:
+      - ./storage/videos:/videos
+      - ./storage/uploads:/uploads
+      - ./model:/model
+      - ./config:/config:ro
+    environment:
+      APP_CONFIG: /config/application.yaml
+      VLM_MODEL_PATH: /model/Qwen2.5-VL-7B-Instruct-ov-int8
+      OPENVINO_DEVICE: GPU
+      NO_PROXY: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
+      no_proxy: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
+    ports:
+      - "8000:8000"
+    depends_on:
+      - minio
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  frame-selector:
+    build: ./frame-selector-service
+    container_name: oa_frame_selector
+    volumes:
+      - ./config:/config:ro
+      - ./model:/app/models
+      - ./datasets:/app/datasets
+    environment:
+      APP_CONFIG: /config/application.yaml
+      NO_PROXY: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
+      no_proxy: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
+    depends_on:
+      - application-service
+
+  gradio-ui:
+    build: ./gradio-ui
+    container_name: oa_gradio
+    ports:
+      - "7860:7860"
+    depends_on:
+      - application-service
+    environment:
+      NO_PROXY: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
+      no_proxy: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
+
+
+volumes:
+  minio_data:
