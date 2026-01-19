@@ -1,0 +1,15 @@
+minio==7.2.9
+pytesseract
+opencv-python-headless
+ultralytics
+torch
+torchvision
+numpy
+easyocr
+fastapi
+pyyaml
+
+openvino
+openvino-genai
+python-multipart
+

@@ -1,139 +1,157 @@
-# Order Accuracy
+# **Order Accuracy**
 
-## Overview
-
-The Order Accuracy Pipeline System is an open-source reference implementation for building and deploying video analytics pipelines for retail order accuracy in Quick Servce Restaurant(QSR) use cases. It leverages Intel® hardware and software, GStreamer, and OpenVINO™ to enable scalable, real-time object detection and classification at the edge.
-
-## 📋 Prerequisites
-
-- Ubuntu 24.04 or newer (Linux recommended), Desktop edition (or Server edition with GUI installed).
-- [Docker](https://docs.docker.com/engine/install/)
-- [Make](https://www.gnu.org/software/make/) (`sudo apt install make`)
-- Intel hardware (CPU, iGPU, dGPU, NPU)
-- Intel drivers:
-  - [Intel GPU drivers](https://dgpu-docs.intel.com/driver/client/overview.html)
-  - [NPU](https://dlstreamer.github.io/dev_guide/advanced_install/advanced_install_guide_prerequisites.html#prerequisite-2-install-intel-npu-drivers)
-- Sufficient disk space for models, videos, and results
-
-## 🚀 QuickStart
-
-Clone the repo with the below command
-```
-git clone -b <release-or-tag> --single-branch https://github.com/intel-retail/order-accuracy
-```
->Replace <release-or-tag> with the version you want to clone (for example, **v1.1.0**).
-```
-git clone -b v1.1.0 --single-branch https://github.com/intel-retail/order-accuracy
-```
-
-### **NOTE:** 
-
-By default the application runs by pulling the pre-built images. If you want to build the images locally and then run the application, set the flag:
-
-```bash
-REGISTRY=false
-
-usage: make <command> REGISTRY=false (applicable for all commands like benchmark, benchmark-stream-density..)
-Example: make run-demo REGISTRY=false
-```
-
-(If this is the first time, it will take some time to download videos, models, docker images and build images)
-
-### 1. Step by step instructions:
-
-1.1 Download the models using download_models/downloadModels.sh
-
-  ```bash
-  make download-models
-  ```
-
-1.2 Update github submodules
-
-  ```bash
-  make update-submodules
-  ```
-
-1.3 Download sample videos used by the performance tools
-
-  ```bash
-  make download-sample-videos
-  ```
-
-1.4 Start Order Accuracy using the Docker Compose file.
-
-  ```bash
-  make run-render-mode
-  ```
-
-- The above series of commands can be executed using only one command:
-    
-  ```bash
-  make run-demo
-  ```
-### 2. To build the images locally step by step:
-- Follow the following steps:
-  ```bash
-  make download-models REGISTRY=false
-  make update-submodules
-  make download-sample-videos
-  make run-render-mode REGISTRY=false
-  ```
-- The above series of commands can be executed using only one command:
-    ```bash
-    make run-demo REGISTRY=false
-    ```
-
-### 3. Stop all containers
-
-When pre-built images are pulled-
-
-```sh
-make down
-```
-
-When images are built locally-
-
-```sh
-make down REGISTRY=false
-```
-
-### 4. Run benchmarking on CPU/NPU/GPU.
-
-```sh
-make benchmark
-```
-
-- By default, the configuration is set to use the CPU. If you want to benchmark the application on GPU or NPU, please update the `DEVICE_ENV` variable.
-
-  ```sh
-  make benchmark DEVICE_ENV=res/all-gpu.env
-  ```
-
-### 5. See the benchmarking results.
-
-```sh
-make consolidate-metrics
-
-cat benchmark/metrics.csv
-```
-
-
-## 🛠️ Other Useful Make Commands.
-
-- `make clean-images` — Remove dangling Docker images
-- `make clean-models` — Remove all the downloaded models from the system
-- `make clean-all` — Remove all unused Docker resources
-
-## 📁 Project Structure
-
-- `configs/` — Configuration files (txt file with sample video URLs for inference)
-- `docker/` — Dockerfiles for downloader and pipeline containers
-- `download-scripts/` — Scripts for downloading models and videos
-- `src/` — Main source code and pipeline runner scripts
-- `Makefile` — Build automation and workflow commands
-
-## ⓘ Learn More
-
-For detailed documentation and a comprehensive guide, please visit our [project website](https://intel-retail.github.io/documentation/use-cases/order-accuracy/order-accuracy.html).
+This project processes a video or RTSP stream, extracts **valid order-ID frames**, uploads them to **MinIO**, selects the **top frames per order**, and runs **VLM inference** to extract ordered items.
 
 ---
+
+## 📦 **What the system does**
+
+* Accepts **video file uploads** or **RTSP streams**
+* Extracts frames using **GStreamer + gvapython**
+* Detects **order ID using OCR**
+* Stores frames in **MinIO**
+* Selects **Top-K frames** per order using **YOLO**
+* Runs **VLM (OpenVINO GenAI)** for item & quantity extraction
+* Provides a **Gradio UI** for interaction
+
+---
+
+## 📁 **Project Structure**
+
+```
+order-accuracy/
+│
+├── docker-compose.yaml
+│
+├── application-service/
+│   ├── Dockerfile
+│   └── app/
+│       ├── main.py               # API + pipeline trigger
+│       ├── pipeline_runner.py    # GStreamer launcher
+│       ├── frame_pipeline.py     # OCR + frame upload
+│       └── requirements.txt
+│
+├── frame-selector-service/
+│   ├── Dockerfile
+│   └── app/
+│       ├── frame_selector.py     # Selects top frames
+│       └── requirements.txt
+│
+├── gradio-ui/
+│   ├── Dockerfile
+│   └── gradio_app.py             # Web UI
+│
+├── config/
+│   └── application.yaml
+│
+├── model/
+│   └── Qwen2.5-VL-7B-Instruct-ov-int8/
+│
+└── storage/
+    ├── videos/
+    └── uploads/
+```
+
+---
+
+## ▶️ **How to Run**
+
+### **1. Start all services**
+
+```bash
+docker compose up --build
+```
+
+This launches:
+
+* **MinIO** (frame storage)
+* **Application Service** (GStreamer + OCR + VLM API)
+* **Frame Selector Service** (YOLO ranking)
+* **Gradio UI**
+
+---
+
+Login for MinIO:
+
+```
+minioadmin / minioadmin
+```
+
+---
+
+## 🎥 **How to Use**
+
+### **Upload a Video (UI)**
+
+1. Open Gradio UI
+2. Upload `.mp4 / .avi / .mkv`
+3. Click **Upload & Start**
+
+The pipeline starts automatically.
+
+---
+
+### **RTSP Stream**
+
+RTSP example:
+
+```
+rtsp://192.168.1.5:8554/test
+```
+
+API call:
+
+```bash
+curl -X POST http://localhost:8000/run-video \
+  -H "Content-Type: application/json" \
+  -d '{"source_type":"rtsp","source":"rtsp://192.168.1.5:8554/test"}'
+```
+
+> If `localhost` is provided in RTSP, the backend safely normalizes it for Docker.
+
+---
+
+## 🖼 **View Frames in MinIO**
+
+### Extracted Frames
+
+```
+frames/
+ └── <order_id>/
+      ├── 11.jpg
+      ├── 42.jpg
+      └── 76.jpg
+```
+
+### Selected Frames
+
+```
+selected/
+ └── <order_id>/
+      ├── rank_1.jpg
+      ├── rank_2.jpg
+      └── rank_3.jpg
+```
+
+---
+
+## 🔄 **Clean Restart (Recommended)**
+
+```bash
+docker compose down --remove-orphans
+docker volume rm order-accuracy_minio_data
+docker compose up --build
+```
+
+⚠️ This deletes all stored frames.
+
+---
+
+## ✅ **TL;DR**
+
+```bash
+docker compose up --build
+open http://localhost:7860
+```
+
+Upload video or RTSP → frames extracted → top frames selected → VLM results available.

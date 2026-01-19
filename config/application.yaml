@@ -1,0 +1,41 @@
+minio:
+  endpoint: minio:9000
+  access_key: minioadmin
+  secret_key: minioadmin
+  secure: false
+
+buckets:
+  frames: frames
+  selected: selected
+
+video:
+  default_source: /videos/sample.mp4
+  fps_target: 1
+
+frame_selector:
+  top_k: 3
+  poll_interval_sec: 1.5
+  skip_labels:
+    - hand
+    - person
+  min_frames_per_order: 2
+
+vlm:
+  endpoint: http://application-service:8000/run_vlm
+  retries: 5
+  timeout_sec: 5
+  model: Qwen/Qwen2.5-VL-7B-Instruct
+  precision: int8
+
+ocr:
+  prefer_digits: 3
+
+inventory:
+  - green apple
+  - apple
+  - water bottle
+  - coke 2 liter bottle
+  - coke large bottle
+  - coke bottle
+  - pepsi can
+  - banana
