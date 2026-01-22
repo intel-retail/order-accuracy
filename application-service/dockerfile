@@ -87,3 +87,4 @@ ENV YOLO_MODEL_PROC="/models/yolo11n.json"
 # Entrypoint
 # ------------------------------------------------------------
 ENTRYPOINT ["/entrypoint.sh"]
+
