@@ -54,7 +54,7 @@ def read_order_id(frame, frame_idx=None):
         text_threshold=0.6,
         low_text=0.4,
         link_threshold=0.4,
-        canvas_size=1280,  # Optimization 2: Reduced from 2560
+        canvas_size=1024,  # Optimization 2: Reduced from 2560
         mag_ratio=1.0,
         allowlist='0123456789#'  # Optimization 3: Only digits and #
     )
