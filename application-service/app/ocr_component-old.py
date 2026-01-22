@@ -1,7 +1,7 @@
 import cv2
-import easyocr
 import time
 import os
+from frame_pipeline import read_order_id
 
 CONFIG = {
     "write_debug": True,

@@ -5,11 +5,9 @@ ultralytics
 torch
 torchvision
 numpy
-easyocr
 fastapi
 pyyaml
 
 openvino
 openvino-genai
 python-multipart
-

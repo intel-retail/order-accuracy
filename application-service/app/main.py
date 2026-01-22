@@ -4,7 +4,7 @@ from io import BytesIO
 from ultralytics import YOLO
 from minio import Minio
 from fastapi import FastAPI, Body, UploadFile, File
-from ocr_component import read_order_id
+# from ocr_component import read_order_id
 from vlm_service import run_vlm
 from pipeline_runner import run_pipeline_async
 from order_results import get_results
