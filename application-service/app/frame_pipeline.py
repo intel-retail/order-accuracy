@@ -5,7 +5,6 @@ import time
 import traceback
 import cv2
 import numpy as np
-import pytesseract
 from minio import Minio
 from config_loader import load_config
 cfg = load_config()
@@ -16,13 +15,13 @@ BUCKETS = cfg["buckets"]
 FRAMES_BUCKET = BUCKETS["frames"]
 SELECTED_BUCKET = BUCKETS["selected"]
 
-# print("[ocr] Loading EasyOCR globally...")
-# from ocr_component import reader, read_order_id   # will load EasyOCR ONCE
-# EASY_OCR_READER = reader
-# READ_ORDER_ID_FN = read_order_id
-# print("[ocr] EasyOCR ready.")
+print("[ocr] Loading EasyOCR globally...")
+from ocr_component import reader, read_order_id
+EASY_OCR_READER = reader
+READ_ORDER_ID_FN = read_order_id
+print("[ocr] EasyOCR ready.")
 
-# ocr_module = None   # lazy import for ocr.py
+ocr_module = None   # lazy import for ocr.py
 
 # Try to import VideoFrame for typing only (gvapython provides it)
 try:
@@ -133,112 +132,53 @@ def now_ms():
 
 
 def preprocess_for_ocr(img_bgr):
-    """
-    Enhanced preprocessing matching EasyOCR approach.
-    Multiple methods to improve Tesseract accuracy.
-    """
+    # Slight enhance for printed slips
     try:
-        # Method 1: Standard approach (like EasyOCR)
-        # 2x upscale
-        img = cv2.resize(img_bgr, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
-        
-        # Convert to grayscale
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        
-        # Denoise
-        gray = cv2.fastNlMeansDenoising(gray, h=10)
-        
-        # Histogram equalization for contrast
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        gray = cv2.resize(gray, None, fx=2.0, fy=2.0, interpolation=cv2.INTER_CUBIC)
         gray = cv2.equalizeHist(gray)
-        
-        # Adaptive threshold
         thresh = cv2.adaptiveThreshold(
             gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY, 11, 2
+            cv2.THRESH_BINARY, 31, 5
         )
-        
-        # Morphological operations to clean up
-        kernel = np.ones((1, 1), np.uint8)
-        thresh = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel)
-        thresh = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel)
-        
         return thresh
-        
-    except Exception as e:
-        print(f"[frame_to_minio] Preprocessing error: {e}")
+    except Exception:
         return img_bgr
 
 
 def read_order_id(img_bgr):
     """
     Extract order id as number immediately after '#' using pytesseract.
-    Uses multiple preprocessing methods and PSM modes for better accuracy.
     Returns string or None.
     """
     try:
-        # Try multiple preprocessing and PSM configurations
-        configs = [
-            (r'--oem 3 --psm 6 -c tessedit_char_whitelist=0123456789#', "PSM 6"),
-            (r'--oem 3 --psm 7 -c tessedit_char_whitelist=0123456789#', "PSM 7"),
-            (r'--oem 3 --psm 11 -c tessedit_char_whitelist=0123456789#', "PSM 11"),
-        ]
-        
-        all_candidates = []
-        
-        for custom_config, psm_name in configs:
-            proc = preprocess_for_ocr(img_bgr)
-            
-            # Get text with confidence data
-            data = pytesseract.image_to_data(
-                proc, 
-                output_type=pytesseract.Output.DICT, 
-                config=custom_config
-            )
-            
-            # Parse word by word
-            for i, text in enumerate(data.get("text", [])):
-                conf = data.get("conf", [])[i] if i < len(data.get("conf", [])) else -1
-                
-                # Skip low confidence or empty text
-                if conf < 50 or not text:
-                    continue
-                
-                # Normalize common OCR mistakes
-                raw = (text.strip()
-                       .replace(" ", "")
-                       .replace("|", "1")
-                       .replace("l", "1")
-                       .replace("I", "1")
-                       .replace("O", "0")
-                       .replace("o", "0"))
-                
-                # ONLY process if it contains '#'
-                if "#" not in raw:
-                    continue
-                
-                print(f"[frame_to_minio] {psm_name} - Found '#': {raw} (conf: {conf})")
-                
-                # Extract ALL digits after '#' (don't stop at non-digit)
+        proc = preprocess_for_ocr(img_bgr)
+        data = pytesseract.image_to_data(proc, output_type=pytesseract.Output.DICT)
+        candidates = []
+        for text in data.get("text", []):
+            print("[frame_to_minio] OCR TEXT:", text)
+            raw = (text or "").replace(" ", "")
+            if "#" in raw:
                 after = raw.split("#", 1)[1]
-                digits = ''.join(c for c in after if c.isdigit())
-                
-                # Accept any order ID with at least 2 digits
-                if digits and len(digits) >= 2:
-                    all_candidates.append((digits, conf, psm_name))
-                    print(f"[frame_to_minio] Candidate: {digits} (conf: {conf}, {psm_name})")
+                digits = ""
+                for c in after:
+                    if c.isdigit():
+                        digits += c
+                    else:
+                        break
+                if digits:
+                    candidates.append(digits)
 
-        if not all_candidates:
-            print("[frame_to_minio] No order ID found with any method")
+        if not candidates:
             return None
 
-        # Select highest confidence candidate (regardless of length)
-        best = max(all_candidates, key=lambda x: x[1])
-        print(f"[frame_to_minio] ✓ Selected: {best[0]} (conf: {best[1]}, {best[2]})")
-        return best[0]
-        
+        # prefer 3-digit
+        three = [c for c in candidates if len(c) == 3]
+        if three:
+            return three[0]
+        return candidates[0]
     except Exception as e:
-        print(f"[frame_to_minio] OCR error: {e}")
-        traceback.print_exc()
+        print("[frame_to_minio] OCR error:", e)
         return None
 
 
@@ -302,7 +242,7 @@ def process_frame(frame: "VideoFrame"):
         except Exception:
             pass
 
-        order_id = read_order_id(image)
+        order_id = READ_ORDER_ID_FN(image)
 
         if not order_id:
             return True

@@ -1,13 +1,14 @@
 minio==7.2.9
-pytesseract
 opencv-python-headless
 ultralytics
-torch
-torchvision
 numpy
 fastapi
 pyyaml
-
 openvino
 openvino-genai
 python-multipart
+
+# EasyOCR with dependencies
+easyocr
+torch
+torchvision

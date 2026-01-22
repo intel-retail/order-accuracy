@@ -28,9 +28,8 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
 # -------------------------------
-# Install system dependencies + Tesseract OCR
+# Install system dependencies
 # -------------------------------
-
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         tzdata \
@@ -43,17 +42,10 @@ RUN apt-get update && \
         python3-gi \
         python3-gst-1.0 \
         python3-opencv \
-        tesseract-ocr \
-        tesseract-ocr-eng \
-        libtesseract-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Set Tesseract to use best OCR engine
-ENV TESSDATA_PREFIX=/usr/share/tesseract-ocr/4.00/tessdata
-
-
 # -------------------------------
-# Install Python deps
+# Install Python deps (EXPLICIT)
 # -------------------------------
 WORKDIR /app
 COPY app/requirements.txt .
@@ -63,13 +55,14 @@ RUN python3 -m pip install --upgrade pip setuptools wheel
 RUN pip3 install --no-cache-dir \
     fastapi \
     uvicorn \
-    opencv-python-headless
-    
+    opencv-python-headless \
+    yq
+
 # OpenVINO + Optimum (for model export)
 RUN pip3 install --no-cache-dir \
     "optimum[openvino]"
 
-# App-specific deps from requirements.txt
+# App-specific deps
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # -------------------------------
