@@ -5,7 +5,6 @@ import time
 import traceback
 import cv2
 import numpy as np
-import pytesseract
 from minio import Minio
 from config_loader import load_config
 cfg = load_config()
@@ -17,7 +16,7 @@ FRAMES_BUCKET = BUCKETS["frames"]
 SELECTED_BUCKET = BUCKETS["selected"]
 
 print("[ocr] Loading EasyOCR globally...")
-from ocr_component import reader, read_order_id   # will load EasyOCR ONCE
+from ocr_component import reader, read_order_id
 EASY_OCR_READER = reader
 READ_ORDER_ID_FN = read_order_id
 print("[ocr] EasyOCR ready.")
