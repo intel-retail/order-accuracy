@@ -33,7 +33,6 @@ services:
       APP_CONFIG: /config/application.yaml
       VLM_MODEL_PATH: /model/Qwen2.5-VL-7B-Instruct-ov-int8
       OPENVINO_DEVICE: GPU
-      # Optimization 7: CPU thread limits
       OMP_NUM_THREADS: 4
       MKL_NUM_THREADS: 4
       OPENBLAS_NUM_THREADS: 4
@@ -45,7 +44,6 @@ services:
       - minio
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Optimization 8: Resource limits - removed to allow full system memory
     cpus: 4
     shm_size: 2g
 
@@ -62,6 +60,8 @@ services:
       no_proxy: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
     depends_on:
       - application-service
+    extra_hosts:                                    # ← ADD THIS
+      - "host.docker.internal:host-gateway"        # ← ADD THIS
 
   gradio-ui:
     build: ./gradio-ui
@@ -73,6 +73,9 @@ services:
     environment:
       NO_PROXY: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
       no_proxy: "localhost,127.0.0.1,application-service,minio,host.docker.internal"
+    extra_hosts:                                    # ← ADD THIS
+      - "host.docker.internal:host-gateway"        # ← ADD THIS
+    restart: unless-stopped                         # ← ADD THIS (optional)
 
 volumes:
   minio_data:
