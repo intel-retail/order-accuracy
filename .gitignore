@@ -2,6 +2,7 @@ ovms-service/models_vlm
 ovms-service/venv
 take-away/models
 take-away/model
+take-away/datasets/
 take-away/storage/results
 take-away/storage/uploads
 ovms-service/cache/
