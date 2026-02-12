@@ -1,0 +1,33 @@
+{
+  "925": [
+    { "name": "green apple", "quantity": 2 },
+    { "name": "water bottle", "quantity": 1 }
+  ],
+  "539": [
+    { "name": "apple", "quantity": 2 },
+    { "name": "water", "quantity": 1 },
+    { "name": "pepsi can", "quantity": 1 },
+    { "name": "coke 2 liter bottle", "quantity": 1 },
+    { "name": "coke bottle", "quantity": 1 }
+  ],
+  "100": [
+    { "name": "coke bottle", "quantity": 2 },
+    { "name": "banana", "quantity": 2 },
+    { "name": "water bottle", "quantity": 1 }
+  ],
+  "384": [
+    { "name": "pepsi can", "quantity": 1 },
+    { "name": "yellow banana", "quantity": 1 }
+  ],
+  "651": [
+    { "name": "water bottle", "quantity": 1 },
+    { "name": "banana", "quantity": 2 },
+    { "name": "coke 2 liter bottle", "quantity": 1 }
+  ],
+  "892": [
+    { "name": "apple", "quantity": 1 },
+    { "name": "banana", "quantity": 1 },
+    { "name": "coke 2 liter bottle", "quantity": 1 },
+    { "name": "coke bottle", "quantity": 1 }
+  ]
+}
