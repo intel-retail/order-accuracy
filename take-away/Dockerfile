@@ -38,11 +38,8 @@ RUN apt-get update && \
         curl \
         ca-certificates \
         jq \
-        python3 \
-        python3-pip \
         python3-gi \
         python3-gst-1.0 \
-        python3-opencv \
     && rm -rf /var/lib/apt/lists/*
 
 # -------------------------------

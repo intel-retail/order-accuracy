@@ -46,110 +46,6 @@ ORDERS_PATH = CONFIGS_DIR / "orders.json"
 INVENTORY_PATH = CONFIGS_DIR / "inventory.json"
 
 
-_VALIDATION_PROFILES: Dict[str, Dict[str, object]] = {
-    "image_01_mcd_combo": {
-        "order_complete": True,
-        "missing_items": [],
-        "extra_items": [],
-        "modifier_validation": {"status": "validated", "details": []},
-        "accuracy_score": 0.99,
-    },
-    "image_02_mcd_variation": {
-        "order_complete": False,
-        "missing_items": ["French Fries"],
-        "extra_items": ["Apple Pie"],
-        "modifier_validation": {"status": "validated", "details": []},
-        "accuracy_score": 0.74,
-    },
-    "image_03_kfc_combo": {
-        "order_complete": False,
-        "missing_items": [],
-        "extra_items": ["Extra Biscuit Basket"],
-        "modifier_validation": {"status": "validated", "details": []},
-        "accuracy_score": 0.77,
-    },
-    "image_04_burgerking_combo": {
-        "order_complete": False,
-        "missing_items": ["Milkshake"],
-        "extra_items": [],
-        "modifier_validation": {"status": "validated", "details": []},
-        "accuracy_score": 0.71,
-    },
-    "plate_05_salmon_asparagus_mash": {
-        "order_complete": True,
-        "missing_items": [],
-        "extra_items": [],
-        "modifier_validation": {"status": "validated", "details": []},
-        "accuracy_score": 0.96,
-    },
-    "plate_06_fried_chicken_combo": {
-        "order_complete": False,
-        "missing_items": ["Dipping Sauce"],
-        "extra_items": [],
-        "modifier_validation": {
-            "status": "validated",
-            "details": ["Barbecue modifier absent"],
-        },
-        "accuracy_score": 0.69,
-    },
-    "plate_07_chicken_parmesan_combo": {
-        "order_complete": True,
-        "missing_items": [],
-        "extra_items": [],
-        "modifier_validation": {
-            "status": "unable_to_verify",
-            "details": ["Cheese coverage unclear"],
-        },
-        "accuracy_score": 0.65,
-    },
-}
-
-_METRIC_PROFILES: Dict[str, Dict[str, object]] = {
-    "image_01_mcd_combo": {
-        "end_to_end_latency_ms": 1280,
-        "vlm_inference_ms": 840,
-        "agent_reconciliation_ms": 290,
-        "within_operational_window": True,
-    },
-    "image_02_mcd_variation": {
-        "end_to_end_latency_ms": 1710,
-        "vlm_inference_ms": 1110,
-        "agent_reconciliation_ms": 420,
-        "within_operational_window": True,
-    },
-    "image_03_kfc_combo": {
-        "end_to_end_latency_ms": 1625,
-        "vlm_inference_ms": 1075,
-        "agent_reconciliation_ms": 355,
-        "within_operational_window": True,
-    },
-    "image_04_burgerking_combo": {
-        "end_to_end_latency_ms": 1930,
-        "vlm_inference_ms": 1235,
-        "agent_reconciliation_ms": 480,
-        "within_operational_window": False,
-    },
-    "plate_05_salmon_asparagus_mash": {
-        "end_to_end_latency_ms": 1395,
-        "vlm_inference_ms": 910,
-        "agent_reconciliation_ms": 315,
-        "within_operational_window": True,
-    },
-    "plate_06_fried_chicken_combo": {
-        "end_to_end_latency_ms": 2050,
-        "vlm_inference_ms": 1320,
-        "agent_reconciliation_ms": 520,
-        "within_operational_window": False,
-    },
-    "plate_07_chicken_parmesan_combo": {
-        "end_to_end_latency_ms": 1840,
-        "vlm_inference_ms": 1180,
-        "agent_reconciliation_ms": 460,
-        "within_operational_window": False,
-    },
-}
-
-
 def _default_validation(image_id: str) -> Dict[str, object]:
     return {
         "order_complete": False,
@@ -202,8 +98,8 @@ def _load_orders() -> Dict[str, Scenario]:
         scenarios[label] = Scenario(
             image_path=image_path,
             order_manifest=manifest,
-            validation=_VALIDATION_PROFILES.get(image_id, _default_validation(image_id)),
-            metrics=_METRIC_PROFILES.get(image_id, _default_metrics(image_id)),
+            validation=_default_validation(image_id),
+            metrics=_default_metrics(image_id),
         )
 
     return scenarios
@@ -299,13 +195,13 @@ def validate_plate(name: str) -> Tuple[Dict[str, object], Dict[str, object]]:
             return validation, metrics
         else:
             logger.error(f"[GRADIO] API error: {response.status_code} - {response.text}")
-            # Fallback to predefined profiles on error
-            return scenario.validation, scenario.metrics
+            # Return default empty values on API error
+            return _default_validation(name), _default_metrics(name)
             
     except requests.exceptions.RequestException as e:
         logger.error(f"[GRADIO] Request failed: {e}")
-        # Fallback to predefined profiles on connection error
-        return scenario.validation, scenario.metrics
+        # Return default empty values on connection error
+        return _default_validation(name), _default_metrics(name)
     except Exception as e:
         logger.exception(f"[GRADIO] Validation error: {e}")
         return _default_validation(name), _default_metrics(name)

@@ -10,10 +10,16 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
-MODELS_DIR="${PROJECT_ROOT}/models"
-SOURCE_MODELS_DIR="/home/intel/jsaini/ovms-vlm/models_vlm"
+MODELS_DIR="${SCRIPT_DIR}/models"
 MODEL_NAME="Qwen2.5-VL-7B-Instruct"
 SOURCE_MODEL="Qwen/Qwen2.5-VL-7B-Instruct"
+
+# Optional: Check common locations for pre-exported models
+POTENTIAL_SOURCE_DIRS=(
+    "${HOME}/ovms-vlm/models"
+    "/opt/ovms/models"
+    "${PROJECT_ROOT}/../ovms-vlm/models"
+)
 
 echo "=========================================="
 echo "OVMS Model Setup for Order Accuracy"
@@ -42,39 +48,42 @@ if check_model "${MODELS_DIR}/Qwen/${MODEL_NAME}"; then
     exit 0
 fi
 
-# Check if we can copy from existing ovms-vlm installation
-if [ -d "${SOURCE_MODELS_DIR}/Qwen" ]; then
-    echo "✓ Found existing OVMS models at ${SOURCE_MODELS_DIR}"
-    echo ""
-    
-    # Check for Qwen2.5-VL-7B-Instruct (current model)
-    if check_model "${SOURCE_MODELS_DIR}/Qwen/${MODEL_NAME}"; then
-        echo "  → Copying ${MODEL_NAME} model..."
-        mkdir -p "${MODELS_DIR}/Qwen"
-        cp -r "${SOURCE_MODELS_DIR}/Qwen/${MODEL_NAME}" "${MODELS_DIR}/Qwen/"
-        echo "  ✓ Model copied successfully"
+# Check if we can copy from existing installations
+for SOURCE_DIR in "${POTENTIAL_SOURCE_DIRS[@]}"; do
+    if [ -d "${SOURCE_DIR}/Qwen/${MODEL_NAME}" ]; then
+        echo "✓ Found existing model at ${SOURCE_DIR}"
+        echo ""
         
-        echo ""
-        echo "✓ Model setup complete!"
-        echo ""
-        echo "Model location: ${MODELS_DIR}/Qwen/${MODEL_NAME}"
-        echo "Model size: $(du -sh ${MODELS_DIR}/Qwen/${MODEL_NAME} | cut -f1)"
-        echo ""
-        exit 0
-    else
-        echo "  ⚠ Model ${MODEL_NAME} not found in ${SOURCE_MODELS_DIR}"
-        echo "  Will proceed with automatic export..."
-        echo ""
+        # Check if model is properly configured
+        if check_model "${SOURCE_DIR}/Qwen/${MODEL_NAME}"; then
+            echo "  → Copying ${MODEL_NAME} model..."
+            mkdir -p "${MODELS_DIR}/Qwen"
+            cp -r "${SOURCE_DIR}/Qwen/${MODEL_NAME}" "${MODELS_DIR}/Qwen/"
+            echo "  ✓ Model copied successfully"
+            
+            echo ""
+            echo "✓ Model setup complete!"
+            echo ""
+            echo "Model location: ${MODELS_DIR}/Qwen/${MODEL_NAME}"
+            echo "Model size: $(du -sh ${MODELS_DIR}/Qwen/${MODEL_NAME} | cut -f1)"
+            echo ""
+            exit 0
+        fi
     fi
-fi
+done
 
-# No existing models found - export from HuggingFace
-echo "No pre-exported models found. Will export from HuggingFace..."
+echo "No pre-exported models found in standard locations."
+echo "Searched: ${POTENTIAL_SOURCE_DIRS[@]}"
+
+echo ""
+echo "Will export from HuggingFace..."
 echo ""
 echo "This will:"
 echo "  1. Download ${SOURCE_MODEL} (~7GB)"
 echo "  2. Convert to OpenVINO format with INT8 quantization"
-echo "  3. Create graph.pbtxt for OVMS MediaPipe mode"
+echo "  3. Optimize for single-request processing (max_num_seqs=1)"
+echo "  4. Configure 32GB KV cache with prefix caching"
+echo "  5. Create graph.pbtxt for OVMS MediaPipe mode"
 echo ""
 read -p "Continue with automatic export? (y/N): " -n 1 -r
 echo
@@ -86,9 +95,11 @@ if [[ ! $REPLY =~ ^[Yy]$ ]]; then
     echo "    --weight-format int8 \\"
     echo "    --pipeline_type VLM_CB \\"
     echo "    --target_device GPU \\"
-    echo "    --cache_size 10 \\"
-    echo "    --config_file_path models_vlm/config.json \\"
-    echo "    --model_repository_path models_vlm"
+    echo "    --cache_size 32 \\"
+    echo "    --max_num_seqs 1 \\"
+    echo "    --enable_prefix_caching \\"
+    echo "    --config_file_path ${MODELS_DIR}/config.json \\"
+    echo "    --model_repository_path ${MODELS_DIR}"
     exit 1
 fi
 
@@ -171,7 +182,9 @@ python "${SCRIPT_DIR}/export_model.py" text_generation \
   --weight-format int8 \
   --pipeline_type VLM_CB \
   --target_device GPU \
-  --cache_size 10 \
+  --cache_size 32 \
+  --max_num_seqs 1 \
+  --enable_prefix_caching \
   --config_file_path "${MODELS_DIR}/config.json" \
   --model_repository_path "${MODELS_DIR}"
 
@@ -202,19 +215,19 @@ echo ""
 echo "Next steps:"
 echo ""
 echo "1. Start the OVMS service:"
-echo "   cd $(dirname ${SCRIPT_DIR})"
-echo "   docker compose --profile ovms up -d"
+echo "   cd ${PROJECT_ROOT}"
+echo "   docker compose up -d ovms-vlm"
 echo ""
 echo "2. Wait for model to load (30-60 seconds):"
-echo "   watch -n 2 'docker logs oa_ovms_vlm --tail 5'"
+echo "   watch -n 2 'docker logs dinein_ovms_vlm --tail 5'"
 echo ""
 echo "3. Verify OVMS is healthy:"
-echo "   curl http://localhost:8001/v1/config"
+echo "   curl http://localhost:8002/v1/config"
 echo ""
 echo "4. Check model status:"
-echo "   curl http://localhost:8001/v1/models"
+echo "   curl http://localhost:8002/v1/models"
 echo ""
-echo "5. Start parallel pipeline with OVMS backend:"
-echo "   docker compose --profile parallel --profile ovms up -d"
+echo "5. Start the dine-in application:"
+echo "   docker compose up -d dinein_app"
 echo ""
 
