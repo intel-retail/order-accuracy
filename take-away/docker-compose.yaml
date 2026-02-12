@@ -1,0 +1,250 @@
+version: "3.8"
+
+services:
+  minio:
+    image: minio/minio
+    container_name: oa_minio
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+      NO_PROXY: "localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,host.docker.internal"
+      no_proxy: "localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,host.docker.internal"
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    restart: unless-stopped
+    networks:
+      - order-accuracy-net
+
+  # OVMS VLM service
+  ovms-vlm:
+    image: openvino/model_server:latest-gpu
+    container_name: oa_ovms_vlm
+    ports:
+      - "8001:8000"
+    volumes:
+      - ./ovms-service/models:/models:ro
+      - ./ovms-service/cache:/tmp/ov_cache
+    environment:
+      - OV_CACHE_DIR=/tmp/ov_cache
+    command:
+      - --rest_port=8000
+      - --config_path=/models/config.json
+      - --log_level=INFO
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+      - "992"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - order-accuracy-net
+
+  # Unified Order Accuracy Service
+  # SINGLE Station (per-container): docker compose up -d --scale order-accuracy=4
+  # MULTI Station (multi-process in one container): Set SERVICE_MODE=parallel
+  order-accuracy:
+    build:
+      context: .
+      args:
+        http_proxy: http://proxy-pilot.intel.com:912
+        https_proxy: http://proxy-pilot.intel.com:912
+        HTTP_PROXY: http://proxy-pilot.intel.com:912
+        HTTPS_PROXY: http://proxy-pilot.intel.com:912
+        no_proxy: localhost,127.0.0.1
+        NO_PROXY: localhost,127.0.0.1
+    container_name: oa_service  # Single container name for parallel mode
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - video
+    volumes:
+      - ./storage/videos:/videos
+      - ./storage/uploads:/uploads
+      - ./storage/results:/results
+      - ./models:/models
+      - ./model:/model
+      - ./config:/config:ro
+      - ./datasets:/datasets:ro
+    environment:
+      # Service mode configuration
+      SERVICE_MODE: ${SERVICE_MODE:-single}  # 'single' or 'parallel' - default: single (UI-only, no background workers)
+      WORKERS: ${WORKERS:-0}                   # Number of station workers - 0 means no background processing, only on-demand via UI uploads
+      SCALING_MODE: ${SCALING_MODE:-fixed}    # 'fixed' or 'auto' for parallel mode
+      
+      # Common configuration
+      APP_CONFIG: /config/application.yaml
+      
+      # VLM Backend (embedded or ovms)
+      VLM_BACKEND: ${VLM_BACKEND:-ovms}
+      VLM_MODEL_PATH: /model/Qwen2.5-VL-7B-Instruct-ov-int8
+      OPENVINO_DEVICE: GPU
+      
+      # OVMS settings (when VLM_BACKEND=ovms)
+      OVMS_ENDPOINT: http://ovms-vlm:8000
+      OVMS_MODEL_NAME: Qwen/Qwen2.5-VL-7B-Instruct-ov-int8
+      
+      # Semantic service
+      SEMANTIC_SERVICE_ENDPOINT: http://semantic-service:8080
+      USE_SEMANTIC_SERVICE: "true"
+      
+      # RTSP Streamer
+      RTSP_STREAMER_HOST: rtsp-streamer
+      RTSP_STREAMER_PORT: 8554
+      
+      # Performance tuning
+      OMP_NUM_THREADS: 4
+      MKL_NUM_THREADS: 4
+      OPENBLAS_NUM_THREADS: 4
+      
+      # Network
+      NO_PROXY: "localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,semantic-service,rtsp-streamer,host.docker.internal"
+      no_proxy: "localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,semantic-service,rtsp-streamer,host.docker.internal"
+    # ports: Commented out to enable multi-station scaling
+    # For single station: use Gradio UI at port 7860
+    # For access to specific station: docker port <container_name> 8000
+    ports:
+      - "8000:8000"  # Exposed for monitoring/API access
+    depends_on:
+      - minio
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    cpus: 4
+    shm_size: 2g
+    networks:
+      - order-accuracy-net
+
+  frame-selector:
+    build:
+      context: ./frame-selector-service
+      args:
+        http_proxy: http://proxy-pilot.intel.com:912
+        https_proxy: http://proxy-pilot.intel.com:912
+        HTTP_PROXY: http://proxy-pilot.intel.com:912
+        HTTPS_PROXY: http://proxy-pilot.intel.com:912
+        no_proxy: localhost,127.0.0.1
+        NO_PROXY: localhost,127.0.0.1
+    # container_name removed to allow scaling
+    volumes:
+      - ./config:/config:ro
+      - ./model:/app/models
+      - ./datasets:/app/datasets
+    environment:
+      # Station configuration (must match order-accuracy STATION_ID)
+      STATION_ID: ${STATION_ID:-station_1}
+      APP_CONFIG: /config/application.yaml
+      http_proxy: http://proxy-pilot.intel.com:912
+      https_proxy: http://proxy-pilot.intel.com:912
+      HTTP_PROXY: http://proxy-pilot.intel.com:912
+      HTTPS_PROXY: http://proxy-pilot.intel.com:912
+      NO_PROXY: "localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,host.docker.internal"
+      no_proxy: "localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,host.docker.internal"
+    depends_on:
+      - order-accuracy
+    networks:
+      - order-accuracy-net
+
+  gradio-ui:
+    build:
+      context: ./gradio-ui
+      args:
+        http_proxy: http://proxy-pilot.intel.com:912
+        https_proxy: http://proxy-pilot.intel.com:912
+        HTTP_PROXY: http://proxy-pilot.intel.com:912
+        HTTPS_PROXY: http://proxy-pilot.intel.com:912
+        no_proxy: localhost,127.0.0.1
+        NO_PROXY: localhost,127.0.0.1
+    container_name: oa_gradio
+    ports:
+      - "7860:7860"
+    depends_on:
+      - order-accuracy
+    environment:
+      NO_PROXY: "localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,host.docker.internal"
+      no_proxy: "localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,host.docker.internal"
+    networks:
+      - order-accuracy-net
+
+  # Semantic Comparison Service
+  semantic-service:
+    image: semantic-search-agent:latest
+    container_name: oa_semantic_service
+    ports:
+      - "8080:8080"
+      - "9090:9090"
+    volumes:
+      - ./config:/app/config:ro
+    environment:
+      - SERVICE_NAME=semantic-search-agent
+      - LOG_LEVEL=INFO
+      - VLM_BACKEND=ovms
+      - OVMS_ENDPOINT=http://ovms-vlm:8000
+      - OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct-ov-int8
+      - CACHE_ENABLED=true
+      - CACHE_BACKEND=memory
+      - PROMETHEUS_ENABLED=true
+      - CONFIG_DIR=/app/config
+      - ORDERS_FILE=/app/config/orders.json
+      - INVENTORY_FILE=/app/config/inventory.json
+      - NO_PROXY=localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,semantic-service,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,order-accuracy,minio,ovms-vlm,semantic-service,host.docker.internal
+    depends_on:
+      - ovms-vlm
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - order-accuracy-net
+
+  # RTSP Streamer - Converts video files to RTSP streams
+  rtsp-streamer:
+    build:
+      context: ./rtsp-streamer
+      args:
+        http_proxy: http://proxy-pilot.intel.com:912
+        https_proxy: http://proxy-pilot.intel.com:912
+        HTTP_PROXY: http://proxy-pilot.intel.com:912
+        HTTPS_PROXY: http://proxy-pilot.intel.com:912
+        no_proxy: localhost,127.0.0.1
+        NO_PROXY: localhost,127.0.0.1
+    container_name: oa_rtsp_streamer
+    profiles:
+      - parallel  # Only start this service in parallel mode
+    volumes:
+      - ./storage/videos:/media:ro  # Mount videos as read-only
+    environment:
+      - MEDIA_DIR=/media
+      - RTSP_PORT=8554
+      - RTSP_STREAMER_HOST=rtsp-streamer
+      - RTSP_STREAMER_PORT=8554
+    ports:
+      - "8554:8554"  # RTSP port
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "nc", "-z", "127.0.0.1", "8554"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    networks:
+      - order-accuracy-net
+
+networks:
+  order-accuracy-net:
+    driver: bridge
+
+volumes:
+  minio_data:

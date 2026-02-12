@@ -1,0 +1,15 @@
+#
+# Copyright (C) 2024 Intel Corporation.
+#
+# SPDX-License-Identifier: Apache-2.0
+#
+
+
+ ## Current Developer Toolbox doesn't support environment files, make sure to remove any files or environment variables starting with $
+version: '3.7'
+services:
+  camera-simulator:
+    container_name: camera-simulator
+    image: aler9/rtsp-simple-server
+    ports:
+      - "127.0.0.1:8554:8554"

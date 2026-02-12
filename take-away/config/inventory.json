@@ -1,0 +1,46 @@
+{
+  "items": [
+    {
+      "id": "001",
+      "name": "green apple",
+      "category": "fruit",
+      "aliases": ["granny smith apple", "green granny smith"]
+    },
+    {
+      "id": "002",
+      "name": "apple",
+      "category": "fruit",
+      "aliases": ["red apple", "gala apple"]
+    },
+    {
+      "id": "003",
+      "name": "banana",
+      "category": "fruit",
+      "aliases": ["bananas"]
+    },
+    {
+      "id": "004",
+      "name": "water bottle",
+      "category": "beverage",
+      "aliases": ["water", "bottled water"]
+    },
+    {
+      "id": "005",
+      "name": "coke 2 liter bottle",
+      "category": "beverage",
+      "aliases": ["coke large bottle", "coca cola 2 liter", "coke big bottle"]
+    },
+    {
+      "id": "006",
+      "name": "coke bottle",
+      "category": "beverage",
+      "aliases": ["coca cola bottle", "coke small bottle"]
+    },
+    {
+      "id": "007",
+      "name": "pepsi can",
+      "category": "beverage",
+      "aliases": ["pepsi", "pepsi cola can"]
+    }
+  ]
+}
