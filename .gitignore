@@ -11,3 +11,7 @@ model
 dine-in/metrics/
 *.log
 *.csv
+
+# Environment files
+.env*
+!.env.example
