@@ -1,17 +1,44 @@
+# Service-specific directories
 ovms-service/models_vlm
 ovms-service/venv
+ovms-service/cache/
+ovms-service/models/
 take-away/models
 take-away/model
 take-away/datasets/
 take-away/storage/results
 take-away/storage/uploads
-ovms-service/cache/
-ovms-service/models/
-model
 dine-in/metrics/
+model
+
+# Benchmark results
+results/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+
+# Logs and data files
 *.log
 *.csv
 
 # Environment files
 .env*
 !.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
