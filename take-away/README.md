@@ -1,246 +1,238 @@
-# Unified Order Accuracy Service
+# Take-Away Order Accuracy
 
-## 🎯 Architecture
+**Real-time Order Validation System for Quick Service Restaurants**
 
-Single codebase that supports two modes:
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
+[![Docker](https://img.shields.io/badge/Docker-24.0%2B-blue.svg)](https://docker.com)
+[![OpenVINO](https://img.shields.io/badge/OpenVINO-2024.6%2B-blue.svg)](https://docs.openvino.ai)
 
-### **Mode 1: Single Worker** (FastAPI)
-- Video upload via REST API
-- One order at a time
-- Gradio UI support
-- Best for: Testing, development, single-user scenarios
+---
 
-### **Mode 2: Parallel Workers** (Multi-station)
-- Multiple concurrent RTSP streams
-- VLM request batching
-- Autoscaling support
-- Best for: Production, multi-camera deployments
+## Overview
 
-## 📁 Directory Structure
+Take-Away Order Accuracy is an AI-powered vision system that validates drive-through and take-away orders in real-time using Vision Language Models (VLM). The system processes video feeds from multiple stations simultaneously, detecting items in order bags and validating them against expected orders.
+
+### Key Capabilities
+
+- **Real-Time Video Processing**: GStreamer-based pipeline with RTSP support
+- **Multi-Station Parallel Processing**: Concurrent order validation across multiple stations
+- **VLM-Based Item Detection**: Qwen2.5-VL-7B for visual product identification
+- **Intelligent Frame Selection**: YOLO-powered frame selection for optimal VLM input
+- **Semantic Matching**: Hybrid exact/semantic matching for robust item comparison
+- **Production-Ready Architecture**: Circuit breaker, exponential backoff, health monitoring
+
+---
+
+## Architecture
 
 ```
-order-accuracy-service/
-├── main.py                    # Entry point with mode switching
-├── Dockerfile                 # Unified Docker image
-├── requirements.txt           # Python dependencies
-├── api/                       # Single worker mode (FastAPI)
-│   ├── __init__.py
-│   └── endpoints.py          # REST endpoints
-├── core/                      # Shared components
-│   ├── pipeline_runner.py    # GStreamer pipeline
-│   ├── frame_pipeline.py     # Frame processing + OCR
-│   ├── validation_agent.py   # Order validation
-│   ├── ovms_client.py        # OVMS VLM client
-│   ├── semantic_client.py    # Semantic comparison
-│   └── vlm_service.py        # VLM inference
-├── parallel/                  # Parallel mode components
-│   ├── station_manager.py    # Worker orchestration
-│   ├── station_worker.py     # Worker process
-│   ├── vlm_scheduler.py      # Request batching
-│   ├── metrics_collector.py  # System metrics
-│   └── scaling_policy.py     # Auto-scaling logic
-└── config/                    # Configuration files
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          TAKE-AWAY ORDER ACCURACY                           │
+└─────────────────────────────────────────────────────────────────────────────┘
+                                      │
+        ┌─────────────────────────────┼─────────────────────────────┐
+        │                             │                             │
+   ┌────▼────┐                  ┌─────▼─────┐                 ┌─────▼─────┐
+   │ Gradio  │                  │   Order   │                 │  Frame    │
+   │   UI    │◄────────────────►│ Accuracy  │                 │ Selector  │
+   │ :7860   │                  │  Service  │                 │  (YOLO)   │
+   └─────────┘                  │  :8000    │                 └─────┬─────┘
+                                └─────┬─────┘                       │
+           ┌─────────────────────────┬┴─────────────────────────┐   │
+           │                        │                           │   │
+      ┌────▼────┐             ┌─────▼─────┐              ┌──────▼───▼──┐
+      │ Station │             │ Station   │              │    VLM      │
+      │Worker 1 │             │ Worker N  │              │  Scheduler  │
+      │(Process)│             │ (Process) │              │  (Batcher)  │
+      └────┬────┘             └─────┬─────┘              └──────┬──────┘
+           │                        │                          │
+           └────────────────────────┼──────────────────────────┘
+                                    │
+                              ┌─────▼─────┐
+                              │  OVMS VLM │
+                              │  :8001    │
+                              │(Qwen2.5-VL)
+                              └─────┬─────┘
+                                    │
+           ┌────────────────────────┼────────────────────────┐
+           │                        │                        │
+      ┌────▼────┐             ┌─────▼─────┐           ┌──────▼──────┐
+      │  MinIO  │             │ Semantic  │           │   RTSP      │
+      │  :9000  │             │  Service  │           │  Streamer   │
+      │ (S3)    │             │  :8080    │           │   :8554     │
+      └─────────┘             └───────────┘           └─────────────┘
 ```
 
-## 🚀 Quick Start
+### Service Modes
 
-### Single Worker Mode (Default)
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Single** | Single worker with Gradio UI | Development, testing, demos |
+| **Parallel** | Multi-worker with VLM scheduler | Production, high throughput |
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- Docker 24.0+ with Compose V2
+- NVIDIA GPU with 8GB+ VRAM (or Intel GPU)
+- 32GB+ RAM recommended
+- Intel Xeon or equivalent CPU
+
+### 1. Clone and Configure
 
 ```bash
-# 1. Copy environment file
-cp .env.unified .env
-
-# 2. Start with OVMS backend
-docker compose --profile ovms -f docker-compose.unified.yaml up -d
-
-# 3. Access Gradio UI
-open http://localhost:7860
+cd take-away
+cp .env.example .env
+# Edit .env for your configuration
 ```
 
-### Parallel Mode (2 Workers)
+### 2. Build and Start
 
 ```bash
-# 1. Set environment
-cat > .env << 'EOF'
-SERVICE_MODE=parallel
-WORKERS=2
-VLM_BACKEND=ovms
-SCALING_MODE=fixed
-EOF
+# Single worker mode (development)
+make build
+make up
 
-# 2. Start services
-docker compose --profile ovms -f docker-compose.unified.yaml up -d
-
-# 3. Check logs
-docker logs -f oa_service
+# Parallel mode (production)
+make build
+make up-parallel WORKERS=4
 ```
 
-### Parallel Mode with Autoscaling
+### 3. Access Services
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| Gradio UI | http://localhost:7860 | Interactive order validation |
+| Order Accuracy API | http://localhost:8000 | REST API endpoints |
+| MinIO Console | http://localhost:9001 | Frame storage management |
+| OVMS VLM | http://localhost:8001 | VLM model server |
+| Semantic Service | http://localhost:8080 | Semantic matching API |
+
+---
+
+## Documentation
+
+### User Guides
+
+| Document | Description |
+|----------|-------------|
+| [Overview](docs/user-guide/Overview.md) | Comprehensive architecture and design |
+| [Getting Started](docs/user-guide/get-started.md) | Installation and setup guide |
+| [System Requirements](docs/user-guide/system-requirements.md) | Hardware and software requirements |
+| [How to Use](docs/user-guide/how-to-use-application.md) | Usage instructions and workflows |
+| [Build from Source](docs/user-guide/how-to-build-from-source.md) | Source build instructions |
+| [API Reference](docs/user-guide/api-reference.md) | Complete REST API documentation |
+| [Benchmarking Guide](docs/user-guide/benchmarking-guide.md) | Performance testing guide |
+| [Release Notes](docs/user-guide/release-notes.md) | Version history and changes |
+
+---
+
+## Key Commands
 
 ```bash
-# Environment
-SERVICE_MODE=parallel
-WORKERS=2
-SCALING_MODE=auto
-VLM_BACKEND=ovms
+# Service Management
+make up                    # Start services (single mode)
+make up-parallel          # Start services (parallel mode)
+make down                 # Stop all services
+make status               # Show service status
 
-# Services will scale 1-8 workers based on:
-# - GPU utilization
-# - CPU usage
-# - VLM request latency
+# Logs
+make logs                 # Order accuracy service logs
+make logs-vlm             # OVMS VLM logs
+make logs-all             # All service logs
+
+# Benchmarking
+make benchmark            # Single video benchmark
+make benchmark-oa-density # Stream density test
+
+# Development
+make shell                # Shell into container
+make test-api             # Test API endpoints
+make show-config          # Show current configuration
 ```
 
-## ⚙️ Configuration
+---
+
+## Configuration
 
 ### Environment Variables
 
-| Variable | Values | Description |
-|----------|--------|-------------|
-| `SERVICE_MODE` | `single`, `parallel` | Operating mode |
-| `WORKERS` | `1-8` | Number of workers (parallel mode) |
-| `SCALING_MODE` | `fixed`, `auto` | Worker scaling policy |
-| `VLM_BACKEND` | `embedded`, `ovms` | VLM inference backend |
-| `OVMS_ENDPOINT` | URL | OVMS server address |
-| `OVMS_MODEL_NAME` | String | Model name in OVMS |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SERVICE_MODE` | `single` | Service mode (`single`, `parallel`) |
+| `WORKERS` | `0` | Number of station workers |
+| `VLM_BACKEND` | `ovms` | VLM backend type |
+| `OVMS_ENDPOINT` | `http://ovms-vlm:8000` | OVMS server endpoint |
+| `OVMS_MODEL_NAME` | `Qwen/Qwen2.5-VL-7B-Instruct-ov-int8` | Model name |
+| `DEFAULT_MATCHING_STRATEGY` | `hybrid` | Matching strategy |
+| `SIMILARITY_THRESHOLD` | `0.85` | Semantic similarity threshold |
 
-## 🔧 Development
+### Benchmark Variables
 
-### Running Locally (Single Mode)
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BENCHMARK_TARGET_LATENCY_MS` | `3000` | Target latency threshold |
+| `BENCHMARK_MIN_TRANSACTIONS` | `3` | Minimum transactions per level |
+| `BENCHMARK_WORKER_INCREMENT` | `1` | Workers added per iteration |
 
-```bash
-cd order-accuracy-service
+---
 
-# Install dependencies
-pip install -r requirements.txt
+## Project Structure
 
-# Set environment
-export SERVICE_MODE=single
-export VLM_BACKEND=ovms
-export OVMS_ENDPOINT=http://localhost:8001
-
-# Run
-python main.py
+```
+take-away/
+├── src/
+│   ├── main.py                 # Service entry point
+│   ├── api/
+│   │   └── endpoints.py        # REST API endpoints
+│   ├── core/
+│   │   ├── vlm_service.py      # VLM processing logic
+│   │   ├── ovms_client.py      # OVMS client
+│   │   ├── validation_agent.py # Order validation
+│   │   ├── semantic_client.py  # Semantic service client
+│   │   └── semantic_matcher.py # Local semantic matching
+│   └── parallel/
+│       ├── station_worker.py   # Station worker process
+│       ├── vlm_scheduler.py    # VLM request batcher
+│       └── shared_queue.py     # Inter-process queue
+├── frame-selector-service/
+│   └── app/
+│       └── frame_selector.py   # YOLO frame selection
+├── gradio-ui/
+│   └── gradio_app.py          # Web interface
+├── config/                     # Configuration files
+├── storage/                    # Videos and results
+├── docker-compose.yaml         # Docker services
+├── Makefile                    # Build automation
+└── README.md                   # This file
 ```
 
-### Running Locally (Parallel Mode)
+---
 
-```bash
-export SERVICE_MODE=parallel
-export WORKERS=2
-export SCALING_MODE=fixed
+## Related Projects
 
-python main.py
-```
+- **Dine-In Order Accuracy**: Image-based order validation for dining applications
+- **Semantic Comparison Service**: Microservice for semantic text matching
+- **Performance Tools**: Benchmarking scripts for stream density testing
 
-## 📊 Monitoring
+---
 
-### Single Mode
-- FastAPI docs: `http://localhost:8000/docs`
-- Health check: `http://localhost:8000/health`
+## License
 
-### Parallel Mode
-- Logs: `docker logs -f oa_service`
-- Metrics: Monitor GPU/CPU/latency in logs
-- Autoscaling events: Watch for "Scaling UP/DOWN" messages
+Copyright © 2025 Intel Corporation
 
-## 🔄 Migration from Old Services
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
 
-### Before (Separate Services)
-```bash
-# Two separate containers
-docker compose up -d application-service  # Single mode
-docker compose --profile parallel up -d   # Parallel mode
-```
+---
 
-### After (Unified Service)
-```bash
-# One container, mode via env var
-SERVICE_MODE=single docker compose -f docker-compose.unified.yaml up -d
-SERVICE_MODE=parallel WORKERS=2 docker compose -f docker-compose.unified.yaml up -d
-```
+## Support
 
-## ✅ Benefits
+For issues, questions, or contributions:
 
-1. **Single Codebase** - Fix once, benefits both modes
-2. **Consistent Behavior** - Same logic everywhere
-3. **Easier Testing** - Test core components once
-4. **Simpler Deployment** - One Docker image
-5. **Flexible Scaling** - Change mode via environment variable
-6. **Better Maintenance** - No code duplication
-
-## 🧪 Testing
-
-```bash
-# Test single mode
-docker compose -f docker-compose.unified.yaml up -d
-curl http://localhost:8000/health
-
-# Test parallel mode
-SERVICE_MODE=parallel WORKERS=2 docker compose -f docker-compose.unified.yaml up -d
-docker logs oa_service | grep "Started worker"
-```
-
-## 📝 Examples
-
-### Example 1: Video Upload (Single Mode)
-```bash
-curl -X POST http://localhost:8000/upload-video \
-  -F "file=@video.mp4"
-```
-
-### Example 2: RTSP Streams (Parallel Mode)
-```bash
-# Configured in parallel/config.py
-# Automatically processes streams from:
-# - rtsp://camera1:8554/stream
-# - rtsp://camera2:8554/stream
-```
-
-### Example 3: Switching Modes
-```bash
-# Stop current
-docker compose -f docker-compose.unified.yaml down
-
-# Switch to parallel
-SERVICE_MODE=parallel WORKERS=3 \
-  docker compose -f docker-compose.unified.yaml up -d
-```
-
-## 🆘 Troubleshooting
-
-### Issue: "Module not found"
-```bash
-# Fix: Ensure PYTHONPATH includes /app
-export PYTHONPATH=/app:$PYTHONPATH
-```
-
-### Issue: OVMS not connecting
-```bash
-# Check OVMS is running
-docker logs oa_ovms_vlm
-
-# Verify endpoint
-curl http://localhost:8001/v1/config
-```
-
-### Issue: Workers not starting
-```bash
-# Check logs
-docker logs oa_service
-
-# Verify RTSP sources are accessible
-gst-launch-1.0 rtspsrc location=rtsp://... ! fakesink
-```
-
-## 🔐 Security
-
-- Health checks on port 8000
-- OVMS model validation
-- Graceful shutdown handlers
-- Resource limits via docker-compose
-
-## 📚 Related Documentation
-
-- [COPILOT_SETUP_GUIDE.md](../COPILOT_SETUP_GUIDE.md) - Complete setup guide
-- [Original Application Service](../application-service/) - Legacy single mode
-- [Original Parallel Pipeline](../parallel-pipeline/) - Legacy parallel mode
+1. Review the [documentation](docs/user-guide/)
+2. Check existing [issues](issues/)
+3. Submit a detailed bug report or feature request
