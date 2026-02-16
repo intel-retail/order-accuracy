@@ -164,16 +164,27 @@ def create_default_config() -> SystemConfig:
     rtsp_host = os.getenv('RTSP_STREAMER_HOST', 'rtsp-streamer')
     rtsp_port = os.getenv('RTSP_STREAMER_PORT', '8554')
     
-    # Available RTSP streams (based on video files in rtsp-streamer)
-    # These are the actual stream names published by the RTSP server
-    available_streams = ['384-651-925', 'video1', 'video2']
+    # Number of station workers from environment
+    num_stations = int(os.getenv('WORKERS', '2'))
     
-    # Generate RTSP URLs for multiple stations, cycling through available streams
-    num_stations = int(os.getenv('WORKERS', '4'))
-    rtsp_urls = [
-        f'rtsp://{rtsp_host}:{rtsp_port}/{available_streams[i % len(available_streams)]}'
-        for i in range(num_stations)
-    ]
+    # Available RTSP streams - read from environment as comma-separated list
+    # Example: RTSP_STREAMS=stream1,stream2,stream3
+    # If not set, use station_N naming convention (matches rtsp-streamer behavior)
+    streams_env = os.getenv('RTSP_STREAMS', '')
+    if streams_env:
+        # Use custom stream names from RTSP_STREAMS
+        available_streams = [s.strip() for s in streams_env.split(',') if s.strip()]
+        # Generate RTSP URLs - cycle through if fewer streams than stations
+        rtsp_urls = [
+            f'rtsp://{rtsp_host}:{rtsp_port}/{available_streams[i % len(available_streams)]}'
+            for i in range(num_stations)
+        ]
+    else:
+        # Default: station_N naming (matches what rtsp-streamer creates)
+        rtsp_urls = [
+            f'rtsp://{rtsp_host}:{rtsp_port}/station_{i+1}'
+            for i in range(num_stations)
+        ]
     
     return SystemConfig(
         rtsp_urls=rtsp_urls,

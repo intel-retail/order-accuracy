@@ -1,0 +1,56 @@
+# Environment files (contain local config)
+.env
+.env.local
+.env.backup
+
+# Don't ignore example
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+
+# Virtual environments
+venv/
+.venv/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Results and outputs
+results/
+*.log
+
+# Storage (might have large files)
+storage/videos/*.mp4
+storage/videos/*.avi
+storage/uploads/*
+storage/results/*
+
+# Keep directory structure
+!storage/videos/.gitkeep
+!storage/uploads/.gitkeep
+!storage/results/.gitkeep
+
+# Model files (too large for git)
+model/
+models/
+*.bin
+*.onnx
+*.pt
+*.pth
+
+# OS
+.DS_Store
+Thumbs.db

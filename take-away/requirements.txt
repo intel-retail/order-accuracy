@@ -9,7 +9,9 @@ pyyaml
 openvino
 openvino-genai
 python-multipart
+pika>=1.3.0
 # EasyOCR with dependencies
 easyocr
 torch
 torchvision
+git+https://github.com/sumanaga/performance-tools.git@unique-id-support#subdirectory=benchmark-scripts

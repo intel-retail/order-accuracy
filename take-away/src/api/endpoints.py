@@ -133,7 +133,8 @@ def create_app() -> FastAPI:
     async def run_vlm_endpoint(payload: Dict[str, Any] = Body(...)):
         """Process order with VLM service"""
         order_id = payload.get("order_id")
-        logger.info(f"[API] Received VLM processing request for order_id={order_id}")
+        station_id = payload.get("station_id")
+        logger.info(f"[API] Received VLM processing request for order_id={order_id}, station_id={station_id}")
         
         if not order_id:
             logger.warning("[API] Missing order_id in VLM request")
@@ -143,7 +144,7 @@ def create_app() -> FastAPI:
             }
         
         logger.debug(f"[API] Delegating order_id={order_id} to VLM service")
-        result = await run_vlm(order_id)
+        result = await run_vlm(order_id, station_id=station_id)
         logger.info(f"[API] VLM processing completed for order_id={order_id}, status={result.get('status')}")
         return result
 

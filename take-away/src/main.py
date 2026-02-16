@@ -47,10 +47,64 @@ if SERVICE_MODE == 'parallel':
     logger.info(f"Scaling: {SCALING_MODE}")
 logger.info(f"======================================")
 
+# RabbitMQ configuration
+USE_RABBITMQ = os.getenv('USE_RABBITMQ', 'true').lower() == 'true'
+logger.info(f"RabbitMQ enabled: {USE_RABBITMQ}")
+
+
+def start_rabbitmq_consumer():
+    """Start RabbitMQ consumer for processing orders from queue"""
+    if not USE_RABBITMQ:
+        logger.info("RabbitMQ disabled, consumer not started")
+        return None
+    
+    try:
+        from core.message_queue import OrderConsumer
+        from core.vlm_service import run_vlm
+        import asyncio
+        
+        # Create a persistent event loop for the consumer thread
+        _consumer_loop = None
+        
+        def process_order_sync(order_id: str, station_id: str) -> bool:
+            """Synchronous wrapper for async run_vlm"""
+            nonlocal _consumer_loop
+            try:
+                logger.info(f"[CONSUMER] Processing order: order_id={order_id}, station_id={station_id}")
+                
+                # Reuse event loop or create new one if needed
+                if _consumer_loop is None or _consumer_loop.is_closed():
+                    _consumer_loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(_consumer_loop)
+                
+                result = _consumer_loop.run_until_complete(run_vlm(order_id, station_id))
+                status = result.get('status', 'unknown')
+                logger.info(f"[CONSUMER] Order processed: order_id={order_id}, status={status}")
+                return status in ('validated', 'mismatch', 'success')
+                    
+            except Exception as e:
+                logger.error(f"[CONSUMER] Failed to process order: order_id={order_id}, error={e}")
+                return False
+        
+        consumer = OrderConsumer(process_callback=process_order_sync)
+        consumer.start()
+        logger.info("[CONSUMER] RabbitMQ consumer started")
+        return consumer
+        
+    except ImportError as e:
+        logger.warning(f"RabbitMQ consumer not available: {e}")
+        return None
+    except Exception as e:
+        logger.error(f"Failed to start RabbitMQ consumer: {e}")
+        return None
+
 
 def run_single_mode():
     """Run in single-worker mode with FastAPI"""
     logger.info("Starting Single Worker Mode with FastAPI API")
+    
+    # Start RabbitMQ consumer in background
+    consumer = start_rabbitmq_consumer()
     
     from api import create_app
     import uvicorn
@@ -68,6 +122,9 @@ def run_single_mode():
 def run_parallel_mode():
     """Run in parallel multi-worker mode"""
     logger.info(f"Starting Parallel Mode with {WORKERS} workers")
+    
+    # Start RabbitMQ consumer in background (for frame-selector communication)
+    consumer = start_rabbitmq_consumer()
     
     from parallel import StationManager, VLMScheduler, MetricsCollector, MetricsStore, QueueManager
     from parallel.shared_queue import QueueBackend
@@ -87,6 +144,9 @@ def run_parallel_mode():
     metrics_store = MetricsStore()
     metrics = MetricsCollector(metrics_store=metrics_store, sample_interval=1.0)
     
+    # VLM worker count - defaults to WORKERS count but can be overridden
+    vlm_workers = int(os.getenv('VLM_WORKERS', WORKERS))
+    
     # Initialize VLM scheduler  
     scheduler = VLMScheduler(
         queue_manager=queue_mgr,
@@ -94,7 +154,7 @@ def run_parallel_mode():
         model_name="Qwen/Qwen2.5-VL-7B-Instruct-ov-int8",
         batch_window_ms=100,
         max_batch_size=16,
-        max_workers=4
+        max_workers=vlm_workers
     )
     
     # Initialize station manager with SHARED queue manager

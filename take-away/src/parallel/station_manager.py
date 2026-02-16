@@ -188,14 +188,16 @@ class StationManager:
         Returns:
             Station ID of started worker
         """
-        station_id = f"station_{self._next_station_id}"
+        station_num = self._next_station_id  # Capture before increment
+        station_id = f"station_{station_num}"
         self._next_station_id += 1
         
         # Get RTSP URL
         # Cycle through available RTSP URLs or use simulation
         rtsp_urls = self.config.get('rtsp_urls', [])
         if rtsp_urls:
-            rtsp_url = rtsp_urls[(self._next_station_id - 1) % len(rtsp_urls)]
+            # Use station_num - 1 as index (station_1 → index 0, station_2 → index 1)
+            rtsp_url = rtsp_urls[(station_num - 1) % len(rtsp_urls)]
         else:
             rtsp_url = f"rtsp://simulation/{station_id}"
         

@@ -5,6 +5,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, Optional
 
 # Configure logging
 logging.basicConfig(
@@ -14,115 +15,211 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Station ID from environment
-STATION_ID = os.environ.get('STATION_ID', 'station_1')
+# Default Station ID from environment (for backwards compatibility)
+DEFAULT_STATION_ID = os.environ.get('STATION_ID', 'station_1')
 
 # Results directory
 RESULTS_DIR = Path(os.environ.get('RESULTS_DIR', '/results'))
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-# Station-specific results file
-STATION_RESULTS_FILE = RESULTS_DIR / f"{STATION_ID}_results.jsonl"
-STATION_SUMMARY_FILE = RESULTS_DIR / f"{STATION_ID}_summary.json"
+MAX_RESULTS = 10  # Keep more results per station for better reporting
 
-MAX_RESULTS = 3
+# Per-station state tracking
+class StationResults:
+    """Tracks results for a single station"""
+    def __init__(self, station_id: str):
+        self.station_id = station_id
+        self.results = deque(maxlen=MAX_RESULTS)
+        self.total_processed = 0
+        self.total_validated = 0
+        self.total_mismatch = 0
+        self.lock = Lock()
+        
+        # File paths for this station
+        self.results_file = RESULTS_DIR / f"{station_id}_results.jsonl"
+        self.summary_file = RESULTS_DIR / f"{station_id}_summary.json"
+        self.report_file = RESULTS_DIR / f"{station_id}_report.md"
+        
+        logger.info(f"[RESULTS] StationResults initialized for {station_id}")
 
-_results = deque(maxlen=MAX_RESULTS)
-_lock = Lock()
-_total_processed = 0
-_total_validated = 0
-_total_mismatch = 0
+# Global registry of station states
+_station_registry: Dict[str, StationResults] = {}
+_registry_lock = Lock()
 
-logger.info(f"Order results storage initialized: station={STATION_ID}, max_results={MAX_RESULTS}")
+def _get_station(station_id: str) -> StationResults:
+    """Get or create station state"""
+    with _registry_lock:
+        if station_id not in _station_registry:
+            _station_registry[station_id] = StationResults(station_id)
+            logger.info(f"[RESULTS] Created new station tracker: {station_id}")
+        return _station_registry[station_id]
+
+logger.info(f"Order results storage initialized: default_station={DEFAULT_STATION_ID}, max_results={MAX_RESULTS}")
 logger.info(f"Results directory: {RESULTS_DIR}")
-logger.info(f"Station results file: {STATION_RESULTS_FILE}")
 
-def _write_result_to_file(result: dict):
-    """Write result to station-specific JSONL file"""
-    try:
-        # Add timestamp and station ID
-        result_with_meta = {
-            'timestamp': datetime.now().isoformat(),
-            'station_id': STATION_ID,
-            **result
-        }
-        
-        # Append to JSONL file (one JSON object per line)
-        with open(STATION_RESULTS_FILE, 'a') as f:
-            f.write(json.dumps(result_with_meta) + '\n')
-        
-        logger.debug(f"[RESULTS] Written to file: {STATION_RESULTS_FILE}")
-    except Exception as e:
-        logger.error(f"[RESULTS] Failed to write to file: {e}")
-
-def _update_summary():
+def _update_summary(station: StationResults):
     """Update station summary file with statistics"""
-    global _total_processed, _total_validated, _total_mismatch
-    
     try:
         summary = {
-            'station_id': STATION_ID,
+            'station_id': station.station_id,
             'last_updated': datetime.now().isoformat(),
-            'total_processed': _total_processed,
-            'total_validated': _total_validated,
-            'total_mismatch': _total_mismatch,
-            'validation_rate': (_total_validated / _total_processed * 100) if _total_processed > 0 else 0,
+            'total_processed': station.total_processed,
+            'total_validated': station.total_validated,
+            'total_mismatch': station.total_mismatch,
+            'validation_rate': (station.total_validated / station.total_processed * 100) if station.total_processed > 0 else 0,
             'recent_results': [
                 {
                     'order_id': r.get('order_id'),
                     'status': r.get('status'),
-                    'inference_time': r.get('inference_time_sec')
+                    'inference_time': r.get('inference_time_sec'),
+                    'completed_at': r.get('completed_at', 'N/A')
                 }
-                for r in list(_results)
+                for r in list(station.results)
             ]
         }
         
-        with open(STATION_SUMMARY_FILE, 'w') as f:
+        with open(station.summary_file, 'w') as f:
             json.dump(summary, f, indent=2)
         
-        logger.debug(f"[RESULTS] Summary updated: {_total_processed} processed, {_total_validated} validated, {_total_mismatch} mismatch")
+        logger.debug(f"[RESULTS] Summary updated for {station.station_id}: {station.total_processed} processed")
     except Exception as e:
         logger.error(f"[RESULTS] Failed to update summary: {e}")
 
-def add_result(result: dict):
-    global _total_processed, _total_validated, _total_mismatch
+
+def _update_readable_report(station: StationResults):
+    """Update human-readable markdown report for this station"""
+    try:
+        lines = [
+            f"# {station.station_id.replace('_', ' ').title()} Results Report",
+            f"",
+            f"**Last Updated:** {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"",
+            f"## Summary",
+            f"- Total Processed: {station.total_processed}",
+            f"- Validated: {station.total_validated} ({'%.1f' % ((station.total_validated / station.total_processed * 100) if station.total_processed > 0 else 0)}%)",
+            f"- Mismatch: {station.total_mismatch}",
+            f"",
+            f"---",
+            f"",
+            f"## Recent Orders",
+            f""
+        ]
+        
+        for result in list(station.results):
+            order_id = result.get('order_id', 'unknown')
+            status = result.get('status', 'unknown')
+            completed_at = result.get('completed_at', 'N/A')
+            inference_time = result.get('inference_time_sec', 0)
+            validation = result.get('validation', {})
+            
+            missing = validation.get('missing', [])
+            extra = validation.get('extra', [])
+            qty_mismatch = validation.get('quantity_mismatch', [])
+            
+            status_emoji = "✅ VALIDATED" if status == "validated" else "❌ MISMATCH"
+            
+            lines.extend([
+                f"### Order {order_id}",
+                f"- **Completed At:** {completed_at}",
+                f"- **Inference Time:** {inference_time:.2f}s",
+                f"- Status: {status_emoji}",
+                f"- Missing: {missing if missing else 'None'}",
+                f"- Extra: {extra if extra else 'None'}",
+                f"- Quantity Mismatch: {qty_mismatch if qty_mismatch else 'None'}",
+                f""
+            ])
+        
+        with open(station.report_file, 'w') as f:
+            f.write('\n'.join(lines))
+        
+        logger.debug(f"[RESULTS] Report updated: {station.report_file}")
+    except Exception as e:
+        logger.error(f"[RESULTS] Failed to update report: {e}")
+
+
+def add_result(result: dict, station_id: Optional[str] = None):
+    """
+    Add a result for a station.
+    Always appends results (even duplicates) to track all detections across video loops.
     
-    with _lock:
+    Args:
+        result: The result dictionary
+        station_id: Optional station ID (defaults to DEFAULT_STATION_ID)
+    """
+    # Determine station ID from result or parameter or default
+    if station_id is None:
+        station_id = result.get('station_id', DEFAULT_STATION_ID)
+    
+    station = _get_station(station_id)
+    
+    with station.lock:
         order_id = result.get('order_id', 'unknown')
         status = result.get('status', 'unknown')
         
-        logger.info(f"[RESULTS] Adding result: order_id={order_id}, status={status}")
+        logger.info(f"[RESULTS] Adding result for {station_id}: order_id={order_id}, status={status}")
         logger.debug(f"[RESULTS] Result details: {result}")
         
-        _results.appendleft(result)
+        # Add completed_at timestamp in readable format
+        result['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        
+        # Always append results (even duplicates) to track all detections across video loops
+        station.results.appendleft(result)
         
         # Update statistics
-        _total_processed += 1
+        station.total_processed += 1
         if status == 'validated':
-            _total_validated += 1
+            station.total_validated += 1
         elif status == 'mismatch':
-            _total_mismatch += 1
+            station.total_mismatch += 1
         
-        # Write to file
-        _write_result_to_file(result)
-        _update_summary()
+        # Update summary and report files (no more appending to JSONL)
+        _update_summary(station)
+        _update_readable_report(station)
         
-        logger.debug(f"[RESULTS] Current result count: {len(_results)}/{MAX_RESULTS}")
-        logger.info(f"[RESULTS] Station {STATION_ID} stats: {_total_processed} processed, {_total_validated} validated, {_total_mismatch} mismatch")
+        logger.debug(f"[RESULTS] Current result count for {station_id}: {len(station.results)}/{MAX_RESULTS}")
+        logger.info(f"[RESULTS] {station_id} stats: {station.total_processed} processed, {station.total_validated} validated, {station.total_mismatch} mismatch")
 
-def get_results():
-    with _lock:
-        result_list = list(_results)
-        logger.debug(f"[RESULTS] Retrieved {len(result_list)} results")
+
+def get_results(station_id: Optional[str] = None):
+    """Get results for a station"""
+    if station_id is None:
+        station_id = DEFAULT_STATION_ID
+    
+    station = _get_station(station_id)
+    
+    with station.lock:
+        result_list = list(station.results)
+        logger.debug(f"[RESULTS] Retrieved {len(result_list)} results for {station_id}")
         return result_list
 
-def get_statistics():
-    """Get processing statistics for this station"""
-    with _lock:
+
+def get_statistics(station_id: Optional[str] = None):
+    """Get processing statistics for a station"""
+    if station_id is None:
+        station_id = DEFAULT_STATION_ID
+    
+    station = _get_station(station_id)
+    
+    with station.lock:
         return {
-            'station_id': STATION_ID,
-            'total_processed': _total_processed,
-            'total_validated': _total_validated,
-            'total_mismatch': _total_mismatch,
-            'validation_rate': (_total_validated / _total_processed * 100) if _total_processed > 0 else 0
+            'station_id': station.station_id,
+            'total_processed': station.total_processed,
+            'total_validated': station.total_validated,
+            'total_mismatch': station.total_mismatch,
+            'validation_rate': (station.total_validated / station.total_processed * 100) if station.total_processed > 0 else 0
+        }
+
+
+def get_all_stations():
+    """Get list of all active stations"""
+    with _registry_lock:
+        return list(_station_registry.keys())
+
+
+def get_all_statistics():
+    """Get statistics for all stations"""
+    with _registry_lock:
+        return {
+            station_id: get_statistics(station_id)
+            for station_id in _station_registry.keys()
         }

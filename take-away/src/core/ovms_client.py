@@ -8,6 +8,11 @@ from io import BytesIO
 from typing import List, Optional
 import numpy as np
 from PIL import Image
+from vlm_metrics_logger import (
+    log_start_time, 
+    log_end_time, 
+    log_custom_event
+)
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +77,7 @@ class OVMSVLMClient:
         prompt: str,
         images: List,
         generation_config=None,
+        unique_id: Optional[str] = None,
     ):
         """
         Generate response using OVMS Chat Completions API.
@@ -81,6 +87,7 @@ class OVMSVLMClient:
             prompt: Text prompt
             images: List of ov.Tensor or np.ndarray images
             generation_config: GenerationConfig object (for compatibility)
+            unique_id: Transaction ID for metrics logging (station_id_order_id)
 
         Returns:
             Object with .texts[0] attribute (mimics openvino_genai output)
@@ -120,6 +127,9 @@ class OVMSVLMClient:
             logger.info(f"[OVMS-CLIENT] Request data: model={request_data['model']}, images={len(images)}, prompt_len={len(prompt)}")
             logger.debug(f"[OVMS-CLIENT] Full request: {request_data}")
             
+            if unique_id:
+                log_start_time("ovms_vlm_request", unique_id)
+
             response = requests.post(
                 self.endpoint,
                 headers={"Content-Type": "application/json"},
@@ -141,6 +151,22 @@ class OVMSVLMClient:
             text = result["choices"][0]["message"]["content"]
             logger.info(f"[OVMS-CLIENT] Response received in {elapsed:.2f}s")
             logger.debug(f"[OVMS-CLIENT] Generated text: {text[:200]}...")
+
+            usage = result.get("usage", {})
+            logger.info(f"[OVMS-CLIENT] result: {result}")
+            prompt_tokens = usage.get("prompt_tokens", 0)
+            completion_tokens = usage.get("completion_tokens", 0)
+            total_tokens = usage.get("total_tokens", 0)
+        
+            tps = completion_tokens / elapsed if elapsed > 0 else 0
+            logger.info(f"[OVMS-CLIENT] Token usage - Prompt: {prompt_tokens}, Completion: {completion_tokens}, Total: {total_tokens}")
+            logger.info(f"[OVMS-CLIENT] Tokens per second (TPS): {tps:.2f}")
+            
+            if unique_id:
+                log_end_time("ovms_vlm_request", unique_id)
+                log_custom_event("ovms_metrics", "ovms_vlm_request", unique_id, 
+                                 tps=tps, prompt_tokens=prompt_tokens, 
+                                 completion_tokens=completion_tokens, elapsed_sec=elapsed)
 
             # Mimic openvino_genai output format
             class GenerationResult:

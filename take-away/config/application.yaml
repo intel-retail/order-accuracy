@@ -18,7 +18,31 @@ frame_selector:
   skip_labels:
     - hand
     - person
-  min_frames_per_order: 2
+  min_frames_per_order: 1  # Reduced to capture brief orders like 384
+  min_frames_before_finalize: 5  # Wait for at least N frames before finalizing an order
+
+# Order Tracker Configuration - Robust frame accumulation and finalization
+order_tracker:
+  # Finalization timing
+  inactivity_timeout_seconds: 5.0      # Time without new frames before considering finalization
+  minimum_collection_time_seconds: 2.0  # Minimum tracking time before allowing finalization
+  
+  # Grace period - continue collecting frames after OCR stops detecting order
+  grace_frame_count: 3                  # Number of additional frames to collect
+  
+  # Frame selection
+  top_k_frames: 3                       # Maximum frames to select for VLM
+  min_frames_soft_requirement: 3        # Warn if below this (but don't block)
+  min_frames_hard_requirement: 1        # Skip orders with fewer frames
+  
+  # Quality scoring penalties (0.0 = no penalty, 1.0 = max penalty)
+  occlusion_penalty: 0.3                # Penalty for frames with hands/persons
+  blur_penalty: 0.2                     # Penalty for blurry frames
+  item_count_weight: 0.1                # Bonus weight per detected item
+  
+  # Background processing
+  enable_background_finalization: true
+  finalization_check_interval: 1.0
 
 vlm:
   # Backend type: 'embedded' (local OpenVINO GenAI) or 'ovms' (OpenVINO Model Server)
