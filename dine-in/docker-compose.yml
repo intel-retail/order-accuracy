@@ -88,12 +88,54 @@ services:
       - "8083:8080"  # FastAPI
     volumes:
       - ./images:/app/images:ro
+      - ./results:/app/results
+      - ./configs:/app/configs:ro
     environment:
       - SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
       - OVMS_ENDPOINT=http://ovms-vlm:8000
       - METRICS_COLLECTOR_ENDPOINT=http://metrics-collector:8084
+      - CONTAINER_RESULTS_PATH=/app/results
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
+    depends_on:
+      ovms-vlm:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dinein-net
+      - order-accuracy_order-accuracy-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Dine-In Worker Service for Stream Density Testing
+  # Scale with: docker compose up -d --scale dinein-worker=4
+  # Or set WORKERS env variable and use profile: docker compose --profile benchmark up -d
+  dinein-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - benchmark
+      - worker
+    deploy:
+      replicas: ${WORKERS:-1}
+    volumes:
+      - ./images:/app/images:ro
+      - ./results:/app/results
+      - ./configs:/app/configs:ro
+    environment:
+      - WORKERS=${WORKERS:-1}
+      - ITERATIONS=${ITERATIONS:-0}
+      - REQUEST_DELAY=${REQUEST_DELAY:-0}
+      - IMAGES_DIR=/app/images
+      - ORDERS_FILE=/app/configs/orders.json
+      - RESULTS_DIR=/app/results
+      - SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
+      - OVMS_ENDPOINT=http://ovms-vlm:8000
+      - CONTAINER_RESULTS_PATH=/app/results
+      - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
+    command: ["python", "/app/worker.py"]
     depends_on:
       ovms-vlm:
         condition: service_healthy

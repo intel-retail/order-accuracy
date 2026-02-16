@@ -3,6 +3,7 @@ Configuration management using Singleton pattern for application settings.
 """
 
 import os
+import threading
 from typing import Optional
 from dataclasses import dataclass
 import logging
@@ -47,20 +48,30 @@ class AppConfig:
 
 class ConfigManager:
     """
-    Singleton configuration manager.
+    Singleton configuration manager with thread-safe initialization.
     Provides centralized access to application configuration.
+    Uses double-checked locking pattern to prevent race conditions.
     """
     _instance: Optional['ConfigManager'] = None
     _config: Optional[AppConfig] = None
+    _lock = threading.Lock()
+    _initialized = False
 
     def __new__(cls):
         if cls._instance is None:
-            cls._instance = super().__new__(cls)
+            with cls._lock:
+                # Double-checked locking to prevent race condition
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
         return cls._instance
 
     def __init__(self):
-        if self._config is None:
-            self._load_config()
+        # Thread-safe initialization check
+        if not ConfigManager._initialized:
+            with ConfigManager._lock:
+                if not ConfigManager._initialized:
+                    self._load_config()
+                    ConfigManager._initialized = True
 
     def _load_config(self):
         """Load configuration from environment variables with defaults"""

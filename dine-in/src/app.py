@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
-import requests
+import httpx
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
@@ -168,11 +168,12 @@ def validate_plate(name: str) -> Tuple[Dict[str, object], Dict[str, object]]:
             logger.info(f"[GRADIO] Sending POST request to {API_BASE_URL}/validate")
             
             # Call FastAPI validation endpoint (extended timeout for 7B model with inventory)
-            response = requests.post(
+            # Using httpx for better connection management
+            response = httpx.post(
                 f"{API_BASE_URL}/validate",
                 files=files,
                 data=data,
-                timeout=320  # 5+ minutes for 7B model inference
+                timeout=320.0  # 5+ minutes for 7B model inference
             )
         
         logger.info(f"[GRADIO] API Response status: {response.status_code}")
@@ -198,7 +199,7 @@ def validate_plate(name: str) -> Tuple[Dict[str, object], Dict[str, object]]:
             # Return default empty values on API error
             return _default_validation(name), _default_metrics(name)
             
-    except requests.exceptions.RequestException as e:
+    except httpx.HTTPError as e:
         logger.error(f"[GRADIO] Request failed: {e}")
         # Return default empty values on connection error
         return _default_validation(name), _default_metrics(name)

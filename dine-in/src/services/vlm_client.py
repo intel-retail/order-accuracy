@@ -3,17 +3,117 @@ VLM Client Service for OpenVINO Model Server interaction.
 Implements Adapter pattern for VLM inference abstraction.
 """
 
+import asyncio
 import base64
 import json
 import logging
 import time
+import uuid
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Dict, List, Any, Optional, Tuple
 from io import BytesIO
 import httpx
 from PIL import Image, ImageOps, ImageEnhance, ImageFilter
+from vlm_metrics_logger import (
+    log_start_time, 
+    log_end_time, 
+    log_custom_event
+)
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Circuit Breaker Pattern for Fault Tolerance
+# ============================================================================
+
+class CircuitState(Enum):
+    """Circuit breaker states"""
+    CLOSED = "closed"      # Normal operation
+    OPEN = "open"          # Failing, reject requests
+    HALF_OPEN = "half_open"  # Testing if service recovered
+
+
+@dataclass
+class CircuitBreakerConfig:
+    """Configuration for circuit breaker"""
+    failure_threshold: int = 5      # Failures before opening circuit
+    recovery_timeout: float = 30.0  # Seconds before trying half-open
+    success_threshold: int = 2      # Successes in half-open to close
+
+
+class CircuitOpenError(Exception):
+    """Raised when circuit breaker is open and rejecting requests"""
+    pass
+
+
+class CircuitBreaker:
+    """
+    Thread-safe circuit breaker for OVMS service.
+    
+    Prevents cascading failures by failing fast when service is unhealthy.
+    """
+    
+    def __init__(self, config: Optional[CircuitBreakerConfig] = None):
+        self.config = config or CircuitBreakerConfig()
+        self._state = CircuitState.CLOSED
+        self._failure_count = 0
+        self._success_count = 0
+        self._last_failure_time: Optional[datetime] = None
+        self._lock = asyncio.Lock()
+    
+    async def can_execute(self) -> bool:
+        """Check if request can proceed through circuit breaker."""
+        async with self._lock:
+            if self._state == CircuitState.CLOSED:
+                return True
+            
+            if self._state == CircuitState.OPEN:
+                # Check if recovery timeout has passed
+                if self._last_failure_time:
+                    elapsed = (datetime.now() - self._last_failure_time).total_seconds()
+                    if elapsed >= self.config.recovery_timeout:
+                        self._state = CircuitState.HALF_OPEN
+                        self._success_count = 0
+                        logger.info("Circuit breaker transitioning to HALF_OPEN")
+                        return True
+                return False
+            
+            # HALF_OPEN state - allow limited requests
+            return True
+    
+    async def record_success(self):
+        """Record successful request."""
+        async with self._lock:
+            if self._state == CircuitState.HALF_OPEN:
+                self._success_count += 1
+                if self._success_count >= self.config.success_threshold:
+                    self._state = CircuitState.CLOSED
+                    self._failure_count = 0
+                    logger.info("Circuit breaker CLOSED - service recovered")
+            elif self._state == CircuitState.CLOSED:
+                # Decay failure count on success
+                self._failure_count = max(0, self._failure_count - 1)
+    
+    async def record_failure(self):
+        """Record failed request."""
+        async with self._lock:
+            self._failure_count += 1
+            self._last_failure_time = datetime.now()
+            
+            if self._state == CircuitState.HALF_OPEN:
+                self._state = CircuitState.OPEN
+                logger.warning("Circuit breaker OPEN - service still failing")
+            elif self._failure_count >= self.config.failure_threshold:
+                self._state = CircuitState.OPEN
+                logger.warning(f"Circuit breaker OPEN after {self._failure_count} failures")
+    
+    @property
+    def state(self) -> CircuitState:
+        return self._state
 
 
 class ImagePreprocessor:
@@ -291,9 +391,18 @@ class VLMResponse:
 
 class VLMClient:
     """
-    VLM Client implementing Adapter pattern.
+    VLM Client implementing Adapter pattern with connection pooling and circuit breaker.
     Provides abstraction over OpenVINO Model Server VLM endpoint.
+    
+    Features:
+    - Persistent HTTP connection pool (avoids TCP handshake per request)
+    - Circuit breaker for fault tolerance
+    - Configurable timeouts per operation stage
     """
+    
+    # Class-level HTTP client pool (shared across instances)
+    _http_client: Optional[httpx.AsyncClient] = None
+    _client_lock = asyncio.Lock()
     
     def __init__(self, endpoint: str, model_name: str, timeout: int = 60):
         self.endpoint = endpoint
@@ -301,6 +410,15 @@ class VLMClient:
         self.timeout = timeout
         self.chat_endpoint = f"{endpoint}/v3/chat/completions"
         self.inventory_items = self._load_inventory()
+        
+        # Circuit breaker for OVMS service
+        self._circuit_breaker = CircuitBreaker(
+            config=CircuitBreakerConfig(
+                failure_threshold=5,
+                recovery_timeout=30.0,
+                success_threshold=2
+            )
+        )
         
         # Initialize image preprocessor for optimized VLM inference
         # Balanced settings for 7B model - good quality with reasonable speed
@@ -312,7 +430,46 @@ class VLMClient:
         )
         
         logger.info(f"VLM Client initialized: endpoint={endpoint}, model={model_name}, "
-                   f"inventory_items={len(self.inventory_items)}, preprocessing=enabled")
+                   f"inventory_items={len(self.inventory_items)}, preprocessing=enabled, "
+                   f"circuit_breaker=enabled")
+    
+    @classmethod
+    async def get_http_client(cls) -> httpx.AsyncClient:
+        """
+        Get or create shared HTTP client with connection pooling.
+        Thread-safe initialization using async lock.
+        """
+        if cls._http_client is None or cls._http_client.is_closed:
+            async with cls._client_lock:
+                if cls._http_client is None or cls._http_client.is_closed:
+                    # Configure connection pool limits
+                    limits = httpx.Limits(
+                        max_keepalive_connections=20,
+                        max_connections=50,
+                        keepalive_expiry=30.0
+                    )
+                    # Extended timeout for VLM inference
+                    timeout = httpx.Timeout(
+                        connect=10.0,
+                        read=300.0,
+                        write=10.0,
+                        pool=10.0
+                    )
+                    cls._http_client = httpx.AsyncClient(
+                        limits=limits,
+                        timeout=timeout,
+                        http2=True  # Enable HTTP/2 for better performance
+                    )
+                    logger.info("Created shared HTTP client with connection pooling")
+        return cls._http_client
+    
+    @classmethod
+    async def close_http_client(cls):
+        """Close the shared HTTP client (call on shutdown)"""
+        if cls._http_client is not None:
+            await cls._http_client.aclose()
+            cls._http_client = None
+            logger.info("Closed shared HTTP client")
     
     def _load_inventory(self) -> List[str]:
         """Load inventory items from inventory.json"""
@@ -384,7 +541,12 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
         logger.info(f"[PROMPT] Built compact prompt with {len(self.inventory_items)} inventory items, length={len(prompt)} chars")
         return prompt
     
-    async def analyze_plate(self, image_bytes: bytes, request_id: Optional[str] = None) -> VLMResponse:
+    async def analyze_plate(
+        self, 
+        image_bytes: bytes, 
+        order_id: Optional[str] = None,
+        request_id: Optional[str] = None
+    ) -> VLMResponse:
         """
         Analyze food plate image using VLM with optimized preprocessing.
         
@@ -396,7 +558,8 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
         
         Args:
             image_bytes: Raw image bytes
-            request_id: Optional unique request identifier for tracking
+            order_id: Optional order identifier for tracking
+            request_id: Optional unique request identifier for tracking (deprecated, use order_id)
             
         Returns:
             VLMResponse with detected items
@@ -404,7 +567,15 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
         Raises:
             httpx.HTTPError: On network or API errors
         """
-        req_id = request_id or "unknown"
+        # Generate unique ID for metrics logging using order_id
+        # Format: dine_in_{order_id} or dine_in_{uuid} if no order_id provided
+        if order_id:
+            unique_id = f"dine_in_{order_id}"
+        elif request_id:
+            unique_id = request_id  # Backward compatibility
+        else:
+            unique_id = f"dine_in_{uuid.uuid4().hex[:12]}"
+        req_id = unique_id
         logger.info(f"[VLM] Starting analysis for request_id={req_id}, input_size={len(image_bytes)//1024}KB")
         total_start = time.time()
         
@@ -435,16 +606,22 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                 "temperature": 0.0  # Greedy decoding for fastest inference
             }
             
-            # Step 3: Make async request with extended timeout for large models
-            # Use separate timeouts: connect=10s, read=300s for long inference
-            timeout_config = httpx.Timeout(connect=10.0, read=300.0, write=10.0, pool=10.0)
+            # Step 3: Check circuit breaker before making request
+            if not await self._circuit_breaker.can_execute():
+                raise CircuitOpenError(f"Circuit breaker is OPEN for OVMS service. Service may be unavailable.")
+            
             logger.info(f"[VLM_REQUEST] Endpoint: {self.chat_endpoint}")
             logger.info(f"[VLM_REQUEST] Model: {self.model_name}")
             logger.info(f"[VLM_REQUEST] Payload size: {len(str(payload))//1024}KB")
             
-            async with httpx.AsyncClient(timeout=timeout_config) as client:
+            # Step 4: Make async request using shared client with connection pooling
+            client = await self.get_http_client()
+            try:
                 logger.info(f"[VLM_REQUEST] Sending POST to {self.chat_endpoint} for {req_id}")
                 inference_start = time.time()
+                
+                # Log start time for metrics
+                log_start_time("ovms_vlm_request", unique_id)
                 
                 response = await client.post(
                     self.chat_endpoint,
@@ -453,8 +630,14 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                 )
                 response.raise_for_status()
                 
+                # Record success for circuit breaker
+                await self._circuit_breaker.record_success()
+                
                 inference_time_ms = (time.time() - inference_start) * 1000
                 total_time_ms = (time.time() - total_start) * 1000
+                
+                # Log end time for metrics
+                log_end_time("ovms_vlm_request", unique_id)
                 
                 result = response.json()
                 
@@ -472,17 +655,48 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                     "image_dimensions": preprocess_meta.get("processed_dimensions", None)
                 }
                 
+                # Extract token usage for metrics
+                usage = result.get("usage", {})
+                logger.info(f"[OVMS-CLIENT] result: {result}")
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
+                total_tokens = usage.get("total_tokens", 0)
+                elapsed_sec = inference_time_ms / 1000
+                tps = completion_tokens / elapsed_sec if elapsed_sec > 0 else 0
+                logger.info(f"[OVMS-CLIENT] Token usage - Prompt: {prompt_tokens}, Completion: {completion_tokens}, Total: {total_tokens}")
+                logger.info(f"[OVMS-CLIENT] Tokens per second (TPS): {tps:.2f}")
+                
+                # Log custom metrics event
+                log_custom_event(
+                    "ovms_metrics", "ovms_vlm_request", unique_id,
+                    tps=tps,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    elapsed_sec=elapsed_sec,
+                    preprocess_ms=encode_time_ms,
+                    items_detected=len(vlm_response.detected_items)
+                )
+                
                 logger.info(f"[VLM_RESPONSE] Completed for {req_id}: "
                            f"preprocess={encode_time_ms:.1f}ms, "
                            f"inference={inference_time_ms:.1f}ms, "
                            f"total={total_time_ms:.1f}ms, "
-                           f"items_detected={len(vlm_response.detected_items)}")
+                           f"items_detected={len(vlm_response.detected_items)}, "
+                           f"tps={tps:.2f}")
                 
                 return vlm_response
+            
+            except httpx.HTTPError as e:
+                # Record failure for circuit breaker
+                await self._circuit_breaker.record_failure()
+                logger.error(f"HTTP error during VLM analysis: {e}")
+                raise
                 
-        except httpx.HTTPError as e:
-            logger.error(f"HTTP error during VLM analysis: {e}")
+        except CircuitOpenError as e:
+            logger.error(f"Circuit breaker prevented request: {e}")
             raise
         except Exception as e:
+            # Record failure for circuit breaker on any exception
+            await self._circuit_breaker.record_failure()
             logger.exception(f"Unexpected error during VLM analysis: {e}")
             raise

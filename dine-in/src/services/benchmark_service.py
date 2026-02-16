@@ -92,8 +92,9 @@ class MetricsCollector:
         else:
             throughput = 0
         
-        # Get system metrics
-        cpu_percent = psutil.cpu_percent(interval=0.1)
+        # Get system metrics (non-blocking - returns since last call)
+        # Note: First call returns 0.0, subsequent calls return average since last call
+        cpu_percent = psutil.cpu_percent(interval=None)
         
         # Try to get GPU utilization (if available)
         gpu_percent = 0.0
