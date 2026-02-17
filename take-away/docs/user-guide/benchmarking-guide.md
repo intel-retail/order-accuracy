@@ -190,12 +190,40 @@ make benchmark-oa-density \
 
 **Configuration Variables:**
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| BENCHMARK_TARGET_LATENCY_MS | 3000 | Latency threshold (ms) |
-| BENCHMARK_MIN_TRANSACTIONS | 3 | Min orders per level |
-| BENCHMARK_WORKER_INCREMENT | 1 | Workers added per iteration |
-| OOM_PROTECTION | 1 | Enable OOM protection |
+All benchmark parameters can be configured via **environment variables** or **CLI arguments**. CLI arguments take precedence over environment variables.
+
+| Environment Variable | CLI Argument | Default | Description |
+|---------------------|--------------|---------|-------------|
+| `TARGET_LATENCY_MS` | `--target_latency_ms` | 15000 | Target latency threshold (ms) |
+| `LATENCY_METRIC` | `--latency_metric` | avg | Metric to use: `avg` or `p95` |
+| `WORKER_INCREMENT` | `--worker_increment` | 1 | Workers added per iteration |
+| `INIT_DURATION` | `--init_duration` | 120 | Warmup time per iteration (s) |
+| `MIN_TRANSACTIONS` | `--min_transactions` | 3 | Min orders before measuring |
+| `MAX_ITERATIONS` | - | 50 | Max scaling iterations |
+| `MAX_WAIT_SEC` | - | 600 | Max wait per iteration (s) |
+| `RESULTS_DIR` | `--results_dir` | ./results | Output directory |
+| `OOM_PROTECTION` | - | 1 | Enable OOM protection |
+
+**Using Environment Variables:**
+
+```bash
+# Set in .env file or export directly
+export TARGET_LATENCY_MS=20000
+export WORKER_INCREMENT=2
+export LATENCY_METRIC=p95
+
+# Run benchmark (uses env vars)
+make benchmark-oa-density
+```
+
+**Using CLI Arguments (override env vars):**
+
+```bash
+# CLI args take precedence
+TARGET_LATENCY_MS=20000 python3 stream_density_latency_oa.py \
+  --compose_file docker-compose.yaml \
+  --target_latency_ms 25000  # This value is used (25s)
+```
 
 **Output:**
 ```
@@ -260,18 +288,63 @@ Stream density measures the maximum number of concurrent video streams the syste
 
 ### Running Density Test
 
+**Option 1: Using Environment Variables (.env)**
+
+Configure benchmarks in your `.env` file:
+
+```bash
+# .env file
+TARGET_LATENCY_MS=5000
+LATENCY_METRIC=p95
+WORKER_INCREMENT=1
+INIT_DURATION=120
+MIN_TRANSACTIONS=3
+MAX_ITERATIONS=50
+RESULTS_DIR=./results
+```
+
+Then run:
+
+```bash
+make benchmark-oa-density
+```
+
+**Option 2: Using Export Commands**
+
+```bash
+# Export variables
+export TARGET_LATENCY_MS=5000
+export WORKER_INCREMENT=1
+export LATENCY_METRIC=p95
+
+# Run benchmark
+make benchmark-oa-density
+```
+
+**Option 3: Inline Environment Variables**
+
 ```bash
 # Conservative test (safe for production hardware)
-make benchmark-oa-density \
-  BENCHMARK_TARGET_LATENCY_MS=5000 \
-  BENCHMARK_WORKER_INCREMENT=1 \
-  OOM_PROTECTION=1
+TARGET_LATENCY_MS=5000 WORKER_INCREMENT=1 OOM_PROTECTION=1 \
+  make benchmark-oa-density
 
 # Aggressive test (may stress hardware)
-make benchmark-oa-density \
-  BENCHMARK_TARGET_LATENCY_MS=3000 \
-  BENCHMARK_WORKER_INCREMENT=2 \
-  OOM_PROTECTION=0  # WARNING: Risk of OOM
+TARGET_LATENCY_MS=3000 WORKER_INCREMENT=2 OOM_PROTECTION=0 \
+  make benchmark-oa-density  # WARNING: Risk of OOM
+```
+
+**Option 4: Direct Script Invocation with CLI**
+
+```bash
+# Using CLI arguments (override env vars)
+python3 benchmark-scripts/stream_density_latency_oa.py \
+  --compose_file docker-compose.yaml \
+  --target_latency_ms 5000 \
+  --latency_metric p95 \
+  --worker_increment 1 \
+  --init_duration 120 \
+  --min_transactions 3 \
+  --results_dir ./results
 ```
 
 ### OOM Protection

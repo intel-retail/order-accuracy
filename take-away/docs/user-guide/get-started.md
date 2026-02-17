@@ -134,6 +134,26 @@ MINIO_ROOT_PASSWORD=minioadmin
 MINIO_ENDPOINT=minio:9000
 ```
 
+### Benchmarking Configuration (.env)
+
+For stream density and performance testing, configure these variables:
+
+```bash
+# =============================================================================
+# Benchmarking (Stream Density Testing)
+# =============================================================================
+TARGET_LATENCY_MS=15000      # Target latency threshold (ms)
+LATENCY_METRIC=avg           # 'avg' or 'p95'
+WORKER_INCREMENT=1           # Workers added per iteration
+INIT_DURATION=120            # Init wait time (seconds)
+MIN_TRANSACTIONS=3           # Min transactions before measuring
+MAX_ITERATIONS=50            # Max scaling iterations
+MAX_WAIT_SEC=600             # Max wait per iteration (seconds)
+RESULTS_DIR=./results        # Results output directory
+```
+
+> **Note:** CLI arguments override environment variables. See [Benchmarking Guide](benchmarking-guide.md) for detailed usage.
+
 ### Configuration Validation
 
 ```bash

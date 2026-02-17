@@ -35,7 +35,7 @@ services:
   # Note: This service is optional and disabled by default since the dine-in app
   # uses pre-configured validation results. To enable, run with --profile with-semantic
   semantic-service:
-    image: semantic-search-agent:latest
+    image: intel/semantic-search-agent:1.0.0
     container_name: dinein_semantic_service
     ports:
       - "8081:8080"  # Changed from 8080 to avoid conflict

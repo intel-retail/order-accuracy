@@ -71,6 +71,45 @@ make benchmark
 make benchmark-density
 ```
 
+### Stream Density Configuration
+
+All benchmark parameters can be configured via **environment variables** or **CLI arguments**. CLI arguments take precedence.
+
+| Environment Variable | CLI Argument | Default | Description |
+|---------------------|--------------|---------|-------------|
+| `TARGET_LATENCY_MS` | `--target_latency_ms` | 15000 | Target latency threshold (ms) |
+| `LATENCY_METRIC` | `--latency_metric` | avg | Metric: `avg`, `p95`, or `max` |
+| `DENSITY_INCREMENT` | `--density_increment` | 1 | Concurrent images per iteration |
+| `INIT_DURATION` | `--init_duration` | 60 | Warmup time per iteration (s) |
+| `MIN_REQUESTS` | `--min_requests` | 3 | Min requests before measuring |
+| `REQUEST_TIMEOUT` | `--request_timeout` | 300 | Request timeout (seconds) |
+| `API_ENDPOINT` | `--api_endpoint` | http://localhost:8083 | API URL |
+| `RESULTS_DIR` | `--results_dir` | ./results | Output directory |
+
+**Using Environment Variables:**
+
+```bash
+# Set in .env file or export directly
+export TARGET_LATENCY_MS=20000
+export DENSITY_INCREMENT=2
+export LATENCY_METRIC=p95
+
+# Run benchmark (uses env vars)
+make benchmark-density
+```
+
+**Using CLI Arguments (override env vars):**
+
+```bash
+python3 stream_density_oa_dine_in.py \
+  --compose_file docker-compose.yaml \
+  --target_latency_ms 15000 \
+  --latency_metric p95 \
+  --density_increment 1
+```
+
+> **Note:** In dine-in context, "density" = concurrent image validation requests through VLM.
+
 ## Stopping Services
 
 ```bash
