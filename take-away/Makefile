@@ -5,10 +5,13 @@
 # Take-Away Order Accuracy - Makefile
 # =============================================================================
 
-.PHONY: help build up down logs restart status clean benchmark benchmark-results \
+.PHONY: help build up down logs restart status clean benchmark benchmark-quick benchmark-results \
         logs-vlm logs-gradio logs-frame-selector shell test-api ps exec dev-build \
         check-env show-config init-env benchmark-oa benchmark-oa-density \
-        benchmark-oa-metrics benchmark-oa-results benchmark-oa-help
+        benchmark-oa-metrics benchmark-oa-results benchmark-oa-help \
+        update-submodules fetch-benchmark build-benchmark \
+        consolidate-metrics plot-metrics clean-images clean-containers clean-all \
+        clean-metrics clean-results
 
 # =============================================================================
 # Load Environment Variables from .env file
@@ -28,7 +31,7 @@ SCALING_MODE ?= fixed
 # VLM Backend
 VLM_BACKEND ?= ovms
 OVMS_ENDPOINT ?= http://ovms-vlm:8000
-OVMS_MODEL_NAME ?= Qwen/Qwen2.5-VL-7B-Instruct-ov-int8
+OVMS_MODEL_NAME ?= Qwen/Qwen2.5-VL-7B-Instruct
 OPENVINO_DEVICE ?= GPU
 
 # Semantic Service
@@ -49,6 +52,13 @@ OOM_PROTECTION ?= 1
 
 # Performance tools path
 PERF_TOOLS_DIR ?= ../performance-tools/benchmark-scripts
+
+# Version tag for registry images
+TAG ?= 1.0.0
+
+# Benchmark registry configuration
+REGISTRY ?= false
+REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
 
 # Benchmark Order Accuracy settings
 BENCHMARK_WORKERS ?= 1
@@ -118,6 +128,29 @@ check-env:
 	fi
 	@echo "$(GREEN)✓ Environment configuration valid$(NC)"
 
+# =============================================================================
+# Git Submodules
+# =============================================================================
+
+update-submodules:
+	@echo "$(BLUE)Cloning/updating performance tool repositories...$(NC)"
+	cd .. && git submodule deinit -f .
+	cd .. && git submodule update --init --recursive
+	@echo "$(GREEN)Submodules updated successfully.$(NC)"
+
+fetch-benchmark:
+	@echo "$(BLUE)Fetching benchmark image from registry...$(NC)"
+	docker pull $(REGISTRY_BENCHMARK)
+	@echo "$(GREEN)Benchmark image ready$(NC)"
+
+build-benchmark:
+	@echo "$(BLUE)Building benchmark Docker image...$(NC)"
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		$(MAKE) fetch-benchmark; \
+	else \
+		cd ../performance-tools && $(MAKE) build-benchmark-docker; \
+	fi
+
 init-env:
 	@if [ -f .env ]; then \
 		echo "$(YELLOW).env file already exists. Backup and overwrite? [y/N]$(NC)"; \
@@ -168,10 +201,11 @@ show-config:
 # =============================================================================
 
 help:
-	@echo "Take-Away Order Accuracy - Available Commands"
+	@echo "$(BLUE)Take-Away Order Accuracy - Available Commands$(NC)"
 	@echo "=============================================="
 	@echo ""
 	@echo "$(YELLOW)Setup:$(NC)"
+	@echo "  make update-submodules        - Clone/update git submodules"
 	@echo "  make init-env                 - Create .env from template"
 	@echo "  make show-config              - Show current configuration"
 	@echo "  make check-env                - Validate environment variables"
@@ -183,7 +217,6 @@ help:
 	@echo "  make down                     - Stop all services"
 	@echo "  make restart                  - Restart all services"
 	@echo "  make status                   - Show service status"
-	@echo "  make clean                    - Remove containers and volumes"
 	@echo ""
 	@echo "$(YELLOW)Logs:$(NC)"
 	@echo "  make logs                     - View order-accuracy logs"
@@ -192,10 +225,27 @@ help:
 	@echo "  make logs-semantic            - View semantic service logs"
 	@echo "  make logs-all                 - View all logs (combined)"
 	@echo ""
-	@echo "$(YELLOW)Benchmark:$(NC)"
-	@echo "  make benchmark                - Run single video benchmark"
-	@echo "  make benchmark-stream-density - Test concurrent request capacity"
-	@echo "  make benchmark-results        - View benchmark results"
+	@echo "$(YELLOW)Benchmark Commands:$(NC)"
+	@echo "  make fetch-benchmark          - Pull benchmark image from registry"
+	@echo "  make build-benchmark          - Build benchmark Docker image"
+	@echo "  make benchmark                - Run Order Accuracy benchmark (benchmark_order_accuracy.py)"
+	@echo "  make benchmark-quick          - Quick API test with curl (sanity check)"
+	@echo "  make benchmark-oa-density     - Run stream density test (latency-based)"
+	@echo "  make benchmark-oa-metrics     - View VLM metrics logs"
+	@echo "  make benchmark-oa-results     - View all benchmark results"
+	@echo "  make benchmark-oa-help        - Show benchmark options"
+	@echo ""
+	@echo "$(YELLOW)Metrics Processing:$(NC)"
+	@echo "  make consolidate-metrics      - Consolidate benchmark metrics to CSV"
+	@echo "  make plot-metrics             - Generate plots from benchmark metrics"
+	@echo ""
+	@echo "$(YELLOW)Cleanup:$(NC)"
+	@echo "  make clean                    - Stop containers and remove volumes"
+	@echo "  make clean-images             - Remove dangling Docker images"
+	@echo "  make clean-containers         - Remove stopped containers"
+	@echo "  make clean-all                - Remove all unused Docker resources"
+	@echo "  make clean-metrics            - Remove metrics files only"
+	@echo "  make clean-results            - Remove all results files"
 	@echo ""
 	@echo "$(YELLOW)Development:$(NC)"
 	@echo "  make shell                    - Open shell in order-accuracy container"
@@ -298,8 +348,34 @@ logs-all:
 # Benchmark
 # =============================================================================
 
-benchmark:
-	@echo "Running benchmark with test video..."
+benchmark: build-benchmark ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
+	@echo "╔═══════════════════════════════════════════════════════════════════╗"
+	@echo "║       Take-Away Order Accuracy Benchmark                          ║"
+	@echo "╚═══════════════════════════════════════════════════════════════════╝"
+	@echo "Workers: $(BENCHMARK_WORKERS)"
+	@echo "Duration: $(BENCHMARK_DURATION)s"
+	@echo "Init Duration: $(BENCHMARK_INIT_DURATION)s"
+	@echo "Target Device: $(OPENVINO_DEVICE)"
+	@echo ""
+	@mkdir -p $(RESULTS_DIR)
+	cd $(PERF_TOOLS_DIR) && \
+	( \
+		python3 -m venv venv && \
+		. venv/bin/activate && \
+		pip3 install -r requirements.txt && \
+		python3 benchmark_order_accuracy.py \
+			--compose_file $(CURDIR)/$(COMPOSE_FILE) \
+			--workers $(BENCHMARK_WORKERS) \
+			--duration $(BENCHMARK_DURATION) \
+			--init_duration $(BENCHMARK_INIT_DURATION) \
+			--results_dir $(CURDIR)/$(RESULTS_DIR) \
+			--target_device $(OPENVINO_DEVICE) \
+			--skip_perf_tools; \
+		deactivate \
+	)
+
+benchmark-quick: ## Quick API test with curl (latency only)
+	@echo "Running quick API test with test video..."
 	@mkdir -p results
 	@bash -c '\
 		if [ ! -f storage/videos/test.mp4 ]; then \
@@ -307,7 +383,7 @@ benchmark:
 			echo "Please add a test video first."; \
 			exit 1; \
 		fi; \
-		echo "=== Starting Benchmark ==="; \
+		echo "=== Starting Quick API Test ==="; \
 		echo "Video: storage/videos/test.mp4"; \
 		echo ""; \
 		START_TIME=$$(date +%s%3N); \
@@ -317,7 +393,7 @@ benchmark:
 		END_TIME=$$(date +%s%3N); \
 		LATENCY=$$((END_TIME - START_TIME)); \
 		echo ""; \
-		echo "=== Benchmark Results ==="; \
+		echo "=== API Test Results ==="; \
 		echo "$$RESPONSE" | jq . 2>/dev/null || echo "$$RESPONSE"; \
 		echo ""; \
 		echo "Latency: $${LATENCY}ms"; \
@@ -390,15 +466,20 @@ benchmark-oa-help:
 
 benchmark-oa: ## Run Order Accuracy benchmark with fixed workers
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
-	@echo "║       Order Accuracy Benchmark - Fixed Workers Mode               ║"
+	@echo "║       Take-Away Order Accuracy Benchmark                          ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
 	@echo "Workers: $(BENCHMARK_WORKERS)"
 	@echo "Duration: $(BENCHMARK_DURATION)s"
 	@echo "Init Duration: $(BENCHMARK_INIT_DURATION)s"
+	@echo "Target Device: $(OPENVINO_DEVICE)"
 	@echo ""
-	@mkdir -p $(RESULTS_DIR)
-	@if [ -f $(PERF_TOOLS_DIR)/benchmark_order_accuracy.py ]; then \
-		cd $(PERF_TOOLS_DIR) && python3 benchmark_order_accuracy.py \
+	mkdir -p $(RESULTS_DIR)
+	cd $(PERF_TOOLS_DIR) && \
+	( \
+		python3 -m venv venv && \
+		. venv/bin/activate && \
+		pip3 install -r requirements.txt && \
+		python3 benchmark_order_accuracy.py \
 			--compose_file $(CURDIR)/$(COMPOSE_FILE) \
 			--workers $(BENCHMARK_WORKERS) \
 			--duration $(BENCHMARK_DURATION) \
@@ -406,10 +487,8 @@ benchmark-oa: ## Run Order Accuracy benchmark with fixed workers
 			--results_dir $(CURDIR)/$(RESULTS_DIR) \
 			--target_device $(OPENVINO_DEVICE) \
 			--skip_perf_tools; \
-	else \
-		echo "Error: benchmark_order_accuracy.py not found at $(PERF_TOOLS_DIR)"; \
-		exit 1; \
-	fi
+		deactivate \
+	)
 
 benchmark-oa-density: ## Run Order Accuracy stream density benchmark (latency-based)
 	@if [ "$(OOM_PROTECTION)" = "0" ]; then \
@@ -429,9 +508,13 @@ benchmark-oa-density: ## Run Order Accuracy stream density benchmark (latency-ba
 	@echo "Min Transactions: $(BENCHMARK_MIN_TRANSACTIONS)"
 	@echo "Worker Increment: $(BENCHMARK_WORKER_INCREMENT)"
 	@echo ""
-	@mkdir -p $(RESULTS_DIR)
-	@if [ -f $(PERF_TOOLS_DIR)/stream_density_latency_oa.py ]; then \
-		cd $(PERF_TOOLS_DIR) && OOM_PROTECTION=$(OOM_PROTECTION) python3 stream_density_latency_oa.py \
+	mkdir -p $(RESULTS_DIR)
+	cd $(PERF_TOOLS_DIR) && \
+	( \
+		python3 -m venv venv && \
+		. venv/bin/activate && \
+		pip3 install -r requirements.txt && \
+		OOM_PROTECTION=$(OOM_PROTECTION) python3 stream_density_latency_oa.py \
 			--compose_file $(CURDIR)/$(COMPOSE_FILE) \
 			--target_latency_ms $(BENCHMARK_TARGET_LATENCY_MS) \
 			--latency_metric $(BENCHMARK_LATENCY_METRIC) \
@@ -439,10 +522,8 @@ benchmark-oa-density: ## Run Order Accuracy stream density benchmark (latency-ba
 			--min_transactions $(BENCHMARK_MIN_TRANSACTIONS) \
 			--worker_increment $(BENCHMARK_WORKER_INCREMENT) \
 			--results_dir $(CURDIR)/$(RESULTS_DIR); \
-	else \
-		echo "Error: stream_density_latency_oa.py not found at $(PERF_TOOLS_DIR)"; \
-		exit 1; \
-	fi
+		deactivate \
+	)
 
 benchmark-oa-metrics: ## View VLM metrics from vlm_metrics_logger
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
@@ -486,6 +567,38 @@ benchmark-oa-results: ## View all Order Accuracy benchmark results
 	@$(MAKE) --no-print-directory benchmark-oa-metrics
 
 # =============================================================================
+# Metrics Processing
+# =============================================================================
+
+consolidate-metrics: ## Consolidate metrics from multiple benchmark runs
+	@echo "╔═══════════════════════════════════════════════════════════════════╗"
+	@echo "║                   Consolidating Metrics                           ║"
+	@echo "╚═══════════════════════════════════════════════════════════════════╝"
+	cd $(PERF_TOOLS_DIR) && \
+	( \
+		python3 -m venv venv && \
+		. venv/bin/activate && \
+		pip3 install -r requirements.txt && \
+		python3 consolidate_multiple_run_of_metrics.py \
+			--results_dir $(CURDIR)/$(RESULTS_DIR); \
+		deactivate \
+	)
+
+plot-metrics: ## Generate plots from benchmark metrics
+	@echo "╔═══════════════════════════════════════════════════════════════════╗"
+	@echo "║                   Generating Metrics Plots                        ║"
+	@echo "╚═══════════════════════════════════════════════════════════════════╝"
+	cd $(PERF_TOOLS_DIR) && \
+	( \
+		python3 -m venv venv && \
+		. venv/bin/activate && \
+		pip3 install -r requirements.txt && \
+		python3 usage_graph_plot.py \
+			--results_dir $(CURDIR)/$(RESULTS_DIR); \
+		deactivate \
+	)
+
+# =============================================================================
 # Development Helpers
 # =============================================================================
 
@@ -516,16 +629,37 @@ dev-build: build restart
 clean:
 	@echo "Cleaning up containers and volumes..."
 	docker compose -f $(COMPOSE_FILE) --profile parallel down -v
-	@echo "✓ Cleanup complete"
+	@echo "$(GREEN)✓ Cleanup complete$(NC)"
 
 clean-images:
-	@echo "Removing dangling images..."
-	docker image prune -f
+	@echo "Cleaning up dangling Docker images..."
+	@docker image prune -f
+	@echo "Cleaning up unused Docker images..."
+	@docker images -f "dangling=true" -q | xargs -r docker rmi
+	@echo "$(GREEN)Dangling images cleaned up$(NC)"
+
+clean-containers:
+	@echo "Cleaning up stopped containers..."
+	@docker container prune -f
+	@echo "$(GREEN)Stopped containers cleaned up$(NC)"
 
 clean-all: clean clean-images
 	@echo "Removing all unused Docker resources..."
 	docker system prune -f
-	@echo "✓ Full cleanup complete"
+	@echo "Cleaning up build cache..."
+	@docker builder prune -f
+	@echo "$(GREEN)✓ Full cleanup complete$(NC)"
+
+clean-metrics:
+	@echo "Cleaning up metrics files..."
+	@rm -f $(RESULTS_DIR)/vlm_application_metrics_*.txt $(RESULTS_DIR)/vlm_performance_metrics_*.txt
+	@rm -f $(RESULTS_DIR)/*.csv
+	@echo "$(GREEN)✓ Metrics files cleaned$(NC)"
+
+clean-results:
+	@echo "Cleaning up results directory..."
+	@rm -rf $(RESULTS_DIR)/*
+	@echo "$(GREEN)✓ Results directory cleaned$(NC)"
 
 # =============================================================================
 # Service-specific Commands
@@ -546,7 +680,7 @@ restart-gradio:
 # Check OVMS model status
 check-model:
 	@echo "Checking OVMS model status..."
-	@curl -s http://localhost:8001/v1/config | jq '.["Qwen/Qwen2.5-VL-7B-Instruct-ov-int8"]' 2>/dev/null || \
+	@curl -s http://localhost:8001/v1/config | jq '."$(OVMS_MODEL_NAME)"' 2>/dev/null || \
 		echo "OVMS not responding. Is the service running?"
 
 # View results

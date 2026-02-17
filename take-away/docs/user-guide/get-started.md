@@ -66,7 +66,21 @@ git clone <repository-url>
 cd order-accuracy/take-away
 ```
 
-### Step 2: Download VLM Model
+### Step 2: Initialize Git Submodules
+
+The performance-tools repository is included as a git submodule for benchmarking:
+
+```bash
+# Initialize and update submodules
+make update-submodules
+
+# Or manually
+cd ..
+git submodule update --init --recursive
+cd take-away
+```
+
+### Step 3: Download VLM Model
 
 The system uses Qwen2.5-VL-7B-Instruct optimized for OpenVINO.
 
@@ -79,21 +93,36 @@ mkdir -p models/vlm
 # Download from Hugging Face or Intel Model Zoo
 ```
 
-### Step 3: Create Environment File
+### Step 4: Create Environment File
 
 ```bash
 # Copy the example environment file
 cp .env.example .env
 
+# Or use make target
+make init-env
+
 # Edit configuration
 nano .env
 ```
 
-### Step 4: Initialize MinIO Storage
+### Step 5: Initialize MinIO Storage
 
 ```bash
 # Create storage directories
 mkdir -p storage/videos storage/results minio-data
+```
+
+### Step 6: Build Benchmark Tools (Optional)
+
+If you plan to run performance benchmarks:
+
+```bash
+# Build the benchmark Docker image locally
+make build-benchmark
+
+# Or fetch from registry (if available)
+make fetch-benchmark
 ```
 
 ---
@@ -115,7 +144,7 @@ SCALING_MODE=fixed           # 'fixed' or 'auto'
 # =============================================================================
 VLM_BACKEND=ovms
 OVMS_ENDPOINT=http://ovms-vlm:8000
-OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct-ov-int8
+OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
 OPENVINO_DEVICE=GPU          # 'GPU', 'CPU', or 'AUTO'
 
 # =============================================================================

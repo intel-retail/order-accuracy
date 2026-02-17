@@ -463,7 +463,7 @@ def on_new_sample(appsink):
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                         OVMS VLM INTEGRATION                                     │
 │                                                                                  │
-│  Model: Qwen/Qwen2.5-VL-7B-Instruct-ov-int8                                    │
+│  Model: Qwen/Qwen2.5-VL-7B-Instruct                                             │
 │                                                                                  │
 │  ┌────────────────────────────────────────────────────────────────────────┐    │
 │  │                         OVMS Model Server                               │    │
@@ -487,7 +487,7 @@ def on_new_sample(appsink):
 **Request:**
 ```json
 {
-  "model": "Qwen/Qwen2.5-VL-7B-Instruct-ov-int8",
+  "model": "Qwen/Qwen2.5-VL-7B-Instruct",
   "messages": [
     {
       "role": "user",

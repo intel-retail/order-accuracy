@@ -100,13 +100,19 @@ make benchmark-oa-density
 ### Prerequisites
 
 ```bash
-# Ensure services are running
+# 1. Initialize git submodules (first time only)
+make update-submodules
+
+# 2. Build benchmark tools
+make build-benchmark
+
+# 3. Ensure services are running
 make up
 
-# Verify health
+# 4. Verify health
 make test-api
 
-# Check GPU availability
+# 5. Check GPU availability
 nvidia-smi  # or clinfo for Intel
 ```
 
@@ -459,7 +465,34 @@ jq -r '.results[] | [.workers, .throughput_per_min, .latency_p95_ms] | @csv' \
   results/stream_density_results.json > results/summary.csv
 ```
 
-### Generating Reports
+### Consolidating Metrics
+
+After running multiple benchmarks, consolidate metrics into a single CSV file:
+
+```bash
+# Consolidate all VLM metrics files
+make consolidate-metrics
+```
+
+This generates:
+- `results/consolidated_metrics.csv` - All metrics in tabular format
+- `results/metrics_summary.json` - Summary statistics
+
+### Generating Plots
+
+Visualize benchmark results with built-in plotting:
+
+```bash
+# Generate plots from consolidated metrics
+make plot-metrics
+```
+
+This generates:
+- `results/latency_over_time.png` - Latency trends
+- `results/throughput_scaling.png` - Throughput vs workers
+- `results/resource_utilization.png` - CPU/GPU/Memory usage
+
+### Manual Report Generation
 
 ```bash
 # Generate performance report
@@ -546,6 +579,10 @@ VLM_MAX_CONCURRENT=2
 ## Quick Reference
 
 ```bash
+# Setup (first time)
+make update-submodules       # Initialize performance-tools submodule
+make build-benchmark         # Build benchmark Docker image
+
 # Basic benchmark
 make benchmark
 
@@ -561,6 +598,16 @@ make benchmark-oa-metrics
 # View all results
 make benchmark-oa-results
 
+# Metrics processing
+make consolidate-metrics     # Consolidate metrics to CSV
+make plot-metrics            # Generate plots
+
+# Cleanup
+make clean-metrics           # Remove metrics files only
+make clean-results           # Remove all results
+make clean                   # Stop containers and remove volumes
+
 # Help
 make benchmark-oa-help
+make help                    # Show all commands
 ```

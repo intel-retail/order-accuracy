@@ -232,11 +232,11 @@ cd models/vlm
 
 # Option 1: Using huggingface-cli
 pip install huggingface_hub
-huggingface-cli download Qwen/Qwen2.5-VL-7B-Instruct-ov-int8
+huggingface-cli download Qwen/Qwen2.5-VL-7B-Instruct
 
 # Option 2: Using git-lfs
 git lfs install
-git clone https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct-ov-int8
+git clone https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct
 ```
 
 ### Convert Model to OpenVINO (if needed)
@@ -259,7 +259,7 @@ optimum-cli export openvino \
 models/
 └── vlm/
     └── Qwen/
-        └── Qwen2.5-VL-7B-Instruct-ov-int8/
+        └── Qwen2.5-VL-7B-Instruct/
             ├── config.json
             ├── openvino_model.bin
             ├── openvino_model.xml

@@ -39,7 +39,7 @@ def build_gstreamer_pipeline(source_type: str, source: str) -> str:
         "! videorate "
         "! video/x-raw,framerate=1/1 "
         "! gvapython module=frame_pipeline function=process_frame "
-        "! fakesink sync=false"
+        "! fakesink sync=true"  # sync=true ensures real-time playback so OCR can keep up
     )
 
     logger.info(f"GStreamer pipeline built: {pipeline[:100]}...")
@@ -84,6 +84,9 @@ def run_pipeline(source_type: str, source: str):
     # 🔔 EOS MARKER (CRITICAL)
     logger.info("Pipeline finished. Writing EOS marker to MinIO")
 
+    # Get station ID from environment (same as frame_pipeline.py uses)
+    station_id = os.environ.get('STATION_ID', 'station_1')
+    
     client = Minio(
         "minio:9000",
         access_key="minioadmin",
@@ -92,14 +95,17 @@ def run_pipeline(source_type: str, source: str):
     )
 
     try:
+        # Write station-specific EOS marker: {station_id}/__EOS__
+        # This signals to frame_selector that all frames for this station are ready
+        eos_key = f"{station_id}/__EOS__"
         client.put_object(
             "frames",
-            "__EOS__",
+            eos_key,
             io.BytesIO(b"done"),
             length=4,
             content_type="text/plain",
         )
-        logger.info("EOS marker written successfully to frames bucket")
+        logger.info(f"EOS marker written successfully to frames bucket: {eos_key}")
     except Exception as e:
         logger.error(f"Failed to write EOS marker: {e}")
 

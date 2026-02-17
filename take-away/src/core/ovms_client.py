@@ -92,8 +92,6 @@ class OVMSVLMClient:
         Returns:
             Object with .texts[0] attribute (mimics openvino_genai output)
         """
-        start_time = time.time()
-
         # Convert images to base64 data URLs
         content = [{"type": "text", "text": prompt}]
 
@@ -128,8 +126,9 @@ class OVMSVLMClient:
             logger.debug(f"[OVMS-CLIENT] Full request: {request_data}")
             
             if unique_id:
-                log_start_time("ovms_vlm_request", unique_id)
+                log_start_time("USECASE_1", unique_id)
 
+            request_start = time.time()
             response = requests.post(
                 self.endpoint,
                 headers={"Content-Type": "application/json"},
@@ -145,28 +144,42 @@ class OVMSVLMClient:
             response.raise_for_status()
 
             result = response.json()
-            elapsed = time.time() - start_time
-
-            # Extract text
-            text = result["choices"][0]["message"]["content"]
-            logger.info(f"[OVMS-CLIENT] Response received in {elapsed:.2f}s")
+            total_latency = time.time() - request_start
+            
+            # Extract text from response
+            text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            logger.info(f"[OVMS-CLIENT] Response received in {total_latency:.2f}s")
             logger.debug(f"[OVMS-CLIENT] Generated text: {text[:200]}...")
 
+            # Extract token usage from response
             usage = result.get("usage", {})
-            logger.info(f"[OVMS-CLIENT] result: {result}")
             prompt_tokens = usage.get("prompt_tokens", 0)
             completion_tokens = usage.get("completion_tokens", 0)
             total_tokens = usage.get("total_tokens", 0)
-        
-            tps = completion_tokens / elapsed if elapsed > 0 else 0
+            generated_tokens = completion_tokens
+            
+            # Calculate VLM performance metrics
+            tpot = (total_latency / generated_tokens) if generated_tokens > 0 else 0.0
+            throughput_mean = (generated_tokens / total_latency) if total_latency > 0 else 0.0
+            
+            # Log VLM metrics
+            logger.info(f"[OVMS-CLIENT] ========== VLM METRICS ==========")
+            logger.info(f"[OVMS-CLIENT] Generated_tokens: {generated_tokens}")
+            logger.info(f"[OVMS-CLIENT] Total_latency: {total_latency:.4f}s")
+            logger.info(f"[OVMS-CLIENT] TPOT (Time per output token): {tpot:.4f}s")
+            logger.info(f"[OVMS-CLIENT] Throughput_mean (tokens/sec): {throughput_mean:.2f}")
             logger.info(f"[OVMS-CLIENT] Token usage - Prompt: {prompt_tokens}, Completion: {completion_tokens}, Total: {total_tokens}")
-            logger.info(f"[OVMS-CLIENT] Tokens per second (TPS): {tps:.2f}")
+            logger.info(f"[OVMS-CLIENT] =================================")
             
             if unique_id:
-                log_end_time("ovms_vlm_request", unique_id)
-                log_custom_event("ovms_metrics", "ovms_vlm_request", unique_id, 
-                                 tps=tps, prompt_tokens=prompt_tokens, 
-                                 completion_tokens=completion_tokens, elapsed_sec=elapsed)
+                log_end_time("USECASE_1", unique_id)
+                log_custom_event("USECASE_1", "ovms_vlm_request", unique_id, 
+                                 generated_tokens=generated_tokens,
+                                 total_latency_sec=total_latency,
+                                 tpot_sec=tpot,
+                                 throughput_mean=throughput_mean,
+                                 prompt_tokens=prompt_tokens, 
+                                 completion_tokens=completion_tokens)
 
             # Mimic openvino_genai output format
             class GenerationResult:

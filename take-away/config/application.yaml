@@ -13,7 +13,7 @@ video:
   fps_target: 1
 
 frame_selector:
-  top_k: 3
+ # Increased from 3 to capture items that appear later in order
   poll_interval_sec: 1.5
   skip_labels:
     - hand
@@ -49,12 +49,12 @@ vlm:
   backend: ovms  # Using OVMS backend for VLM inference
   
   # Embedded backend configuration (used when backend: embedded)
-  model_path: /model/Qwen2.5-VL-7B-Instruct-ov-int8
+  model_path: /model/Qwen2.5-VL-7B-Instruct
   device: GPU
   
   # OVMS backend configuration (used when backend: ovms)
   ovms_endpoint: http://ovms-vlm:8000
-  ovms_model: Qwen/Qwen2.5-VL-7B-Instruct-ov-int8
+  ovms_model: Qwen/Qwen2.5-VL-7B-Instruct
 
   # Common configuration
   endpoint: http://order-accuracy:8000/run_vlm

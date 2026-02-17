@@ -7,8 +7,10 @@ import cv2
 import numpy as np
 import threading
 import queue
+import atexit
 from collections import deque
 from minio import Minio
+from minio.commonconfig import CopySource
 from config_loader import load_config
 cfg = load_config()
 
@@ -102,14 +104,33 @@ class AsyncOCRProcessor:
         self._stop_event.clear()
         self._worker_thread = threading.Thread(
             target=self._ocr_worker,
-            daemon=True,
+            daemon=False,  # Non-daemon so we can drain queue on exit
             name=f"ocr-worker-{self.station_id}"
         )
         self._worker_thread.start()
         log(f"[ASYNC-OCR] Worker thread started")
     
-    def stop(self):
-        """Stop the OCR worker thread gracefully."""
+    def stop(self, drain_queue: bool = False, max_drain_time: float = 30.0):
+        """Stop the OCR worker thread gracefully.
+        
+        Args:
+            drain_queue: If True, wait for queued items to be processed before stopping
+            max_drain_time: Maximum seconds to wait for queue to drain
+        """
+        if drain_queue and self._running:
+            # Wait for queue to drain
+            log(f"[ASYNC-OCR] Draining queue ({self._ocr_queue.qsize()} items)...")
+            start_time = time.time()
+            while not self._ocr_queue.empty() and (time.time() - start_time) < max_drain_time:
+                remaining = self._ocr_queue.qsize()
+                if remaining > 0 and (time.time() - start_time) % 5 < 1:
+                    log(f"[ASYNC-OCR] Queue drain: {remaining} items remaining")
+                time.sleep(0.5)
+            if not self._ocr_queue.empty():
+                log(f"[ASYNC-OCR] Queue drain timeout, {self._ocr_queue.qsize()} items remaining")
+            else:
+                log(f"[ASYNC-OCR] Queue drained successfully")
+        
         self._running = False
         self._stop_event.set()
         if self._worker_thread:
@@ -295,6 +316,16 @@ class AsyncOCRProcessor:
 # ====== Global Async OCR Processor ======
 _async_ocr = AsyncOCRProcessor(STATION_ID, OCR_SAMPLE_INTERVAL)
 _async_ocr.start()
+
+def _cleanup_on_exit():
+    """Cleanup handler to drain OCR queue before process exit."""
+    global _async_ocr
+    if _async_ocr:
+        log("[CLEANUP] Process exiting, draining OCR queue...")
+        _async_ocr.stop(drain_queue=True, max_drain_time=60.0)
+        log("[CLEANUP] OCR cleanup complete")
+
+atexit.register(_cleanup_on_exit)
 
 
 # ====== MinIO client ======
@@ -499,28 +530,53 @@ def upload_frame(order_id: str, frame_idx: int, image_bgr, max_retries: int = 3)
         log(f"[frame_to_minio] Upload error: {e}")
         return False
 
+
+def copy_frame(src_order_id: str, src_frame_idx: int, dst_order_id: str, dst_frame_idx: int, max_retries: int = 3):
+    """Copy a frame from one order folder to another in MinIO."""
+    try:
+        src_key = f"{STATION_ID}/{src_order_id}/frame_{src_frame_idx}.jpg"
+        dst_key = f"{STATION_ID}/{dst_order_id}/frame_{dst_frame_idx}.jpg"
+        
+        # Retry logic with exponential backoff
+        last_error = None
+        for attempt in range(max_retries):
+            try:
+                client.copy_object(
+                    FRAMES_BUCKET,
+                    dst_key,
+                    CopySource(FRAMES_BUCKET, src_key)
+                )
+                log(f"[frame_to_minio] Copied {src_key} -> {dst_key}")
+                return True
+            except Exception as e:
+                last_error = e
+                if attempt < max_retries - 1:
+                    backoff = (2 ** attempt) * 0.1
+                    log(f"[frame_to_minio] Copy attempt {attempt+1} failed, retrying in {backoff:.1f}s: {e}")
+                    time.sleep(backoff)
+        
+        log(f"[frame_to_minio] Copy failed after {max_retries} attempts: {last_error}")
+        return False
+    except Exception as e:
+        log(f"[frame_to_minio] Copy error: {e}")
+        return False
+
+
 def finalize_order(order_id: str):
     """
-    Write EOS (End-Of-Stream) marker for completed order.
+    Mark an order as finalized (ready for processing).
     
-    Frame selector service watches for {STATION_ID}/__EOS__ to trigger processing for this station.
+    NOTE: This does NOT write the EOS marker anymore. The EOS marker is ONLY written
+    by pipeline_runner.py when the GStreamer pipeline actually ends. Writing EOS here
+    caused a bug where frame-selector would prematurely cleanup all frames when
+    the first order completed, missing subsequent orders in the video.
+    
+    The frame-selector will process all orders when it sees the final EOS marker
+    from pipeline_runner.py (after video ends).
     """
-    try:
-        # Station-aware EOS marker: {STATION_ID}/__EOS__
-        eos_key = f"{STATION_ID}/__EOS__"
-        client.put_object(
-            FRAMES_BUCKET,
-            eos_key,
-            io.BytesIO(b""),
-            0,
-            content_type="text/plain"
-        )
-        log(f"[frame_to_minio] Finalized order {order_id} with EOS marker: {eos_key}")
-        log(f"[frame_to_minio] Frame selector (station {STATION_ID}) will now pick up frames and call VLM service")
-        return True
-    except Exception as e:
-        log(f"[frame_to_minio] Failed to write EOS marker for {order_id}: {e}")
-        return False
+    log(f"[frame_to_minio] Order {order_id} finalized and ready for processing")
+    log(f"[frame_to_minio] Will be processed by frame-selector when video completes (EOS from pipeline_runner)")
+    return True
 
 # ====== gvapython entrypoint ======
 import sys
@@ -679,13 +735,16 @@ def process_frame(frame: "VideoFrame"):
                         )
                         upload_frame(order_id, _order_frame_count, pf_image)
                     else:
-                        # New format: key reference (image already uploaded)
+                        # New format: key reference (image already in MinIO as pending)
+                        # Copy from pending/ to order_id/ folder
                         _order_tracker.update_order(
                             order_id=order_id,
                             frame_key=pf_key,
                             item_count=pf_items,
                             has_occlusion=pf_occluded
                         )
+                        # Copy frame from pending to correct order folder
+                        copy_frame("pending", pf_idx, order_id, _order_frame_count)
                 _pending_frames.clear()
             
             if _current_order_id:

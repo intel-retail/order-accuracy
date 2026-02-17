@@ -94,6 +94,7 @@ services:
       - OVMS_ENDPOINT=http://ovms-vlm:8000
       - METRICS_COLLECTOR_ENDPOINT=http://metrics-collector:8084
       - CONTAINER_RESULTS_PATH=/app/results
+      - USECASE_1=dine-in-order-accuracy
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
     depends_on:
@@ -132,6 +133,7 @@ services:
       - SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
       - OVMS_ENDPOINT=http://ovms-vlm:8000
       - CONTAINER_RESULTS_PATH=/app/results
+      - USECASE_1=dine-in-order-accuracy
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
     command: ["python", "/app/worker.py"]

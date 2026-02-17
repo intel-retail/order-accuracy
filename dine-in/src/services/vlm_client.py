@@ -668,7 +668,7 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                 inference_start = time.time()
                 
                 # Log start time for metrics
-                log_start_time("ovms_vlm_request", unique_id)
+                log_start_time("USECASE_1", unique_id)
                 
                 response = await client.post(
                     self.chat_endpoint,
@@ -684,7 +684,7 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                 total_time_ms = (time.time() - total_start) * 1000
                 
                 # Log end time for metrics
-                log_end_time("ovms_vlm_request", unique_id)
+                log_end_time("USECASE_1", unique_id)
                 
                 result = response.json()
                 

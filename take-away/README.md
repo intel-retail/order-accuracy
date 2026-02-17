@@ -102,6 +102,10 @@ This step:
 
 ```bash
 cd ../take-away
+
+# Initialize git submodules (for benchmark tools)
+make update-submodules
+
 cp .env.example .env
 # Edit .env for your configuration
 ```
@@ -150,25 +154,42 @@ make up-parallel WORKERS=4
 ## Key Commands
 
 ```bash
+# Setup
+make update-submodules        # Initialize git submodules
+make build-benchmark          # Build benchmark Docker image
+
 # Service Management
-make up                    # Start services (single mode)
-make up-parallel          # Start services (parallel mode)
-make down                 # Stop all services
-make status               # Show service status
+make up                       # Start services (single mode)
+make up-parallel              # Start services (parallel mode)
+make down                     # Stop all services
+make status                   # Show service status
 
 # Logs
-make logs                 # Order accuracy service logs
-make logs-vlm             # OVMS VLM logs
-make logs-all             # All service logs
+make logs                     # Order accuracy service logs
+make logs-vlm                 # OVMS VLM logs
+make logs-all                 # All service logs
 
 # Benchmarking
-make benchmark            # Single video benchmark
-make benchmark-oa-density # Stream density test
+make benchmark                # Single video benchmark
+make benchmark-oa             # Fixed workers benchmark
+make benchmark-oa-density     # Stream density test
+make benchmark-oa-metrics     # View VLM metrics
+make benchmark-oa-results     # View all results
+
+# Metrics Processing
+make consolidate-metrics      # Consolidate metrics to CSV
+make plot-metrics             # Generate plots
+
+# Cleanup
+make clean                    # Stop containers, remove volumes
+make clean-metrics            # Remove metrics files
+make clean-results            # Remove all results
+make clean-all                # Remove all unused Docker resources
 
 # Development
-make shell                # Shell into container
-make test-api             # Test API endpoints
-make show-config          # Show current configuration
+make shell                    # Shell into container
+make test-api                 # Test API endpoints
+make show-config              # Show current configuration
 ```
 
 ---
@@ -183,7 +204,7 @@ make show-config          # Show current configuration
 | `WORKERS` | `0` | Number of station workers |
 | `VLM_BACKEND` | `ovms` | VLM backend type |
 | `OVMS_ENDPOINT` | `http://ovms-vlm:8000` | OVMS server endpoint |
-| `OVMS_MODEL_NAME` | `Qwen/Qwen2.5-VL-7B-Instruct-ov-int8` | Model name |
+| `OVMS_MODEL_NAME` | `Qwen/Qwen2.5-VL-7B-Instruct` | Model name |
 | `DEFAULT_MATCHING_STRATEGY` | `hybrid` | Matching strategy |
 | `SIMILARITY_THRESHOLD` | `0.85` | Semantic similarity threshold |
 
@@ -191,9 +212,10 @@ make show-config          # Show current configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BENCHMARK_TARGET_LATENCY_MS` | `3000` | Target latency threshold |
+| `BENCHMARK_TARGET_LATENCY_MS` | `15000` | Target latency threshold (ms) |
 | `BENCHMARK_MIN_TRANSACTIONS` | `3` | Minimum transactions per level |
 | `BENCHMARK_WORKER_INCREMENT` | `1` | Workers added per iteration |
+| `BENCHMARK_LATENCY_METRIC` | `avg` | Latency metric (`avg` or `p95`) |
 
 ---
 
@@ -233,7 +255,9 @@ take-away/
 
 - **Dine-In Order Accuracy**: Image-based order validation for dining applications
 - **Semantic Comparison Service**: Microservice for semantic text matching
-- **Performance Tools**: Benchmarking scripts for stream density testing
+- **Performance Tools**: Benchmarking scripts for stream density testing (git submodule)
+
+> **Note**: Performance tools are included as a git submodule. Run `make update-submodules` to initialize.
 
 ---
 

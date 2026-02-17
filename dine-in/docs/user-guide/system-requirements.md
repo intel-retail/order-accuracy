@@ -80,12 +80,12 @@ The application creates a bridge network (`dinein_network`) for inter-container 
 
 ## Model Requirements
 
-### Qwen2.5-VL-7B-Instruct-ov-int8
+### Qwen2.5-VL-7B-Instruct
 
 | Property | Value |
 |----------|-------|
 | Size | ~7B parameters |
-| Format | OpenVINO INT8 |
+| Format | OpenVINO |
 | VRAM | 8-12 GB |
 | Disk | ~15 GB |
 
