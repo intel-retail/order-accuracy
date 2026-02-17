@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   # OVMS VLM service for Vision-Language Model inference
   ovms-vlm:
@@ -103,7 +101,6 @@ services:
     restart: unless-stopped
     networks:
       - dinein-net
-      - order-accuracy_order-accuracy-net
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
@@ -142,7 +139,6 @@ services:
     restart: unless-stopped
     networks:
       - dinein-net
-      - order-accuracy_order-accuracy-net
     extra_hosts:
       - "host.docker.internal:host-gateway"
 
