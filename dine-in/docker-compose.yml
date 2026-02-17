@@ -181,8 +181,6 @@ services:
 networks:
   dinein-net:
     driver: bridge
-  order-accuracy_order-accuracy-net:
-    external: true
 
 volumes:
   ov_cache:

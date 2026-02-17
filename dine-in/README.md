@@ -34,15 +34,22 @@ This step:
 
 > **Note**: This only needs to be done once. The model files are shared between dine-in and take-away applications.
 
-### 2. Build and Start
+### 2. Configure Environment
 
 ```bash
 cd ../dine-in
+cp .env.example .env
+# Edit .env if needed (defaults work for most setups)
+```
+
+### 3. Build and Start
+
+```bash
 make build
 make up
 ```
 
-### 3. Access Services
+### 4. Access Services
 
 | Service | URL | Purpose |
 |---------|-----|--------|
