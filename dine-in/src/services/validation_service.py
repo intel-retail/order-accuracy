@@ -121,7 +121,8 @@ class SemanticValidationStrategy(ValidationStrategy):
                 if detected_used[idx]:
                     continue
                 
-                detected_name = detected.get("name", "")
+                # Support both 'name' and 'item' keys (VLM may return either)
+                detected_name = detected.get("name", detected.get("item", ""))
                 match_result = await semantic_client.match_items(expected_name, detected_name)
                 
                 if match_result.is_match and match_result.similarity > best_similarity:
@@ -139,7 +140,7 @@ class SemanticValidationStrategy(ValidationStrategy):
                 match = ItemMatch(
                     expected_name=expected_name,
                     expected_quantity=expected_qty,
-                    detected_name=detected.get("name", ""),
+                    detected_name=detected.get("name", detected.get("item", "")),
                     detected_quantity=detected_qty,
                     similarity=match_result.similarity,
                     is_exact_match=match_result.similarity >= 0.95,
@@ -147,7 +148,7 @@ class SemanticValidationStrategy(ValidationStrategy):
                 )
                 matches.append(match)
                 
-                logger.debug(f"Matched: {expected_name} -> {detected.get('name')} "
+                logger.debug(f"Matched: {expected_name} -> {detected.get('name', detected.get('item', ''))} "
                            f"(similarity={match_result.similarity:.2f})")
             else:
                 # No match found - item is missing
@@ -161,10 +162,10 @@ class SemanticValidationStrategy(ValidationStrategy):
         for idx, detected in enumerate(detected_items):
             if not detected_used[idx]:
                 extra_items.append({
-                    "name": detected.get("name", ""),
+                    "name": detected.get("name", detected.get("item", "")),
                     "quantity": int(detected.get("quantity", 1))
                 })
-                logger.debug(f"Extra item: {detected.get('name')}")
+                logger.debug(f"Extra item: {detected.get('name', detected.get('item', ''))}")
         
         return matches, missing_items, extra_items
 

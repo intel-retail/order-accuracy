@@ -81,6 +81,7 @@ services:
         no_proxy: localhost,127.0.0.1
         NO_PROXY: localhost,127.0.0.1
     container_name: dinein_app
+    user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "7861:7860"  # Gradio UI
       - "8083:8080"  # FastAPI
@@ -114,6 +115,7 @@ services:
     profiles:
       - benchmark
       - worker
+    user: "${UID:-1000}:${GID:-1000}"
     deploy:
       replicas: ${WORKERS:-1}
     volumes:

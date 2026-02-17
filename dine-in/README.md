@@ -80,3 +80,53 @@ make up
 
 - **Release Notes**
   - [Release Notes](docs/user-guide/release-notes.md): Information on the latest updates, improvements, and bug fixes.
+
+---
+
+## Benchmarking
+
+### Prerequisites
+
+Initialize the performance-tools submodule before running benchmarks:
+
+```bash
+make update-submodules
+```
+
+### Quick Test
+
+```bash
+make benchmark-single    # Quick single image test
+```
+
+### Full Benchmark
+
+```bash
+make benchmark           # Run Order Accuracy benchmark
+```
+
+### Stream Density Test
+
+```bash
+make benchmark-density   # Find max concurrent validations
+```
+
+### Metrics Processing
+
+```bash
+make consolidate-metrics # Consolidate results to CSV
+make plot-metrics        # Generate visualization plots
+```
+
+See [Get Started](docs/user-guide/get-started.md) for detailed benchmark configuration options.
+
+---
+
+## Cleanup
+
+```bash
+make down           # Stop all services
+make clean          # Stop and remove volumes
+make clean-images   # Remove dangling Docker images
+make clean-all      # Remove all unused Docker resources
+```

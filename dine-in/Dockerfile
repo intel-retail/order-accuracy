@@ -33,9 +33,21 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir -r requirements.txt
 
+# Create non-root user for security
+ARG UID=1000
+ARG GID=1000
+RUN groupadd -g ${GID} appuser && \
+    useradd -u ${UID} -g ${GID} -m appuser
+
 # Copy application files from src
 COPY src/ ./src/
 COPY configs/ ./configs/
+
+# Create results directory and set permissions
+RUN mkdir -p /app/results && chown -R appuser:appuser /app
+
+# Switch to non-root user
+USER appuser
 
 # Expose ports
 EXPOSE 7860

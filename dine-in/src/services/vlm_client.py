@@ -353,9 +353,15 @@ class VLMResponse:
                     else:
                         logger.warning(f"[PARSE] Unexpected JSON structure: {parsed_content}")
                 except json.JSONDecodeError as je:
-                    logger.info(f"[PARSE] JSON decode failed: {je}, falling back to natural language parsing")
-                    # Fallback: parse natural language response
-                    self._parse_natural_language(content)
+                    logger.info(f"[PARSE] JSON decode failed: {je}, trying to recover truncated JSON")
+                    # Try to recover items from truncated JSON response
+                    recovered_items = self._recover_truncated_json(content_stripped)
+                    if recovered_items:
+                        self.detected_items = recovered_items
+                        logger.info(f"[PARSE] Recovered {len(self.detected_items)} items from truncated JSON")
+                    else:
+                        # Fallback: parse natural language response
+                        self._parse_natural_language(content)
                     
                 logger.info(f"Parsed {len(self.detected_items)} items from VLM response")
             else:
@@ -387,6 +393,47 @@ class VLMResponse:
                 break
         
         logger.info(f"Parsed {len(self.detected_items)} items from natural language")
+    
+    def _recover_truncated_json(self, content: str) -> List[Dict[str, Any]]:
+        """
+        Recover complete items from truncated JSON array response.
+        
+        When VLM hits max_tokens limit, the JSON may be truncated mid-object.
+        This method extracts all complete JSON objects before the truncation.
+        
+        Args:
+            content: Potentially truncated JSON string
+            
+        Returns:
+            List of successfully parsed item dictionaries
+        """
+        import re
+        
+        recovered_items = []
+        
+        try:
+            # Find all complete JSON objects in the array
+            # Pattern matches: {"item": "...", "quantity": N} or {"name": "...", "quantity": N}
+            item_pattern = r'\{\s*"(?:item|name)"\s*:\s*"([^"]+)"\s*,\s*"quantity"\s*:\s*(\d+)\s*\}'
+            
+            matches = re.findall(item_pattern, content, re.IGNORECASE | re.DOTALL)
+            
+            for match in matches:
+                item_name, quantity = match
+                recovered_items.append({
+                    "item": item_name.strip(),
+                    "quantity": int(quantity)
+                })
+            
+            if recovered_items:
+                logger.info(f"[PARSE] Recovered {len(recovered_items)} complete items from truncated JSON")
+            else:
+                logger.warning("[PARSE] No complete items found in truncated JSON")
+                
+        except Exception as e:
+            logger.warning(f"[PARSE] Error recovering truncated JSON: {e}")
+        
+        return recovered_items
 
 
 class VLMClient:
@@ -602,7 +649,7 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                         ]
                     }
                 ],
-                "max_tokens": 200,  # Reduced for faster generation on iGPU
+                "max_tokens": 512,  # Increased to handle longer item lists
                 "temperature": 0.0  # Greedy decoding for fastest inference
             }
             

@@ -171,8 +171,10 @@ class SemanticClient:
             await self._circuit_breaker.record_success()
             
             result = response.json()
-            similarity = result.get("similarity", 0.0)
-            is_match = similarity >= self.similarity_threshold
+            # Use 'confidence' key from semantic service response (not 'similarity')
+            # Also use the 'match' field directly if available
+            similarity = result.get("confidence", result.get("similarity", 0.0))
+            is_match = result.get("match", similarity >= self.similarity_threshold)
             
             logger.debug(f"Semantic match result: similarity={similarity:.2f}, is_match={is_match}")
             

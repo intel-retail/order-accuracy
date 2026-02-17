@@ -116,10 +116,32 @@ curl "http://localhost:8083/health"
 
 ## Benchmarking
 
-### Single Validation Benchmark
+### Prerequisites
+
+Before running benchmarks, initialize the performance-tools submodule:
 
 ```bash
-make benchmark
+make update-submodules
+```
+
+Optionally build the benchmark Docker image:
+
+```bash
+make build-benchmark
+```
+
+Or fetch from registry (if `REGISTRY=true`):
+
+```bash
+make fetch-benchmark
+```
+
+### Quick Single Image Test
+
+For a quick validation test with curl:
+
+```bash
+make benchmark-single
 ```
 
 Output:
@@ -133,6 +155,30 @@ Output:
     "gpu_utilization": 100.0
   }
 }
+```
+
+### Full Benchmark
+
+Run the Order Accuracy benchmark using `benchmark_order_accuracy.py`:
+
+```bash
+make benchmark
+```
+
+Configuration options:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BENCHMARK_WORKERS` | 1 | Number of concurrent workers |
+| `BENCHMARK_DURATION` | 300 | Benchmark duration (seconds) |
+| `BENCHMARK_INIT_DURATION` | 60 | Warmup time (seconds) |
+| `BENCHMARK_TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
+| `RESULTS_DIR` | results | Output directory |
+| `REGISTRY` | false | Use registry images (true/false) |
+
+Example:
+```bash
+make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600 BENCHMARK_TARGET_DEVICE=GPU
 ```
 
 ### Stream Density Test
@@ -151,6 +197,18 @@ Max Density: 2 concurrent images
 Iteration 1: 1 image  → 11726ms ✓ PASSED
 Iteration 2: 2 images → 14808ms ✓ PASSED
 Iteration 3: 3 images → 19509ms ✗ FAILED
+```
+
+### Metrics Processing
+
+After running benchmarks, consolidate and visualize metrics:
+
+```bash
+# Consolidate metrics from multiple runs to CSV
+make consolidate-metrics
+
+# Generate plots from benchmark metrics
+make plot-metrics
 ```
 
 ## Understanding Results

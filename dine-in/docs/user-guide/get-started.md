@@ -59,16 +59,61 @@ curl -X POST "http://localhost:8083/api/validate" \
 
 ## Running Benchmarks
 
-### Single Validation
+### Prerequisites
+
+Before running benchmarks, initialize the performance-tools submodule:
+
+```bash
+make update-submodules
+```
+
+### Quick Single Image Test
+
+For a quick validation test with a single image:
+
+```bash
+make benchmark-single
+```
+
+### Full Benchmark
+
+Run the Order Accuracy benchmark using `benchmark_order_accuracy.py`:
 
 ```bash
 make benchmark
+```
+
+Configuration options:
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `BENCHMARK_WORKERS` | 1 | Number of concurrent workers |
+| `BENCHMARK_DURATION` | 300 | Benchmark duration (seconds) |
+| `BENCHMARK_TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
+| `RESULTS_DIR` | results | Output directory |
+
+Example with custom settings:
+
+```bash
+make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600
 ```
 
 ### Stream Density Test
 
 ```bash
 make benchmark-density
+```
+
+### Metrics Processing
+
+After running benchmarks, consolidate and visualize metrics:
+
+```bash
+# Consolidate metrics from multiple runs
+make consolidate-metrics
+
+# Generate plots from benchmark metrics
+make plot-metrics
 ```
 
 ### Stream Density Configuration

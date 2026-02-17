@@ -34,6 +34,19 @@ BENCHMARK_API_ENDPOINT ?= http://localhost:8083
 # Docker compose file
 COMPOSE_FILE ?= docker-compose.yml
 
+# Version tag for registry images
+TAG ?= 1.0.0
+
+# Benchmark registry configuration
+REGISTRY ?= false
+REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
+
+# Benchmark Order Accuracy settings
+BENCHMARK_WORKERS ?= 1
+BENCHMARK_DURATION ?= 300
+BENCHMARK_TARGET_FPS ?= 15.0
+BENCHMARK_TARGET_DEVICE ?= GPU
+
 # Colors for output
 RED := \033[0;31m
 GREEN := \033[0;32m
@@ -44,13 +57,16 @@ NC := \033[0m  # No Color
 .PHONY: help build up down logs restart benchmark benchmark-results benchmark-metrics \
         benchmark-stream-density benchmark-density benchmark-density-results clean \
         shell test-api benchmark-test benchmark-single \
-        worker worker-start worker-stop worker-logs worker-results
+        worker worker-start worker-stop worker-logs worker-results \
+        update-submodules fetch-benchmark build-benchmark \
+        consolidate-metrics plot-metrics clean-images clean-containers clean-all
 
 help:
 	@echo "$(BLUE)Dine-In Order Accuracy - Available Commands$(NC)"
 	@echo "=============================================="
 	@echo ""
 	@echo "$(YELLOW)Basic Commands:$(NC)"
+	@echo "  make update-submodules        - Clone/update git submodules"
 	@echo "  make build                    - Build Docker images"
 	@echo "  make up                       - Start services (UI mode)"
 	@echo "  make down                     - Stop all services"
@@ -66,9 +82,11 @@ help:
 	@echo "  make worker-results           - View worker results"
 	@echo ""
 	@echo "$(YELLOW)Benchmark Commands:$(NC)"
+	@echo "  make fetch-benchmark          - Pull benchmark image from registry"
+	@echo "  make build-benchmark          - Build benchmark Docker image"
+	@echo "  make benchmark                - Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)"
+	@echo "  make benchmark-single         - Quick single image test via curl"
 	@echo "  make benchmark-test           - Quick single image test via API"
-	@echo "  make benchmark-single         - Test with specific IMAGE_ID"
-	@echo "  make benchmark                - Run single image benchmark (legacy)"
 	@echo "  make benchmark-results        - View benchmark results"
 	@echo "  make benchmark-metrics        - View benchmark performance metrics"
 	@echo ""
@@ -81,6 +99,16 @@ help:
 	@echo "  WORKERS=$(WORKERS)              - Number of concurrent workers"
 	@echo "  ITERATIONS=$(ITERATIONS)           - Iterations per worker (0=infinite)"
 	@echo "  REQUEST_DELAY=$(REQUEST_DELAY)         - Delay between requests (seconds)"
+	@echo ""
+	@echo "$(YELLOW)Metrics:$(NC)"
+	@echo "  make consolidate-metrics      - Consolidate benchmark metrics to CSV"
+	@echo "  make plot-metrics             - Generate plots from benchmark metrics"
+	@echo ""
+	@echo "$(YELLOW)Cleanup:$(NC)"
+	@echo "  make clean                    - Stop containers and remove volumes"
+	@echo "  make clean-images             - Remove dangling Docker images"
+	@echo "  make clean-containers         - Remove stopped containers"
+	@echo "  make clean-all                - Remove all unused Docker resources"
 	@echo ""
 	@echo "$(YELLOW)Development:$(NC)"
 	@echo "  make shell                    - Open shell in dine-in container"
@@ -112,6 +140,25 @@ benchmark-density-help:
 	@echo "║   BENCHMARK_REQUEST_TIMEOUT=$(BENCHMARK_REQUEST_TIMEOUT)s (individual request timeout)     ║"
 	@echo "║   BENCHMARK_API_ENDPOINT=$(BENCHMARK_API_ENDPOINT)                ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
+
+update-submodules:
+	@echo "$(BLUE)Cloning/updating performance tool repositories...$(NC)"
+	cd .. && git submodule deinit -f .
+	cd .. && git submodule update --init --recursive
+	@echo "$(GREEN)Submodules updated successfully.$(NC)"
+
+fetch-benchmark:
+	@echo "$(BLUE)Fetching benchmark image from registry...$(NC)"
+	docker pull $(REGISTRY_BENCHMARK)
+	@echo "$(GREEN)Benchmark image ready$(NC)"
+
+build-benchmark:
+	@echo "$(BLUE)Building benchmark Docker image...$(NC)"
+	@if [ "$(REGISTRY)" = "true" ]; then \
+		$(MAKE) fetch-benchmark; \
+	else \
+		cd ../performance-tools && $(MAKE) build-benchmark-docker; \
+	fi
 
 build:
 	@echo "Building dine-in Docker images..."
@@ -264,49 +311,31 @@ benchmark-single: ## Test with specific image via API (IMAGE_ID=DD-6993)
 		echo "$(GREEN)Latency: $${LATENCY}ms$(NC)"; \
 	'
 
-# Legacy benchmark (original implementation)
-benchmark:
-	@echo "Running benchmark with DD-6993.jpg..."
-	@mkdir -p results
-	@bash -c '\
-		IMAGE_FILE="images/DD-6993.jpg"; \
-		IMAGE_ID="DD-6993"; \
-		ORDER_JSON=$$(jq -c ".orders[] | select(.image_id == \"$$IMAGE_ID\")" configs/orders.json); \
-		if [ -z "$$ORDER_JSON" ]; then \
-			echo "Error: Order not found for $$IMAGE_ID"; \
-			exit 1; \
-		fi; \
-		ORDER_MANIFEST=$$(echo $$ORDER_JSON | jq -c "{items: [.items_ordered[] | {name: .item, quantity: .quantity}]}"); \
-		echo "=== Starting Benchmark ==="; \
-		echo "Image: $$IMAGE_FILE"; \
-		echo "Order: $$ORDER_MANIFEST" | jq .; \
-		echo ""; \
-		START_TIME=$$(date +%s%3N); \
-		RESPONSE=$$(curl -s -X POST http://localhost:8083/api/validate \
-			-F "image=@$$IMAGE_FILE" \
-			-F "order=$$ORDER_MANIFEST"); \
-		END_TIME=$$(date +%s%3N); \
-		LATENCY=$$((END_TIME - START_TIME)); \
-		echo ""; \
-		echo "=== Benchmark Results ==="; \
-		echo "$$RESPONSE" | jq .; \
-		echo ""; \
-		echo "=== Logging Results ==="; \
-		TIMESTAMP=$$(date "+%Y-%m-%d %H:%M:%S"); \
-		echo "[$$TIMESTAMP] Benchmark Result for $$IMAGE_ID" >> results/benchmark_result.log; \
-		echo "$$RESPONSE" | jq . >> results/benchmark_result.log; \
-		echo "" >> results/benchmark_result.log; \
-		ACCURACY=$$(echo "$$RESPONSE" | jq -r ".accuracy_score // 0"); \
-		ORDER_COMPLETE=$$(echo "$$RESPONSE" | jq -r ".order_complete // false"); \
-		VALIDATION_ID=$$(echo "$$RESPONSE" | jq -r ".validation_id // \"N/A\""); \
-		echo "[$$TIMESTAMP] validation_id=$$VALIDATION_ID, image=$$IMAGE_ID, latency_ms=$$LATENCY, accuracy=$$ACCURACY, complete=$$ORDER_COMPLETE" >> results/benchmark_performance.log; \
-		if [ ! -z "$$RESPONSE" ] && echo "$$RESPONSE" | jq -e ".metrics" > /dev/null 2>&1; then \
-			echo "$$RESPONSE" | jq -r ".metrics | to_entries | map(\"  \\(.key)=\\(.value)\") | .[]" >> results/benchmark_performance.log; \
-		fi; \
-		echo "" >> results/benchmark_performance.log; \
-		echo "Results logged to results/benchmark_result.log"; \
-		echo "Performance metrics logged to results/benchmark_performance.log"; \
-	'
+benchmark: build-benchmark
+	@echo "╔═══════════════════════════════════════════════════════════════════╗"
+	@echo "║       Dine-In Order Accuracy Benchmark                            ║"
+	@echo "╚═══════════════════════════════════════════════════════════════════╝"
+	@echo "Workers: $(BENCHMARK_WORKERS)"
+	@echo "Duration: $(BENCHMARK_DURATION)s"
+	@echo "Target Device: $(BENCHMARK_TARGET_DEVICE)"
+	@echo "Results Dir: $(RESULTS_DIR)"
+	@echo ""
+	mkdir -p $(RESULTS_DIR)
+	cd $(PERF_TOOLS_DIR) && \
+	( \
+		python3 -m venv venv && \
+		. venv/bin/activate && \
+		pip3 install -r requirements.txt && \
+		python3 benchmark_order_accuracy.py \
+			--compose_file $(shell pwd)/$(COMPOSE_FILE) \
+			--workers $(BENCHMARK_WORKERS) \
+			--duration $(BENCHMARK_DURATION) \
+			--init_duration $(BENCHMARK_INIT_DURATION) \
+			--target_device $(BENCHMARK_TARGET_DEVICE) \
+			--results_dir $(shell pwd)/$(RESULTS_DIR) \
+			--skip_perf_tools; \
+		deactivate \
+	)
 
 benchmark-results:
 	@echo "=== Benchmark Results ==="
@@ -464,6 +493,25 @@ clean:
 	@echo "Cleaning up containers and volumes..."
 	docker compose down -v
 	@echo "$(GREEN)✓ Cleanup complete$(NC)"
+
+clean-images:
+	@echo "Cleaning up dangling Docker images..."
+	@docker image prune -f
+	@echo "Cleaning up unused Docker images..."
+	@docker images -f "dangling=true" -q | xargs -r docker rmi
+	@echo "$(GREEN)Dangling images cleaned up$(NC)"
+
+clean-containers:
+	@echo "Cleaning up stopped containers..."
+	@docker container prune -f
+	@echo "$(GREEN)Stopped containers cleaned up$(NC)"
+
+clean-all:
+	@echo "Cleaning up all unused Docker resources..."
+	@docker system prune -f
+	@echo "Cleaning up build cache..."
+	@docker builder prune -f
+	@echo "$(GREEN)All unused Docker resources cleaned up$(NC)"
 
 # Development helpers
 shell:
