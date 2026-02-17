@@ -82,15 +82,31 @@ Take-Away Order Accuracy is an AI-powered vision system that validates drive-thr
 - 32GB+ RAM recommended
 - Intel Xeon or equivalent CPU
 
-### 1. Clone and Configure
+### 1. Setup OVMS Model (First Time Only)
+
+The VLM model must be exported before running the application:
 
 ```bash
-cd take-away
+cd order-accuracy/ovms-service
+./setup_models.sh    # Export model (30-60 min first time)
+```
+
+This step:
+- Downloads Qwen2.5-VL-7B-Instruct from HuggingFace (~7GB)
+- Converts to OpenVINO format with INT8 quantization
+- Creates model files in `ovms-service/models/`
+
+> **Note**: This only needs to be done once. The model files are shared between dine-in and take-away applications.
+
+### 2. Clone and Configure
+
+```bash
+cd ../take-away
 cp .env.example .env
 # Edit .env for your configuration
 ```
 
-### 2. Build and Start
+### 3. Build and Start
 
 ```bash
 # Single worker mode (development)
@@ -102,7 +118,7 @@ make build
 make up-parallel WORKERS=4
 ```
 
-### 3. Access Services
+### 4. Access Services
 
 | Service | URL | Purpose |
 |---------|-----|---------|
