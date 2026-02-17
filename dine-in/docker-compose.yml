@@ -46,7 +46,7 @@ services:
       - LOG_LEVEL=INFO
       - VLM_BACKEND=ovms
       - OVMS_ENDPOINT=http://ovms-vlm:8000
-      - OVMS_MODEL_NAME=Qwen/Qwen2-VL-2B-Instruct
+      - OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
       - CACHE_ENABLED=true
       - CACHE_BACKEND=memory
       - PROMETHEUS_ENABLED=true
