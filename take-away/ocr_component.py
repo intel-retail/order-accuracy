@@ -94,13 +94,13 @@ def read_order_id(frame, frame_idx=None):
         logger.debug(f"[OCR] No order ID found in frame_idx={frame_idx}")
         return None
     
-    # Prefer 3-digit numbers
+    # Only accept 3-digit order IDs (all orders in orders.json are 3-digit)
     three_digit = [(n, c) for n, c in candidates if len(n) == 3]
     if three_digit:
         order_id = max(three_digit, key=lambda x: x[1])[0]
         logger.info(f"[OCR] Extracted order ID: {order_id} (frame_idx={frame_idx})")
         return order_id
     
-    order_id = max(candidates, key=lambda x: x[1])[0]
-    logger.info(f"[OCR] Extracted order ID: {order_id} (frame_idx={frame_idx})")
-    return order_id
+    # Reject partial order IDs (e.g., "92" when expecting "925")
+    logger.debug(f"[OCR] No 3-digit order ID found, rejecting partial: {candidates}")
+    return None

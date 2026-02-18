@@ -1,218 +1,132 @@
-# Dine-In Order Accuracy Benchmark - Docker Setup
+# Order Accuracy Dine-In
 
-This directory contains a Dockerized setup for the Dine-In Order Accuracy Benchmark application with both a Gradio UI and REST API, integrated with OVMS (OpenVINO Model Server).
+**Image-based Order Validation for Restaurant Dining Applications**
 
-## Architecture
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
+[![Docker](https://img.shields.io/badge/Docker-24.0%2B-blue.svg)](https://docker.com)
+[![OpenVINO](https://img.shields.io/badge/OpenVINO-2024.6%2B-blue.svg)](https://docs.openvino.ai)
 
-The setup includes three main components:
-
-1. **dine-in**: 
-   - **Gradio UI** (Port 7861): Interactive web interface for order validation
-   - **REST API** (Port 8083): FastAPI endpoints for programmatic access
-2. **ovms-vlm**: OpenVINO Model Server for Vision-Language Model inference (Port 8002)
-3. **semantic-service**: AI-powered semantic item matching service (Optional)
-
-## API Endpoints
-
-The application provides the following REST endpoints:
-
-### Core Endpoints
-- `POST /api/validate` - Validate single plate image against order
-- `POST /api/validate/batch` - Validate multiple plates in one request  
-- `GET /api/validate/{validation_id}` - Retrieve validation result by ID
-- `GET /api/validate` - List all validation results
-- `DELETE /api/validate/{validation_id}` - Delete validation result
-- `GET /health` - Health check endpoint
-
-### Documentation
-- **Swagger UI**: http://localhost:8083/docs
-- **API Documentation**: See [API.md](API.md) for detailed examples
-
-## Quick Start
-
-- Docker and Docker Compose installed
-- GPU with Intel drivers (for OVMS GPU acceleration)
-- Models directory set up at `../models/` (relative to this directory)
-- Semantic comparison service image built
-
-### Build Semantic Service (if not already built)
-
-```bash
-# Navigate to the semantic-comparison-service directory and build
-cd ../semantic-comparison-service
-docker build -t semantic-comparison-service:latest .
-```
-
-### Setup OVMS Models (if not already done)
-
-```bash
-# Navigate to the ovms-service directory and run setup
-cd ../ovms-service
-./setup_models.sh
-```
+---
 
 ## Quick Start
 
 ### Prerequisites
 
-- Docker and Docker Compose installed
-- GPU with Intel drivers (for OVMS GPU acceleration)
-- Models directory set up at `../models/` (relative to this directory)
+- Docker 24.0+ with Compose V2
+- NVIDIA GPU with 8GB+ VRAM (or Intel GPU)
+- 32GB+ RAM recommended
+- Intel Xeon or equivalent CPU
 
-### 1. Build and Start All Services
+### 1. Setup OVMS Model (First Time Only)
 
-```bash
-docker compose up --build -d
-```
-
-### 2. Access the Application
-
-**Gradio Web UI:**
-```
-http://localhost:7861
-```
-
-**REST API:**
-```
-http://localhost:8083
-```
-
-**API Documentation (Swagger UI):**
-```
-http://localhost:8083/docs
-```
-
-**OVMS Service:**
-```
-http://localhost:8002
-```
-
-### 3. Test the API
-
-Run the included test script:
-```bash
-python test_api.py
-```
-
-Or use cURL:
-```bash
-# Health check
-curl http://localhost:8083/health
-
-# Validate a plate
-curl -X POST "http://localhost:8083/api/validate" \
-  -F "image=@images/image_01_mcd_combo.png" \
-  -F 'order={"order_id":"order_123","items":[{"name":"Big Mac","quantity":1}]}'
-```
-
-### 4. Check Service Health
+The VLM model must be exported before running the application:
 
 ```bash
-# Check all containers
-docker compose ps
-
-# View logs
-docker compose logs -f dine-in
-docker compose logs -f ovms-vlm
+cd order-accuracy/ovms-service
+./setup_models.sh    # Export model (30-60 min first time)
 ```
 
-### 5. Stop Services
+This step:
+- Downloads Qwen2.5-VL-7B-Instruct from HuggingFace (~7GB)
+- Converts to OpenVINO format with INT8 quantization
+- Creates model files in `ovms-service/models/`
+
+> **Note**: This only needs to be done once. The model files are shared between dine-in and take-away applications.
+
+### 2. Configure Environment
 
 ```bash
-docker compose down
+cd ../dine-in
+cp .env.example .env
+# Edit .env if needed (defaults work for most setups)
 ```
 
-## Service Details
-
-### Dine-In Application
-- **Port**: 7860
-- **Type**: Gradio web interface
-- **Purpose**: Staff-triggered plate validation UI
-
-### OVMS VLM
-- **Port**: 8001 (mapped to internal 8000)
-- **Type**: OpenVINO Model Server with GPU support
-- **Purpose**: Vision-Language Model inference
-
-### Semantic Service
-- **Port**: 8080 (REST API), 9090 (Prometheus metrics)
-- **Type**: FastAPI service
-- **Purpose**: AI-powered semantic item matching
-
-## Environment Variables
-
-The following environment variables are configured in docker-compose.yml:
-
-### Dine-In Service
-- `SEMANTIC_SERVICE_ENDPOINT`: http://semantic-service:8080
-- `OVMS_ENDPOINT`: http://ovms-vlm:8000
-
-### OVMS Service
-- `OV_CACHE_DIR`: /tmp/ov_cache (for model compilation caching)
-
-### Semantic Service
-- `VLM_BACKEND`: ovms
-- `OVMS_ENDPOINT`: http://ovms-vlm:8000
-- `CACHE_ENABLED`: true
-- `LOG_LEVEL`: INFO
-
-## Troubleshooting
-
-### OVMS fails to start
-- Ensure GPU drivers are properly installed
-- Check that models are present in `../models/` directory
-- Verify `../models/config.json` exists and is valid
-
-### Semantic service is unhealthy
-- Check OVMS is running and healthy first
-- View logs: `docker compose logs semantic-service`
-- Verify network connectivity between services
-
-### Dine-In app can't connect to services
-- Ensure all services are healthy: `docker compose ps`
-- Check network configuration in docker-compose.yml
-- Verify service dependencies are met
-
-### Port conflicts
-- Check if ports 7860, 8001, 8080, or 9090 are already in use
-- Modify port mappings in docker-compose.yml if needed
-
-## Development
-
-### Rebuild Single Service
+### 3. Build and Start
 
 ```bash
-# Rebuild dine-in only
-docker compose build dine-in
-docker compose up -d dine-in
-
-# View live logs
-docker compose logs -f dine-in
+make build
+make up
 ```
 
-### Update Application Code
+### 4. Access Services
 
-After modifying app.py:
+| Service | URL | Purpose |
+|---------|-----|--------|
+| Gradio UI | http://localhost:7860 | Interactive order validation |
+| Order Accuracy API | http://localhost:8000 | REST API endpoints |
+| OVMS VLM | http://localhost:8002 | VLM model server |
+
+---
+
+## Documentation
+
+- **Overview**
+  - [Overview](docs/user-guide/Overview.md): A high-level introduction.
+  - [Overview Architecture](./docs/user-guide/Overview.md#how-it-works): Highlevel architecture.
+
+- **Getting Started**
+  - [Get Started](docs/user-guide/get-started.md): Step-by-step guide to get started with the sample application.
+  - [System Requirements](docs/user-guide/system-requirements.md): Hardware and software requirements for running the sample application.
+  - [How to Use the Application](./docs/user-guide/how-to-use-application.md): Explore the application's features and verify its functionality.
+
+- **Deployment**
+  - [How to Build from Source](docs/user-guide/how-to-build-from-source.md): Instructions for building from source code.
+  - [How to Build using Helm](docs/user-guide/deploy-with-helm.md): Instructions for building using helm.
+
+
+- **API Reference**
+  - [API Reference](docs/user-guide/api-reference.md): Comprehensive reference for the available REST API endpoints.
+
+- **Release Notes**
+  - [Release Notes](docs/user-guide/release-notes.md): Information on the latest updates, improvements, and bug fixes.
+
+---
+
+## Benchmarking
+
+### Prerequisites
+
+Initialize the performance-tools submodule before running benchmarks:
+
 ```bash
-docker compose build dine-in
-docker compose restart dine-in
+make update-submodules
 ```
 
-## Files
+### Quick Test
 
-- `Dockerfile`: Container definition for the dine-in application
-- `docker-compose.yml`: Multi-container orchestration
-- `requirements.txt`: Python dependencies
-- `app.py`: Gradio application code
-- `images/`: Plate images for validation
-- `orders/orders.json`: Order manifests
+```bash
+make benchmark-single    # Quick single image test
+```
 
-## Network
+### Full Benchmark
 
-All services communicate over a dedicated bridge network `dinein-net` for isolation and security.
+```bash
+make benchmark           # Run Order Accuracy benchmark
+```
 
-## Volume Mounts
+### Stream Density Test
 
-- `../models:/models:ro` - OVMS models (read-only)
-- `../ovms-service/cache:/tmp/ov_cache` - OVMS compilation cache
-- `../config:/app/config:ro` - Configuration files (read-only)
+```bash
+make benchmark-density   # Find max concurrent validations
+```
+
+### Metrics Processing
+
+```bash
+make consolidate-metrics # Consolidate results to CSV
+make plot-metrics        # Generate visualization plots
+```
+
+See [Get Started](docs/user-guide/get-started.md) for detailed benchmark configuration options.
+
+---
+
+## Cleanup
+
+```bash
+make down           # Stop all services
+make clean          # Stop and remove volumes
+make clean-images   # Remove dangling Docker images
+make clean-all      # Remove all unused Docker resources
+```

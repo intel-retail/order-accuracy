@@ -1,6 +1,7 @@
 import os
 import io
 import time
+import json
 import logging
 import socket
 import cv2
@@ -12,8 +13,19 @@ import requests
 from config_loader import load_config
 from pathlib import Path
 import shutil
+from dataclasses import dataclass, field, asdict
+from typing import Dict, List, Set, Optional
 
-# Configure logging
+# RabbitMQ imports
+try:
+    import pika
+    from pika.exceptions import AMQPConnectionError, AMQPChannelError
+    PIKA_AVAILABLE = True
+except ImportError:
+    PIKA_AVAILABLE = False
+    logging.warning("pika not installed, RabbitMQ disabled")
+
+# Configure logging (initial setup - will be reconfigured after YOLO import)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -21,18 +33,30 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Auto-detect STATION_ID from hostname if not set
-# Docker Compose scales containers with names like: order-accuracy-frame-selector-1, order-accuracy-frame-selector-2
-if 'STATION_ID' not in os.environ:
-    hostname = socket.gethostname()
-    # Extract number from hostname (e.g., order-accuracy-frame-selector-2 -> station_2)
-    if hostname and hostname.split('-')[-1].isdigit():
-        station_num = hostname.split('-')[-1]
-        os.environ['STATION_ID'] = f'station_{station_num}'
-        logger.info(f"Auto-detected STATION_ID from hostname: {os.environ['STATION_ID']}")
-    else:
-        os.environ['STATION_ID'] = 'station_1'
-        logger.info(f"Using default STATION_ID: station_1")
+# Multi-station mode: single frame-selector handles ALL stations
+# Set to False to use legacy per-station scaling mode
+MULTI_STATION_MODE = os.environ.get('MULTI_STATION_MODE', 'true').lower() == 'true'
+
+# Number of stations to monitor (only used in multi-station mode)
+# Default to 1 if WORKERS is 0 or not set
+NUM_STATIONS = max(1, int(os.environ.get('WORKERS', '1')))
+
+# Legacy single-station mode: auto-detect STATION_ID from hostname
+if not MULTI_STATION_MODE:
+    if 'STATION_ID' not in os.environ:
+        hostname = socket.gethostname()
+        if hostname and hostname.split('-')[-1].isdigit():
+            station_num = hostname.split('-')[-1]
+            os.environ['STATION_ID'] = f'station_{station_num}'
+            logger.info(f"Auto-detected STATION_ID from hostname: {os.environ['STATION_ID']}")
+        else:
+            os.environ['STATION_ID'] = 'station_1'
+            logger.info(f"Using default STATION_ID: station_1")
+    STATION_IDS = [os.environ.get('STATION_ID', 'station_1')]
+else:
+    # Multi-station mode: handle all stations
+    STATION_IDS = [f'station_{i+1}' for i in range(NUM_STATIONS)]
+    logger.info(f"Multi-station mode enabled: handling {NUM_STATIONS} stations: {STATION_IDS}")
 
 cfg = load_config()
 
@@ -45,33 +69,217 @@ MINIO_ENDPOINT = MINIO["endpoint"]
 FRAMES_BUCKET = BUCKETS["frames"]
 SELECTED_BUCKET = BUCKETS["selected"]
 
-TOP_K = FS_CFG["top_k"]
-POLL_INTERVAL = FS_CFG["poll_interval_sec"]
-SKIP_LABELS = set(FS_CFG["skip_labels"])
+# Reconfigure logging after all imports (YOLO overwrites logging config)
+# This must be AFTER ultralytics import
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    force=True  # Force reconfiguration
+)
+logger = logging.getLogger(__name__)
+
+TOP_K = FS_CFG.get("top_k", 3)  # Default to 5 if not specified
+POLL_INTERVAL = FS_CFG.get("poll_interval_sec", 1.5)
+SKIP_LABELS = set(FS_CFG.get("skip_labels", ["hand", "person"]))
 
 # How many consecutive frames required to confirm a new order
 MIN_FRAMES_PER_ORDER = FS_CFG.get("min_frames_per_order", 2)
 
+# Minimum frames before allowing finalization (prevents early finalization)
+MIN_FRAMES_BEFORE_FINALIZE = FS_CFG.get("min_frames_before_finalize", 5)
+
+# Inactivity timeout - finalize current order if no new frames after this many seconds
+# This handles the case where the video ends (last order has no subsequent order)
+INACTIVITY_TIMEOUT = FS_CFG.get("inactivity_timeout_sec", 15)
+
 VLM_ENDPOINT = VLM_CFG["endpoint"]
 
-# Station ID from environment variable (for multi-station deployment)
-STATION_ID = os.environ.get('STATION_ID', 'station_unknown')
+# Per-station state tracking for multi-station mode
+@dataclass
+class StationState:
+    """State tracking for a single station"""
+    station_id: str
+    current_order: Optional[str] = None
+    current_keys: List[str] = field(default_factory=list)
+    pending_order: Optional[str] = None
+    pending_count: int = 0
+    processed_keys: Set[str] = field(default_factory=set)
+    processed_orders: Set[str] = field(default_factory=set)
+    last_frame_time: float = field(default_factory=time.time)
+    
+    def reset(self):
+        """Reset state for next video/stream"""
+        self.current_order = None
+        self.current_keys = []
+        self.pending_order = None
+        self.pending_count = 0
+        self.processed_keys.clear()
+        self.processed_orders.clear()
+        self.last_frame_time = time.time()
 
+# Initialize per-station state
+station_states: Dict[str, StationState] = {
+    station_id: StationState(station_id=station_id)
+    for station_id in STATION_IDS
+}
+
+# Legacy global state (for backwards compatibility)
 processed_orders = set()
+STATION_ID = STATION_IDS[0] if STATION_IDS else 'station_1'
 
-logger.info(f"Frame selector configuration: station_id={STATION_ID}, top_k={TOP_K}, poll_interval={POLL_INTERVAL}s, min_frames={MIN_FRAMES_PER_ORDER}")
+# RabbitMQ configuration
+RABBITMQ_HOST = os.environ.get('RABBITMQ_HOST', 'rabbitmq')
+RABBITMQ_PORT = int(os.environ.get('RABBITMQ_PORT', '5672'))
+RABBITMQ_USER = os.environ.get('RABBITMQ_USER', 'guest')
+RABBITMQ_PASS = os.environ.get('RABBITMQ_PASS', 'guest')
+USE_RABBITMQ = os.environ.get('USE_RABBITMQ', 'true').lower() == 'true' and PIKA_AVAILABLE
+ORDER_QUEUE = 'order_processing'
+
+logger.info(f"Frame selector configuration: stations={STATION_IDS}, top_k={TOP_K}, poll_interval={POLL_INTERVAL}s, min_frames={MIN_FRAMES_PER_ORDER}, min_before_finalize={MIN_FRAMES_BEFORE_FINALIZE}")
 logger.info(f"Skip labels: {SKIP_LABELS}")
 logger.info(f"VLM endpoint: {VLM_ENDPOINT}")
+logger.info(f"RabbitMQ enabled: {USE_RABBITMQ}")
 
 
 # =====================================================
-# VLM Caller
+# RabbitMQ Producer
 # =====================================================
 
-def call_vlm(order_id, timeout=120):
-    logger.info(f"[VLM-CALL] Calling VLM service for order_id={order_id}")
+@dataclass
+class OrderMessage:
+    """Message structure for order processing requests"""
+    order_id: str
+    station_id: str
+    retry_count: int = 0
+    timestamp: float = 0.0
+    
+    def __post_init__(self):
+        if self.timestamp == 0.0:
+            self.timestamp = time.time()
+    
+    def to_json(self) -> str:
+        return json.dumps(asdict(self))
+
+
+class RabbitMQProducer:
+    """Simple producer for publishing order processing requests"""
+    
+    def __init__(self):
+        self._connection = None
+        self._channel = None
+    
+    def connect(self) -> bool:
+        """Establish connection to RabbitMQ"""
+        if self._connection and self._connection.is_open:
+            return True
+        
+        try:
+            credentials = pika.PlainCredentials(RABBITMQ_USER, RABBITMQ_PASS)
+            parameters = pika.ConnectionParameters(
+                host=RABBITMQ_HOST,
+                port=RABBITMQ_PORT,
+                credentials=credentials,
+                heartbeat=600,
+                blocked_connection_timeout=300,
+            )
+            
+            logger.info(f"[QUEUE] Connecting to RabbitMQ at {RABBITMQ_HOST}:{RABBITMQ_PORT}")
+            self._connection = pika.BlockingConnection(parameters)
+            self._channel = self._connection.channel()
+            
+            # Declare transient, auto-delete queue
+            self._channel.queue_declare(
+                queue=ORDER_QUEUE,
+                durable=False,
+                auto_delete=True,
+                arguments={'x-message-ttl': 300000}  # 5 min TTL
+            )
+            
+            logger.info(f"[QUEUE] Connected to RabbitMQ, queue '{ORDER_QUEUE}' ready")
+            return True
+            
+        except (AMQPConnectionError, AMQPChannelError) as e:
+            logger.error(f"[QUEUE] Failed to connect to RabbitMQ: {e}")
+            self._connection = None
+            self._channel = None
+            return False
+    
+    def publish(self, order_id: str, station_id: str) -> bool:
+        """Publish order for processing"""
+        message = OrderMessage(order_id=order_id, station_id=station_id)
+        
+        for attempt in range(3):
+            try:
+                if not self.connect():
+                    time.sleep(1)
+                    continue
+                
+                self._channel.basic_publish(
+                    exchange='',
+                    routing_key=ORDER_QUEUE,
+                    body=message.to_json(),
+                    properties=pika.BasicProperties(
+                        delivery_mode=1,  # Transient
+                        content_type='application/json',
+                    )
+                )
+                
+                logger.info(f"[QUEUE] Published order: order_id={order_id}, station_id={station_id}")
+                return True
+                
+            except (AMQPConnectionError, AMQPChannelError) as e:
+                logger.warning(f"[QUEUE] Publish attempt {attempt+1} failed: {e}")
+                self._connection = None
+                self._channel = None
+                time.sleep(0.5)
+        
+        logger.error(f"[QUEUE] Failed to publish order after 3 attempts: order_id={order_id}")
+        return False
+    
+    def close(self):
+        """Close connection"""
+        if self._connection and self._connection.is_open:
+            self._connection.close()
+        self._connection = None
+        self._channel = None
+
+
+# Global producer instance
+_producer = None
+
+def get_producer():
+    global _producer
+    if _producer is None and USE_RABBITMQ:
+        _producer = RabbitMQProducer()
+    return _producer
+
+
+# =====================================================
+# VLM Caller (with RabbitMQ support)
+# =====================================================
+
+def call_vlm(order_id, station_id=None, timeout=120):
+    """
+    Submit order for VLM processing.
+    Uses RabbitMQ queue if available, falls back to direct HTTP call.
+    """
+    logger.info(f"[VLM-CALL] Submitting order for processing: order_id={order_id}, station_id={station_id}")
+    
+    # Try RabbitMQ first (non-blocking, guaranteed delivery)
+    if USE_RABBITMQ:
+        producer = get_producer()
+        if producer and producer.publish(order_id, station_id or 'station_1'):
+            logger.info(f"[VLM-CALL] Order queued successfully: order_id={order_id}")
+            return {"status": "queued", "order_id": order_id}
+        else:
+            logger.warning(f"[VLM-CALL] Queue publish failed, falling back to HTTP")
+    
+    # Fallback to direct HTTP call (blocking)
+    logger.info(f"[VLM-CALL] Using direct HTTP call for order_id={order_id}")
     payload = {"order_id": order_id}
-    logger.debug(f"[VLM-CALL] Payload: {payload}")
+    if station_id:
+        payload["station_id"] = station_id
     
     try:
         resp = requests.post(VLM_ENDPOINT, json=payload, timeout=timeout)
@@ -198,31 +406,35 @@ def ensure_buckets():
         logger.info(f"Bucket already exists: {SELECTED_BUCKET}")
 
 
-def list_frames_sorted():
-    logger.debug(f"Listing frames from bucket: {FRAMES_BUCKET} (station: {STATION_ID})")
+def list_frames_sorted(station_id: str):
+    """List frames for a specific station, sorted by name"""
+    logger.debug(f"Listing frames from bucket: {FRAMES_BUCKET} (station: {station_id})")
     frames = []
     eos_seen = False
 
     for obj in client.list_objects(FRAMES_BUCKET, recursive=True):
         # Check for EOS marker for this station
-        if obj.object_name == f"{STATION_ID}/__EOS__":
+        if obj.object_name == f"{station_id}/__EOS__":
             eos_seen = True
-            logger.info(f"EOS marker detected for station {STATION_ID}")
+            logger.info(f"EOS marker detected for station {station_id}")
             continue
 
         # Only process frames for this station
-        if not obj.object_name.startswith(f"{STATION_ID}/"):
+        if not obj.object_name.startswith(f"{station_id}/"):
             continue
 
         if obj.object_name.lower().endswith(".jpg"):
             # Extract: station_id/order_id/frame_X.jpg -> order_id
             parts = obj.object_name.split("/")
-            if len(parts) >= 3 and parts[0] == STATION_ID:
+            if len(parts) >= 3 and parts[0] == station_id:
                 order_id = parts[1]
+                # Skip "pending" folder - these are frames awaiting OCR, not real orders
+                if order_id.lower() == "pending":
+                    continue
                 frames.append((order_id, obj.object_name))
 
     frames.sort(key=lambda x: x[1])
-    logger.debug(f"Found {len(frames)} frames for station {STATION_ID}, eos_seen={eos_seen}")
+    logger.debug(f"Found {len(frames)} frames for station {station_id}, eos_seen={eos_seen}")
     return frames, eos_seen
 
 
@@ -261,55 +473,81 @@ def count_items(frame):
 # Order Finalization
 # =====================================================
 
-def process_completed_order(order_id, keys):
+def process_completed_order(station_id: str, order_id: str, keys: List[str], state: StationState):
+    """Process a completed order for a specific station"""
     if not keys:
-        logger.debug(f"Skipping empty order: order_id={order_id}")
+        logger.debug(f"[{station_id}] Skipping empty order: order_id={order_id}")
         return
 
-    # Prevent duplicate VLM calls
-    if order_id in processed_orders:
-        logger.warning(f"Order already processed, skipping: order_id={order_id}")
+    # Prevent duplicate VLM calls (check per-station state)
+    if order_id in state.processed_orders:
+        logger.warning(f"[{station_id}] Order already processed, skipping: order_id={order_id}")
         return
 
     # Ignore tiny OCR-noise orders
     if len(keys) < MIN_FRAMES_PER_ORDER:
-        logger.info(f"Ignoring order with insufficient frames: order_id={order_id}, frames={len(keys)}, min_required={MIN_FRAMES_PER_ORDER}")
+        logger.info(f"[{station_id}] Ignoring order with insufficient frames: order_id={order_id}, frames={len(keys)}, min_required={MIN_FRAMES_PER_ORDER}")
         return
 
-    logger.info(f"[ORDER-FINALIZE] Processing order_id={order_id} with {len(keys)} frames")
+    logger.info(f"[{station_id}][ORDER-FINALIZE] Processing order_id={order_id} with {len(keys)} frames")
+    
+    # CRITICAL: Clean up any existing selected frames for this order before saving new ones
+    # This prevents stale frames from previous video loops affecting VLM detection
+    order_prefix = f"{station_id}/{order_id}/"
+    try:
+        stale_count = 0
+        for obj in client.list_objects(SELECTED_BUCKET, prefix=order_prefix, recursive=True):
+            try:
+                client.remove_object(SELECTED_BUCKET, obj.object_name)
+                stale_count += 1
+            except Exception:
+                pass
+        if stale_count > 0:
+            logger.info(f"[{station_id}][ORDER-FINALIZE] Cleaned {stale_count} stale frames from SELECTED_BUCKET for order_id={order_id}")
+    except Exception as e:
+        logger.warning(f"[{station_id}][ORDER-FINALIZE] Failed to cleanup stale frames for order_id={order_id}: {e}")
 
     scored = []
+    fallback_frames = []  # Keep frames with hands/persons as fallback
+    
     for key in keys:
-        logger.debug(f"[ORDER-FINALIZE] Loading and scoring frame: {key}")
+        logger.debug(f"[{station_id}][ORDER-FINALIZE] Loading and scoring frame: {key}")
         img = load_image(key)
         if img is None:
-            logger.warning(f"[ORDER-FINALIZE] Failed to load image: {key}")
+            logger.warning(f"[{station_id}][ORDER-FINALIZE] Failed to load image: {key}")
             continue
         items = count_items(img)
 
-        # Skip frames containing person/hand etc.
+        # Skip frames containing person/hand etc. (but keep as fallback)
         if items < 0:
-            logger.debug(f"[ORDER-FINALIZE] Skipping frame with skip-labels: {key}")
+            logger.debug(f"[{station_id}][ORDER-FINALIZE] Frame has skip-labels (kept as fallback): {key}")
+            fallback_frames.append((0, key, img))  # Score 0 for frames with hands
             continue
 
         scored.append((items, key, img))
 
+    # If no clean frames, use fallback frames (frames with hands/persons)
+    # This ensures no orders are missed due to filtering
+    if not scored and fallback_frames:
+        logger.warning(f"[{station_id}][ORDER-FINALIZE] No clean frames for order_id={order_id}, using {len(fallback_frames)} fallback frames (with hands/persons)")
+        scored = fallback_frames
+    
     if not scored:
-        logger.warning(f"[ORDER-FINALIZE] No valid frames after filtering for order_id={order_id}")
+        logger.warning(f"[{station_id}][ORDER-FINALIZE] No valid frames after filtering for order_id={order_id}")
         return
 
     # Pick TOP_K best frames
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     topk = scored[:min(TOP_K, len(scored))]
     
-    logger.info(f"[ORDER-FINALIZE] Selected {len(topk)} top frames for order_id={order_id}")
+    logger.info(f"[{station_id}][ORDER-FINALIZE] Selected {len(topk)} top frames for order_id={order_id}")
 
     for rank, (items, key, frame) in enumerate(topk, 1):
         # Save to: {station_id}/{order_id}/rank_{rank}.jpg
-        out_key = f"{STATION_ID}/{order_id}/rank_{rank}.jpg"
+        out_key = f"{station_id}/{order_id}/rank_{rank}.jpg"
         ok, buf = cv2.imencode(".jpg", frame)
         if not ok:
-            logger.error(f"[ORDER-FINALIZE] Failed to encode frame: {out_key}")
+            logger.error(f"[{station_id}][ORDER-FINALIZE] Failed to encode frame: {out_key}")
             continue
 
         client.put_object(
@@ -320,23 +558,149 @@ def process_completed_order(order_id, keys):
             content_type="image/jpeg",
         )
 
-        logger.info(f"[ORDER-FINALIZE] Saved frame: {out_key} (items={items})")
+        logger.info(f"[{station_id}][ORDER-FINALIZE] Saved frame: {out_key} (items={items})")
 
     # Skip dummy order
     if order_id == "000":
-        logger.debug("Skipping VLM call for dummy order 000")
+        logger.debug(f"[{station_id}] Skipping VLM call for dummy order 000")
         return
 
-    logger.info(f"[ORDER-FINALIZE] Calling VLM service for order_id={order_id}")
+    logger.info(f"[{station_id}][ORDER-FINALIZE] Calling VLM service for order_id={order_id}")
 
     try:
-        response = call_vlm(order_id)
-        logger.info(f"[ORDER-FINALIZE] VLM call successful for order_id={order_id}")
-        logger.debug(f"[ORDER-FINALIZE] VLM response: {response}")
-        processed_orders.add(order_id)
-        logger.info(f"[ORDER-FINALIZE] Processed orders so far: {processed_orders}")
+        response = call_vlm(order_id, station_id=station_id)
+        logger.info(f"[{station_id}][ORDER-FINALIZE] VLM call successful for order_id={order_id}")
+        logger.debug(f"[{station_id}][ORDER-FINALIZE] VLM response: {response}")
+        state.processed_orders.add(order_id)
+        logger.info(f"[{station_id}][ORDER-FINALIZE] Processed orders so far: {state.processed_orders}")
     except Exception as e:
-        logger.error(f"[ORDER-FINALIZE] VLM call failed for order_id={order_id}: {e}", exc_info=True)
+        logger.error(f"[{station_id}][ORDER-FINALIZE] VLM call failed for order_id={order_id}: {e}", exc_info=True)
+
+
+def process_station(station_id: str, state: StationState) -> bool:
+    """
+    Process frames for a single station.
+    Returns True if EOS was detected for this station.
+    """
+    try:
+        frames, eos_seen = list_frames_sorted(station_id)
+    except S3Error as e:
+        logger.error(f"[{station_id}] MinIO list error: {e}")
+        return False
+
+    for order_id, key in frames:
+        if key in state.processed_keys:
+            continue
+
+        # First frame ever for this station
+        if state.current_order is None:
+            logger.info(f"[{station_id}][MAIN-LOOP] First order detected: order_id={order_id}")
+            state.current_order = order_id
+
+        # Same order → normal collection
+        if order_id == state.current_order:
+            state.pending_order = None
+            state.pending_count = 0
+
+        # Potential new order
+        else:
+            if state.pending_order == order_id:
+                state.pending_count += 1
+            else:
+                logger.debug(f"[{station_id}][MAIN-LOOP] New order candidate: {order_id}")
+                state.pending_order = order_id
+                state.pending_count = 1
+
+            # New order not stable yet → ignore this frame
+            if state.pending_count < MIN_FRAMES_PER_ORDER:
+                logger.debug(f"[{station_id}][MAIN-LOOP] Pending new order: {order_id} ({state.pending_count}/{MIN_FRAMES_PER_ORDER})")
+                state.processed_keys.add(key)
+                continue
+
+            # New order confirmed stable → close current (if we have enough frames)
+            current_frame_count = len(state.current_keys)
+            if current_frame_count >= MIN_FRAMES_BEFORE_FINALIZE:
+                logger.info(f"[{station_id}][MAIN-LOOP] New order confirmed: {order_id}. Closing current order: {state.current_order} ({current_frame_count} frames)")
+                process_completed_order(station_id, state.current_order, state.current_keys, state)
+                state.current_order = order_id
+                state.current_keys = []
+            else:
+                # Not enough frames yet - keep collecting for current order
+                logger.info(f"[{station_id}][MAIN-LOOP] New order {order_id} detected but waiting for more frames on {state.current_order} ({current_frame_count}/{MIN_FRAMES_BEFORE_FINALIZE})")
+                # Add pending frames to current order instead of discarding
+                state.current_keys.append(key)
+                state.processed_keys.add(key)
+                continue
+            state.pending_order = None
+            state.pending_count = 0
+
+        # Collect frame into current order
+        state.current_keys.append(key)
+        state.processed_keys.add(key)
+        state.last_frame_time = time.time()  # Update last frame time
+
+        logger.debug(f"[{station_id}][MAIN-LOOP] Collected frame: {key} (order_id={order_id}, total_frames={len(state.current_keys)})")
+
+    # Inactivity timeout handling - finalize current order if no new frames for a while
+    # This handles the case where the video ends (last order has no subsequent order)
+    if state.current_order and state.current_keys:
+        time_since_last_frame = time.time() - state.last_frame_time
+        if time_since_last_frame >= INACTIVITY_TIMEOUT:
+            logger.info(f"[{station_id}][INACTIVITY] No new frames for {time_since_last_frame:.1f}s. Finalizing current order: {state.current_order}")
+            process_completed_order(station_id, state.current_order, state.current_keys, state)
+            state.current_order = None
+            state.current_keys = []
+            state.last_frame_time = time.time()  # Reset timer
+
+    # End-of-stream handling
+    if eos_seen:
+        if state.current_order and state.current_keys:
+            logger.info(f"[{station_id}][MAIN-LOOP] EOS detected. Closing final order: {state.current_order}")
+            process_completed_order(station_id, state.current_order, state.current_keys, state)
+            state.current_order = None
+            state.current_keys = []
+        
+        # Always delete EOS marker to prevent infinite loop
+        try:
+            client.remove_object(FRAMES_BUCKET, f"{station_id}/__EOS__")
+            logger.info(f"[{station_id}][MAIN-LOOP] EOS marker deleted")
+        except Exception as e:
+            logger.error(f"[{station_id}][MAIN-LOOP] Failed to delete EOS marker: {e}")
+        
+        # Delete all station frames from FRAMES_BUCKET to prevent re-processing loop
+        logger.info(f"[{station_id}][MAIN-LOOP] Cleaning up {len(state.processed_keys)} processed frames from MinIO")
+        deleted_count = 0
+        for key in list(state.processed_keys):
+            try:
+                client.remove_object(FRAMES_BUCKET, key)
+                deleted_count += 1
+            except Exception as e:
+                logger.debug(f"[{station_id}][MAIN-LOOP] Failed to delete frame {key}: {e}")
+        logger.info(f"[{station_id}][MAIN-LOOP] Deleted {deleted_count} frames from FRAMES_BUCKET")
+        
+        # CRITICAL: Also cleanup SELECTED_BUCKET to prevent stale frames affecting next video loop
+        # Without this, old frames from previous order processing stay in MinIO and can cause
+        # item detection mismatches when VLM picks up stale frames for the same order_id.
+        logger.info(f"[{station_id}][MAIN-LOOP] Cleaning up all selected frames from SELECTED_BUCKET")
+        selected_deleted = 0
+        try:
+            for obj in client.list_objects(SELECTED_BUCKET, prefix=f"{station_id}/", recursive=True):
+                try:
+                    client.remove_object(SELECTED_BUCKET, obj.object_name)
+                    selected_deleted += 1
+                except Exception as e:
+                    logger.debug(f"[{station_id}][MAIN-LOOP] Failed to delete selected frame {obj.object_name}: {e}")
+            logger.info(f"[{station_id}][MAIN-LOOP] Deleted {selected_deleted} frames from SELECTED_BUCKET")
+        except Exception as e:
+            logger.error(f"[{station_id}][MAIN-LOOP] Failed to cleanup SELECTED_BUCKET: {e}")
+        
+        # Clear state for next video
+        logger.info(f"[{station_id}][MAIN-LOOP] Clearing state for next video")
+        state.reset()
+        
+        return True  # EOS detected
+    
+    return False
 
 
 # =====================================================
@@ -347,95 +711,24 @@ if __name__ == "__main__":
     ensure_buckets()
     logger.info("=" * 60)
     logger.info("Frame selector service started")
+    logger.info(f"Mode: {'Multi-station' if MULTI_STATION_MODE else 'Single-station'}")
+    logger.info(f"Monitoring stations: {STATION_IDS}")
     logger.info("Watching for frames in MinIO...")
     logger.info("=" * 60)
 
-    processed_keys = set()
-
-    current_order = None
-    current_keys = []
-
-    # For debouncing new order detection
-    pending_order = None
-    pending_count = 0
-
     poll_count = 0
     while True:
-        try:
-            frames, eos_seen = list_frames_sorted()
-        except S3Error as e:
-            logger.error(f"MinIO list error: {e}")
-            time.sleep(POLL_INTERVAL)
-            continue
-
         poll_count += 1
-        if poll_count % 10 == 0:  # Log every 10 polls
-            logger.debug(f"Polling iteration {poll_count}: {len(frames)} total frames, eos_seen={eos_seen}")
-
-        for order_id, key in frames:
-            if key in processed_keys:
-                continue
-
-            # First frame ever
-            if current_order is None:
-                logger.info(f"[MAIN-LOOP] First order detected: order_id={order_id}")
-                current_order = order_id
-
-            # Same order → normal collection
-            if order_id == current_order:
-                pending_order = None
-                pending_count = 0
-
-            # Potential new order
-            else:
-                if pending_order == order_id:
-                    pending_count += 1
-                else:
-                    logger.debug(f"[MAIN-LOOP] New order candidate: {order_id}")
-                    pending_order = order_id
-                    pending_count = 1
-
-                # New order not stable yet → ignore this frame
-                if pending_count < MIN_FRAMES_PER_ORDER:
-                    logger.debug(f"[MAIN-LOOP] Pending new order: {order_id} ({pending_count}/{MIN_FRAMES_PER_ORDER})")
-                    processed_keys.add(key)
-                    continue
-
-                # New order confirmed stable → close current
-                logger.info(f"[MAIN-LOOP] New order confirmed: {order_id}. Closing current order: {current_order}")
-                process_completed_order(current_order, current_keys)
-
-                current_order = order_id
-                current_keys = []
-                pending_order = None
-                pending_count = 0
-
-            # Collect frame into current order
-            current_keys.append(key)
-            processed_keys.add(key)
-
-            logger.debug(f"[MAIN-LOOP] Collected frame: {key} (order_id={order_id}, total_frames={len(current_keys)})")
-
-        # End-of-stream handling
-        if eos_seen:
-            if current_order and current_keys:
-                logger.info(f"[MAIN-LOOP] EOS detected. Closing final order: {current_order}")
-                process_completed_order(current_order, current_keys)
-                current_order = None
-                current_keys = []
-            
-            # Always delete EOS marker to prevent infinite loop
-            try:
-                client.remove_object(FRAMES_BUCKET, f"{STATION_ID}/__EOS__")
-                logger.info(f"[MAIN-LOOP] EOS marker deleted for station {STATION_ID}")
-            except Exception as e:
-                logger.error(f"[MAIN-LOOP] Failed to delete EOS marker: {e}")
-            
-            # Clear state for next video
-            logger.info(f"[MAIN-LOOP] Clearing state for next video: processed_keys={len(processed_keys)}, processed_orders={processed_orders}")
-            processed_keys.clear()
-            processed_orders.clear()
-            pending_order = None
-            pending_count = 0
+        
+        # Process each station
+        for station_id in STATION_IDS:
+            state = station_states[station_id]
+            process_station(station_id, state)
+        
+        # Log status every 10 polls
+        if poll_count % 10 == 0:
+            active_stations = [sid for sid, s in station_states.items() if s.current_order or s.processed_keys]
+            if active_stations:
+                logger.debug(f"Polling iteration {poll_count}: Active stations: {active_stations}")
 
         time.sleep(POLL_INTERVAL)

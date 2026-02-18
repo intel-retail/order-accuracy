@@ -134,12 +134,16 @@ class VLMComponent:
 
     @staticmethod
     def extract_items(text: str):
-        item_pattern = r"([A-Za-z ]+?)\s*[x:\-]\s*(\d+)"
+        # Pattern allows hyphens, digits, and spaces in item names
+        # Matches items like "coca-cola 2 liter bottle x 1" or "water bottle x 2"
+        item_pattern = r"([A-Za-z][A-Za-z0-9\- ]*?)\s*[x:\-]\s*(\d+)"
         items = {}
 
         for name, qty in re.findall(item_pattern, text, flags=re.IGNORECASE):
             clean_name = name.strip().lower()
-            if not clean_name.isdigit():
+            # Normalize common variations
+            clean_name = clean_name.replace('coca-cola', 'coke').replace('coca cola', 'coke')
+            if clean_name and not clean_name.isdigit():
                 items[clean_name] = int(qty)
 
         clean_items = {}
@@ -149,7 +153,7 @@ class VLMComponent:
 
         return clean_items
 
-    def process(self, images: list[np.ndarray]):
+    def process(self, images: list[np.ndarray], unique_id: str = None):
         if not images:
             logger.error("VLM process called with empty images list")
             raise ValueError("images list is empty")
@@ -193,7 +197,8 @@ class VLMComponent:
             output = self.vlm.generate(
                 prompt,
                 images=ov_frames,
-                generation_config=self.gen_config
+                generation_config=self.gen_config,
+                unique_id=unique_id
             )
             logger.info(f"VLM generation completed, extracting text...")
         except Exception as e:
@@ -247,7 +252,7 @@ class VLMComponent:
 backend_config = {
     "ovms_endpoint": os.getenv("OVMS_ENDPOINT", VLM_CFG.get("ovms_endpoint", "http://" \
     ":8000")),
-    "ovms_model": os.getenv("OVMS_MODEL_NAME", VLM_CFG.get("ovms_model", "Qwen/Qwen2.5-VL-7B-Instruct-ov-int8")),
+    "ovms_model": os.getenv("OVMS_MODEL_NAME", VLM_CFG.get("ovms_model", "Qwen/Qwen2.5-VL-7B-Instruct")),
     "timeout_sec": VLM_CFG.get("timeout_sec", 300),
 }
 
@@ -271,17 +276,18 @@ async def _vlm_worker():
     logger.info("VLM worker started (sequential processing mode)")
 
     while True:
-        order_id, future = await vlm_queue.get()
+        order_id, station_id, future = await vlm_queue.get()
 
         try:
-            logger.info(f"[WORKER] Processing order_id={order_id} (queue_remaining={vlm_queue.qsize()})")
-            result = await _run_vlm_internal(order_id)
+            logger.info(f"[WORKER] Processing order_id={order_id}, station_id={station_id} (queue_remaining={vlm_queue.qsize()})")
+            result = await _run_vlm_internal(order_id, station_id)
             future.set_result(result)
             logger.info(f"[WORKER] Completed order_id={order_id}, status={result.get('status')}")
         except Exception as e:
             logger.error(f"[WORKER] Failed processing order_id={order_id}: {e}", exc_info=True)
             future.set_result({
                 "order_id": order_id,
+                "station_id": station_id,
                 "status": "error",
                 "reason": str(e)
             })
@@ -292,19 +298,19 @@ async def _vlm_worker():
 # INTERNAL EXECUTION
 # ============================================================
 
-async def _run_vlm_internal(order_id: str):
+async def _run_vlm_internal(order_id: str, station_id: str):
     # Generate unique transaction ID: stationid_orderid
-    unique_id = f"{STATION_ID}_{order_id}"
+    unique_id = f"{station_id}_{order_id}"
     
     logger.info(f"="*80)
     logger.info(f"[VLM-START] Transaction ID: {unique_id}")
-    logger.info(f"[INTERNAL] Starting VLM processing for order_id={order_id}, station={STATION_ID}")
+    logger.info(f"[INTERNAL] Starting VLM processing for order_id={order_id}, station={station_id}")
     logger.info(f"="*80)
 
     try:
         frames = []
-        # Frame selector saves to: {STATION_ID}/{order_id}/rank_{N}.jpg
-        frame_prefix = f"{STATION_ID}/{order_id}/"
+        # Frame selector saves to: {station_id}/{order_id}/rank_{N}.jpg
+        frame_prefix = f"{station_id}/{order_id}/"
         logger.debug(f"[INTERNAL] Listing frames from MinIO bucket={SELECTED_BUCKET}, prefix={frame_prefix}")
         try:
             for obj in client.list_objects(
@@ -337,7 +343,7 @@ async def _run_vlm_internal(order_id: str):
 
         # ---- Run VLM ----
         logger.info(f"[VLM-CALL] Transaction ID: {unique_id} - Calling VLM with {len(images)} frames")
-        vlm_result = vlm_instance.process(images)
+        vlm_result = vlm_instance.process(images, unique_id=unique_id)
         detected_items = vlm_result["items"]
         logger.info(f"[VLM-RESPONSE] Transaction ID: {unique_id} - VLM returned {len(detected_items)} items")
         logger.info(f"[INTERNAL] VLM detected {len(detected_items)} items for order_id={order_id}")
@@ -368,6 +374,7 @@ async def _run_vlm_internal(order_id: str):
 
     final_result = {
         "order_id": order_id,
+        "station_id": station_id,
         "expected_items": expected_items,
         "detected_items": detected_items,
         "validation": validation,
@@ -378,7 +385,7 @@ async def _run_vlm_internal(order_id: str):
 
     logger.info(f"[INTERNAL] Final status for order_id={order_id}: {final_result['status']}")
     logger.debug(f"[INTERNAL] Storing result in order_results deque")
-    add_result(final_result)
+    add_result(final_result, station_id=station_id)
     logger.info(f"[INTERNAL] Result stored successfully for order_id={order_id}")
     
     logger.info(f"="*80)
@@ -393,16 +400,20 @@ async def _run_vlm_internal(order_id: str):
 # PUBLIC API
 # ============================================================
 
-async def run_vlm(order_id: str):
+async def run_vlm(order_id: str, station_id: str = None):
     global _worker_started
 
-    logger.info(f"[API] VLM request received for order_id={order_id}")
+    # Use provided station_id or default
+    if station_id is None:
+        station_id = STATION_ID
+
+    logger.info(f"[API] VLM request received for order_id={order_id}, station_id={station_id}")
     loop = asyncio.get_running_loop()
     future = loop.create_future()
 
-    await vlm_queue.put((order_id, future))
+    await vlm_queue.put((order_id, station_id, future))
     queue_size = vlm_queue.qsize()
-    logger.info(f"[API] Order queued: order_id={order_id}, queue_size={queue_size}")
+    logger.info(f"[API] Order queued: order_id={order_id}, station_id={station_id}, queue_size={queue_size}")
 
     if not _worker_started:
         logger.info("[API] Starting VLM worker task")

@@ -436,11 +436,12 @@ class VLMScheduler:
             # Build prompt using existing format from vlm_service.py
             prompt = self._build_vlm_prompt(len(images))
             
-            # Call OVMS VLM client
+            # Call OVMS VLM client with unique_id for metrics logging
             output = self._vlm_client.generate(
                 prompt,
                 images=images,
-                generation_config=None
+                generation_config=None,
+                unique_id=unique_id
             )
             
             # Extract text from output

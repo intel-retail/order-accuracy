@@ -1,225 +1,321 @@
-# **Order Accuracy**
+# Order Accuracy
 
-This project processes a video or RTSP stream, extracts **valid order-ID frames**, uploads them to **MinIO**, selects the **top frames per order**, and runs **VLM inference** to extract ordered items.
+**AI-Powered Order Validation Platform for Quick Service Restaurants**
 
-## 🔧 **VLM Backend Support**
-
-The system supports **two VLM backends**:
-
-1. **Embedded VLM** (Default) - OpenVINO GenAI running directly in application container
-   - Model: Qwen2.5-VL-7B-Instruct (int8, ~7GB)
-   - Device: GPU (Intel Arc iGPU)
-   - Best for: Single deployment, lower latency
-
-2. **OVMS Backend** - External OpenVINO Model Server
-   - Model: Qwen2-VL-2B-Instruct (int4, ~2GB)
-   - Device: GPU via OVMS service
-   - Best for: Multiple applications, resource efficiency, scalability
-
-**Quick Backend Switch**: See [QUICK_START_BACKEND_SWITCH.md](QUICK_START_BACKEND_SWITCH.md)
-
-## 🧠 **Semantic Comparison Service**
-
-Integrated AI-powered semantic matching microservice for intelligent item comparison:
-
-- **Multiple Matching Strategies**: Exact → Semantic → Hybrid
-- **VLM-Powered**: Uses OVMS for semantic reasoning
-- **Automatic Fallback**: Falls back to local matching if service unavailable
-- **Caching**: Memory/Redis cache for performance
-- **Metrics**: Prometheus metrics at port 9090
-
-**Example:** Matches "green apple" ↔ "apple" using semantic reasoning
-
-See [SEMANTIC_SERVICE_INTEGRATION.md](SEMANTIC_SERVICE_INTEGRATION.md) for details.
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
+[![Docker](https://img.shields.io/badge/Docker-24.0%2B-blue.svg)](https://docker.com)
+[![OpenVINO](https://img.shields.io/badge/OpenVINO-2024.6%2B-blue.svg)](https://docs.openvino.ai)
 
 ---
 
-## 📦 **What the system does**
+## Overview
 
-* Accepts **video file uploads** or **RTSP streams**
-* Extracts frames using **GStreamer + gvapython**
-* Detects **order ID using OCR**
-* Stores frames in **MinIO**
-* Selects **Top-K frames** per order using **YOLO**
-* Runs **VLM (OpenVINO GenAI)** for item & quantity extraction
-* Provides a **Gradio UI** for interaction
+Order Accuracy is an enterprise AI vision platform that validates food orders in real-time using Vision Language Models (VLM). The platform automatically detects items in food trays, bags, or containers, compares them against expected order data, and identifies discrepancies before orders reach customers.
+
+### Platform Applications
+
+The platform provides two specialized applications optimized for different restaurant scenarios:
+
+| Application | Use Case | Input Type |
+|-------------|----------|------------|
+| **[Dine-In](#dine-in-order-accuracy)** | Restaurant table service validation | Static images |
+| **[Take-Away](#take-away-order-accuracy)** | Drive-through and counter service | Video streams (RTSP) |
 
 ---
 
-## 📁 **Project Structure**
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                         ORDER ACCURACY PLATFORM                                  │
+│                                                                                  │
+│  ┌──────────────────────────────┐    ┌──────────────────────────────┐          │
+│  │        DINE-IN               │    │        TAKE-AWAY             │          │
+│  │   (Image-Based Validation)   │    │  (Video Stream Validation)   │          │
+│  │                              │    │                              │          │
+│  │  • Single image capture      │    │  • Real-time RTSP streams    │          │
+│  │  • Tray/table validation     │    │  • Multi-station parallel    │          │
+│  │  • REST API integration      │    │  • Frame selection (YOLO)    │          │
+│  │  • Gradio web interface      │    │  • VLM request batching      │          │
+│  └──────────────┬───────────────┘    └──────────────┬───────────────┘          │
+│                 │                                   │                           │
+│                 └─────────────┬─────────────────────┘                           │
+│                               │                                                  │
+│                               ▼                                                  │
+│  ┌──────────────────────────────────────────────────────────────────────────┐  │
+│  │                        SHARED PLATFORM SERVICES                          │  │
+│  │                                                                          │  │
+│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐ │  │
+│  │  │  OVMS VLM   │    │  Semantic   │    │   MinIO     │    │  Gradio  │ │  │
+│  │  │ (Qwen2.5-VL)│    │  Service    │    │  Storage    │    │    UI    │ │  │
+│  │  │   :8001     │    │   :8080     │    │   :9000     │    │  :7860   │ │  │
+│  │  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘ │  │
+│  └──────────────────────────────────────────────────────────────────────────┘  │
+│                                                                                  │
+└─────────────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Dine-In Order Accuracy
+
+**Image-based order validation for restaurant dining applications**
+
+Optimized for validating food trays at serving stations before delivery to tables. Uses single image capture and VLM analysis for fast, accurate item detection.
+
+### Key Features
+
+- Single image capture and analysis
+- Food tray/plate item detection
+- REST API for POS integration
+- Gradio web interface for manual validation
+- Hybrid semantic matching
+
+### Quick Start
+
+```bash
+cd dine-in
+make build
+make up
+# Access UI at http://localhost:7860
+```
+
+### Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Overview](dine-in/docs/user-guide/Overview.md) | Architecture and design |
+| [Getting Started](dine-in/docs/user-guide/get-started.md) | Installation guide |
+| [System Requirements](dine-in/docs/user-guide/system-requirements.md) | Hardware/software requirements |
+| [How to Use](dine-in/docs/user-guide/how-to-use-application.md) | Usage instructions |
+| [Build from Source](dine-in/docs/user-guide/how-to-build-from-source.md) | Build instructions |
+| [Deploy with Helm](dine-in/docs/user-guide/deploy-with-helm.md) | Kubernetes deployment |
+| [API Reference](dine-in/docs/user-guide/api-reference.md) | REST API documentation |
+| [Release Notes](dine-in/docs/user-guide/release-notes.md) | Version history |
+
+📖 **Full Documentation**: [dine-in/README.md](dine-in/README.md)
+
+---
+
+## Take-Away Order Accuracy
+
+**Real-time video stream validation for drive-through and counter service**
+
+Optimized for high-throughput drive-through environments with multiple camera stations. Processes RTSP video streams in parallel using intelligent frame selection and VLM batching.
+
+### Key Features
+
+- Real-time RTSP video stream processing
+- Multi-station parallel processing (up to 8 workers)
+- GStreamer-based video pipeline
+- YOLO-powered frame selection
+- VLM request batching for throughput
+- Circuit breaker and auto-recovery
+
+### Service Modes
+
+| Mode | Description | Use Case |
+|------|-------------|----------|
+| **Single** | Single worker, Gradio UI | Development, testing |
+| **Parallel** | Multi-worker, VLM scheduler | Production deployment |
+
+### Quick Start
+
+```bash
+cd take-away
+
+# Single worker mode (development)
+make build
+make up
+
+# Parallel mode (production)
+make build
+make up-parallel WORKERS=4
+
+# Access UI at http://localhost:7860
+```
+
+### Documentation
+
+| Document | Description |
+|----------|-------------|
+| [Overview](take-away/docs/user-guide/Overview.md) | Architecture and design |
+| [Getting Started](take-away/docs/user-guide/get-started.md) | Installation guide |
+| [System Requirements](take-away/docs/user-guide/system-requirements.md) | Hardware/software requirements |
+| [How to Use](take-away/docs/user-guide/how-to-use-application.md) | Usage instructions |
+| [Build from Source](take-away/docs/user-guide/how-to-build-from-source.md) | Build instructions |
+| [API Reference](take-away/docs/user-guide/api-reference.md) | REST API documentation |
+| [Benchmarking Guide](take-away/docs/user-guide/benchmarking-guide.md) | Performance testing |
+| [Release Notes](take-away/docs/user-guide/release-notes.md) | Version history |
+
+📖 **Full Documentation**: [take-away/README.md](take-away/README.md)
+
+---
+
+## Choosing the Right Application
+
+| Criteria | Dine-In | Take-Away |
+|----------|---------|-----------|
+| **Input Type** | Static images | Video streams (RTSP) |
+| **Throughput** | Low-medium | High (parallel) |
+| **Latency Priority** | Accuracy over speed | Speed and accuracy |
+| **Camera Setup** | Fixed position | Multi-station |
+| **Typical Use** | Table service | Drive-through, counter |
+| **Processing** | Single request | Batch processing |
+
+### Recommendation
+
+- **Choose Dine-In** if you need to validate orders from captured images at serving stations
+- **Choose Take-Away** if you need real-time validation from continuous video streams
+
+---
+
+## Shared Platform Components
+
+### VLM Backend (OVMS)
+
+Both applications use OpenVINO Model Server with Qwen2.5-VL for vision-language inference:
+
+```bash
+# OVMS provides OpenAI-compatible API
+curl http://localhost:8001/v3/chat/completions \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "Qwen/Qwen2.5-VL-7B-Instruct-ov-int8",
+    "messages": [...]
+  }'
+```
+
+### Semantic Comparison Service
+
+AI-powered semantic matching microservice for intelligent item comparison:
+
+- **Matching Strategies**: Exact → Semantic → Hybrid
+- **Example**: Matches "green apple" ↔ "apple" using semantic reasoning
+- **Fallback**: Automatic fallback to local matching if service unavailable
+
+### MinIO Storage
+
+S3-compatible object storage for frames and results:
+
+- **frames bucket**: Raw captured frames
+- **selected bucket**: YOLO-selected frames
+- **results bucket**: Validation results
+
+Access MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
+
+---
+
+## System Requirements
+
+### Minimum Configuration
+
+| Component | Specification |
+|-----------|---------------|
+| CPU | Intel Xeon 8+ cores |
+| RAM | 16 GB |
+| GPU | Intel Arc A770 8GB / NVIDIA RTX 3060 |
+| Storage | 50 GB SSD |
+| Docker | 24.0+ with Compose V2 |
+
+### Recommended Configuration
+
+| Component | Specification |
+|-----------|---------------|
+| CPU | Intel Xeon 16+ cores |
+| RAM | 32 GB |
+| GPU | NVIDIA RTX 3080+ / Intel Data Center GPU |
+| Storage | 200 GB NVMe SSD |
+| Network | 10 Gbps (for Take-Away RTSP) |
+
+---
+
+## Project Structure
 
 ```
 order-accuracy/
+├── dine-in/                     # Dine-In application
+│   ├── src/                     # Application source code
+│   ├── docs/                    # Documentation
+│   ├── docker-compose.yaml      # Service orchestration
+│   ├── Makefile                 # Build automation
+│   └── README.md                # Dine-In documentation
 │
-├── docker-compose.yaml           # Multi-service orchestration
-├── config/
-│   └── application.yaml          # Backend configuration
+├── take-away/                   # Take-Away application
+│   ├── src/                     # Application source code
+│   ├── frame-selector-service/  # YOLO frame selection
+│   ├── gradio-ui/               # Web interface
+│   ├── docs/                    # Documentation
+│   ├── docker-compose.yaml      # Service orchestration
+│   ├── Makefile                 # Build automation
+│   └── README.md                # Take-Away documentation
 │
-├── ovms-service/                 # OVMS model server (optional)
-│   ├── setup_models.sh           # Model setup script
-│   ├── export_model.py           # Export HF models to OpenVINO
-│   ├── export_requirements.txt   # Model export dependencies
-│   ├── models_vlm/               # OVMS model repository
-│   │   ├── config.json           # OVMS configuration
-│   │   └── Qwen/                 # Model files (after setup)
-│   └── README.md                 # OVMS setup documentation
-│
-├── application-service/
-│   ├── Dockerfile
-│   └── app/
-│       ├── main.py               # API + pipeline trigger
-│       ├── vlm_service.py        # VLM inference service
-│       ├── vlm_backend_factory.py # Backend factory pattern
-│       ├── ovms_client.py        # OVMS HTTP client
-│       ├── pipeline_runner.py    # GStreamer launcher
-│       ├── frame_pipeline.py     # OCR + frame upload
-│       └── requirements.txt
-│
-├── frame-selector-service/
-│   ├── Dockerfile
-│   └── app/
-│       ├── frame_selector.py     # Selects top frames
-│       └── requirements.txt
-│
-├── gradio-ui/
-│   ├── Dockerfile
-│   └── gradio_app.py             # Web UI
-│
-├── model/                        # Embedded VLM model (optional)
-│   └── Qwen2.5-VL-7B-Instruct-ov-int8/
-│
-└── storage/
-    ├── videos/
-    └── uploads/
+├── ovms-service/                # Shared OVMS configuration
+├── performance-tools/           # Benchmarking scripts
+├── config/                      # Shared configuration
+└── README.md                    # This file
 ```
 
 ---
 
-## ▶️ **How to Run**
+## Quick Reference
 
-### **Option 1: Embedded VLM (Default)**
+### Dine-In Commands
 
 ```bash
-# Start all services
-docker-compose up --build -d
+cd dine-in
+make build                  # Build Docker images
+make up                     # Start services
+make down                   # Stop services
+make logs                   # View logs
+make benchmark              # Run benchmark
 ```
 
-### **Option 2: OVMS Backend**
+### Take-Away Commands
 
 ```bash
-# 1. Set up OVMS models (first time only)
-cd ovms-service
-./setup_models.sh
-cd ..
-
-# 2. Change backend in config/application.yaml:
-#    vlm:
-#      backend: ovms
-
-# 3. Change environment in docker-compose.yaml:
-#    VLM_BACKEND: ovms
-
-# 4. Start services with OVMS
-docker-compose --profile ovms up --build -d
-```
-
-**Verify OVMS is running:**
-```bash
-curl http://localhost:8001/v1/config
-curl http://localhost:8001/v1/models
-```
-
-This launches:
-
-* **MinIO** (frame storage)
-* **Application Service** (GStreamer + OCR + VLM API)
-* **Frame Selector Service** (YOLO ranking)
-* **Gradio UI**
-* **OVMS VLM Service** (when using OVMS backend)
-
----
-
-Login for MinIO:
-
-```
-minioadmin / minioadmin
+cd take-away
+make build                  # Build Docker images
+make up                     # Start (single mode)
+make up-parallel WORKERS=4  # Start (parallel mode)
+make down                   # Stop services
+make logs                   # View logs
+make benchmark-oa-density   # Stream density test
 ```
 
 ---
 
-## 🎥 **How to Use**
+## Service Endpoints
 
-### **Upload a Video (UI)**
-
-1. Open Gradio UI
-2. Upload `.mp4 / .avi / .mkv`
-3. Click **Upload & Start**
-
-The pipeline starts automatically.
-
----
-
-### **RTSP Stream**
-
-RTSP example:
-
-```
-rtsp://192.168.1.5:8554/test
-```
-
-API call:
-
-```bash
-curl -X POST http://localhost:8000/run-video \
-  -H "Content-Type: application/json" \
-  -d '{"source_type":"rtsp","source":"rtsp://192.168.1.5:8554/test"}'
-```
-
-> If `localhost` is provided in RTSP, the backend safely normalizes it for Docker.
+| Service | Port | URL |
+|---------|------|-----|
+| Order Accuracy API | 8000 | http://localhost:8000 |
+| OVMS VLM | 8001 | http://localhost:8001 |
+| Gradio UI | 7860 | http://localhost:7860 |
+| MinIO API | 9000 | http://localhost:9000 |
+| MinIO Console | 9001 | http://localhost:9001 |
+| Semantic Service | 8080 | http://localhost:8080 |
 
 ---
 
-## 🖼 **View Frames in MinIO**
+## License
 
-### Extracted Frames
+Copyright © 2025 Intel Corporation
 
-```
-frames/
- └── <order_id>/
-      ├── 11.jpg
-      ├── 42.jpg
-      └── 76.jpg
-```
-
-### Selected Frames
-
-```
-selected/
- └── <order_id>/
-      ├── rank_1.jpg
-      ├── rank_2.jpg
-      └── rank_3.jpg
-```
+Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
 
 ---
 
-## 🔄 **Clean Restart (Recommended)**
+## Support
 
-```bash
-docker compose down --remove-orphans
-docker volume rm order-accuracy_minio_data
-docker compose up --build
-```
+For application-specific issues, refer to the respective documentation:
 
-⚠️ This deletes all stored frames.
+- **Dine-In Issues**: See [dine-in/docs/](dine-in/docs/user-guide/)
+- **Take-Away Issues**: See [take-away/docs/](take-away/docs/user-guide/)
 
----
-
-## ✅ **TL;DR**
-
-```bash
-docker compose up --build
-open http://localhost:7860
-```
-
-Upload video or RTSP → frames extracted → top frames selected → VLM results available.
+For platform-wide issues or feature requests, submit an issue with:
+1. Application name (dine-in/take-away)
+2. Steps to reproduce
+3. Expected vs actual behavior
+4. Logs (`make logs`)

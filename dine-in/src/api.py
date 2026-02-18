@@ -6,11 +6,15 @@ Production-ready implementation with proper service architecture.
 import json
 import uuid
 import logging
+import threading
+import asyncio
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
 from io import BytesIO
+from collections import OrderedDict
 
+import aiofiles
 from fastapi import FastAPI, File, UploadFile, HTTPException, Body, BackgroundTasks
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
@@ -101,16 +105,20 @@ def initialize_services():
     return validation_service
 
 
-# Global services (initialized on first request)
+# Global services (initialized on first request) with thread-safe initialization
 _validation_service: Optional[ValidationService] = None
 _benchmark_service: Optional[BenchmarkService] = None
+_service_lock = threading.Lock()
 
 
 def get_validation_service() -> ValidationService:
-    """Get or create validation service (singleton pattern)"""
+    """Get or create validation service (thread-safe singleton pattern)"""
     global _validation_service
     if _validation_service is None:
-        _validation_service = initialize_services()
+        with _service_lock:
+            # Double-checked locking
+            if _validation_service is None:
+                _validation_service = initialize_services()
     return _validation_service
 
 
@@ -120,8 +128,50 @@ def get_benchmark_service() -> Optional[BenchmarkService]:
     return _benchmark_service
 
 
-# In-memory storage for validation results
-validation_store: Dict[str, ValidationResult] = {}
+# Bounded in-memory cache for validation results with LRU eviction
+# Max 10000 entries to prevent OOM in production
+class BoundedValidationCache:
+    """Thread-safe bounded cache with LRU eviction for validation results."""
+    
+    def __init__(self, maxsize: int = 10000):
+        self._cache: OrderedDict = OrderedDict()
+        self._maxsize = maxsize
+        self._lock = threading.Lock()
+    
+    def __setitem__(self, key: str, value: ValidationResult):
+        with self._lock:
+            if key in self._cache:
+                self._cache.move_to_end(key)
+            self._cache[key] = value
+            # Evict oldest entries if over capacity
+            while len(self._cache) > self._maxsize:
+                self._cache.popitem(last=False)
+    
+    def __getitem__(self, key: str) -> ValidationResult:
+        with self._lock:
+            if key not in self._cache:
+                raise KeyError(key)
+            self._cache.move_to_end(key)
+            return self._cache[key]
+    
+    def __contains__(self, key: str) -> bool:
+        with self._lock:
+            return key in self._cache
+    
+    def __delitem__(self, key: str):
+        with self._lock:
+            del self._cache[key]
+    
+    def values(self):
+        with self._lock:
+            return list(self._cache.values())
+    
+    def __len__(self) -> int:
+        with self._lock:
+            return len(self._cache)
+
+
+validation_store = BoundedValidationCache(maxsize=10000)
 
 
 # Helper functions for metrics collection

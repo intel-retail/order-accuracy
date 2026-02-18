@@ -35,7 +35,8 @@ MINIO_ENDPOINT = MINIO["endpoint"]
 HAND_LABELS = {"hand", "person"}
 
 # Station ID from environment variable (set by worker process)
-STATION_ID = os.environ.get('STATION_ID', 'station_unknown')
+# Default to station_1 for single station frontend mode
+STATION_ID = os.environ.get('STATION_ID', 'station_1')
 
 # ====== MinIO client ======
 client = Minio(
