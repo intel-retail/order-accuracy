@@ -21,7 +21,7 @@ FRAMES_BUCKET = BUCKETS["frames"]
 SELECTED_BUCKET = BUCKETS["selected"]
 
 # Import OrderTracker for robust frame accumulation
-from core.order_tracker import OrderTracker, OrderTrackerConfig
+from core.order_tracker import OrderTracker, OrderTrackerConfig, OrderState
 
 # Try to import VideoFrame for typing only (gvapython provides it)
 try:
@@ -47,6 +47,29 @@ OCR_QUEUE_SIZE = 50  # Max frames waiting for OCR
 OCR_RESULT_CACHE_SIZE = 100  # Recent OCR results cache
 OCR_SAMPLE_INTERVAL = 3  # Run OCR every Nth frame (skip frames for speed)
 PENDING_ORDER_PREFIX = "pending"  # Prefix for frames awaiting OCR
+
+# Load valid order IDs from orders.json for OCR validation
+import json
+_VALID_ORDER_IDS = set()
+try:
+    # Try Docker path first (most common in production)
+    orders_path = '/config/orders.json'
+    if not os.path.exists(orders_path):
+        # Try relative path for local development
+        try:
+            orders_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'config', 'orders.json')
+        except NameError:
+            # __file__ not available in gstpython context
+            orders_path = '/app/config/orders.json'
+    if os.path.exists(orders_path):
+        with open(orders_path, 'r') as f:
+            orders_data = json.load(f)
+            _VALID_ORDER_IDS = set(orders_data.keys())
+        log(f"[OCR] Loaded {len(_VALID_ORDER_IDS)} valid order IDs: {_VALID_ORDER_IDS}")
+    else:
+        log(f"[OCR] Warning: orders.json not found at {orders_path}, OCR validation disabled")
+except Exception as e:
+    log(f"[OCR] Warning: Failed to load orders.json: {e}")
 
 # ====== Async OCR System ======
 class AsyncOCRProcessor:
@@ -303,14 +326,22 @@ class AsyncOCRProcessor:
         if not candidates:
             return None
         
-        # Prefer 3-digit numbers
+        # Validate against orders.json - only accept order IDs that exist
+        if _VALID_ORDER_IDS:
+            valid_candidates = [(n, c, o) for n, c, o in candidates if n in _VALID_ORDER_IDS]
+            if valid_candidates:
+                best = max(valid_candidates, key=lambda x: x[1])
+                return best[0]
+            # No valid order ID found - reject partial/incorrect reads
+            return None
+        
+        # Fallback if orders.json not loaded: prefer 3-digit numbers
         three_digit = [(n, c, o) for n, c, o in candidates if len(n) == 3]
         if three_digit:
             best = max(three_digit, key=lambda x: x[1])
             return best[0]
         
-        best = max(candidates, key=lambda x: x[1])
-        return best[0]
+        return None
 
 
 # ====== Global Async OCR Processor ======
@@ -367,6 +398,9 @@ class PipelineState:
         # Limit pending frames to prevent memory leak
         self.pending_frames: deque = deque(maxlen=50)  # Reduced from 100
         
+        # OCR lag compensation: skip frames after order change
+        self.skip_frames_remaining: int = 0
+        
         # Initialize OrderTracker with config from application.yaml
         tracker_config = OrderTrackerConfig.from_dict(config.get("order_tracker", {}))
         self.order_tracker: OrderTracker = OrderTracker(station_id, tracker_config)
@@ -390,6 +424,7 @@ class PipelineState:
         self.order_frame_count = 0
         self.last_order_time = time.time()
         self.pending_frames.clear()
+        self.skip_frames_remaining = 0
         self.order_tracker.reset()
         log(f"[PIPELINE] State reset for {self.station_id}")
     
@@ -566,17 +601,28 @@ def finalize_order(order_id: str):
     """
     Mark an order as finalized (ready for processing).
     
-    NOTE: This does NOT write the EOS marker anymore. The EOS marker is ONLY written
-    by pipeline_runner.py when the GStreamer pipeline actually ends. Writing EOS here
-    caused a bug where frame-selector would prematurely cleanup all frames when
-    the first order completed, missing subsequent orders in the video.
-    
-    The frame-selector will process all orders when it sees the final EOS marker
-    from pipeline_runner.py (after video ends).
+    Writes a per-order __EOS__ marker to MinIO so station_worker can detect
+    completed orders. This is essential for looping videos where the pipeline
+    never ends.
     """
-    log(f"[frame_to_minio] Order {order_id} finalized and ready for processing")
-    log(f"[frame_to_minio] Will be processed by frame-selector when video completes (EOS from pipeline_runner)")
-    return True
+    try:
+        # Write per-order EOS marker
+        eos_key = f"{STATION_ID}/{order_id}/__EOS__"
+        from io import BytesIO
+        eos_data = BytesIO(b"finalized")
+        client.put_object(
+            FRAMES_BUCKET,
+            eos_key,
+            eos_data,
+            length=9,
+            content_type="text/plain"
+        )
+        log(f"[frame_to_minio] Order {order_id} EOS marker written: {eos_key}")
+        log(f"[frame_to_minio] Order {order_id} finalized and ready for processing")
+        return True
+    except Exception as e:
+        log(f"[frame_to_minio] Failed to write EOS marker for order {order_id}: {e}")
+        return False
 
 # ====== gvapython entrypoint ======
 import sys
@@ -716,40 +762,64 @@ def process_frame(frame: "VideoFrame"):
         return True
 
     # Step 7: Handle order change and process pending frames
+    # CRITICAL FIX: On order change, DISCARD all pending frames.
+    # Pending frames were captured before OCR detected the new order, so they
+    # likely show the PREVIOUS order's items. Assigning them to the new order
+    # causes item detection mismatches (e.g., order 384's items in order 925).
+    # Exception: First order detection - pending frames belong to the first order.
     try:
         if order_id != _current_order_id:
             if _pending_frames:
-                log(f"[TRACKER] Assigning {len(_pending_frames)} pending frames to order {order_id}")
-                for pf_idx, pf_key_or_image, pf_occluded, pf_items in _pending_frames:
-                    _order_frame_count += 1
-                    pf_key = f"{STATION_ID}/{order_id}/frame_{_order_frame_count}.jpg"
-                    
-                    # Handle both old format (image) and new format (key)
-                    if isinstance(pf_key_or_image, np.ndarray):
-                        pf_image = pf_key_or_image
-                        _order_tracker.update_order(
-                            order_id=order_id,
-                            frame_key=pf_key,
-                            item_count=pf_items,
-                            has_occlusion=pf_occluded
-                        )
-                        upload_frame(order_id, _order_frame_count, pf_image)
-                    else:
-                        # New format: key reference (image already in MinIO as pending)
-                        # Copy from pending/ to order_id/ folder
-                        _order_tracker.update_order(
-                            order_id=order_id,
-                            frame_key=pf_key,
-                            item_count=pf_items,
-                            has_occlusion=pf_occluded
-                        )
-                        # Copy frame from pending to correct order folder
-                        copy_frame("pending", pf_idx, order_id, _order_frame_count)
-                _pending_frames.clear()
+                if _current_order_id is None:
+                    # First order detection - pending frames belong to this order
+                    log(f"[TRACKER] First order {order_id}: assigning {len(_pending_frames)} pending frames")
+                    for pf_idx, pf_key_or_image, pf_occluded, pf_items in _pending_frames:
+                        _order_frame_count += 1
+                        pf_key = f"{STATION_ID}/{order_id}/frame_{_order_frame_count}.jpg"
+                        if isinstance(pf_key_or_image, np.ndarray):
+                            _order_tracker.update_order(
+                                order_id=order_id,
+                                frame_key=pf_key,
+                                item_count=pf_items,
+                                has_occlusion=pf_occluded
+                            )
+                            upload_frame(order_id, _order_frame_count, pf_key_or_image)
+                        else:
+                            _order_tracker.update_order(
+                                order_id=order_id,
+                                frame_key=pf_key,
+                                item_count=pf_items,
+                                has_occlusion=pf_occluded
+                            )
+                            copy_frame("pending", pf_idx, order_id, _order_frame_count)
+                    _pending_frames.clear()
+                else:
+                    # Order change - discard ALL pending frames (stale content)
+                    total_pending = len(_pending_frames)
+                    log(f"[TRACKER] Order change detected: discarding {total_pending} pending frames (stale content)")
+                    _pending_frames.clear()
             
             if _current_order_id:
                 _previous_order_id = _current_order_id
                 log(f"[TRACKER] Order change: {_current_order_id} -> {order_id}")
+                
+                # Force finalize the previous order immediately on order change
+                # This is critical for looping videos where inactivity timeout never triggers
+                prev_order = _order_tracker.get_order(_current_order_id)
+                if prev_order and prev_order.state not in (OrderState.FINALIZED, OrderState.SKIPPED):
+                    if _order_tracker.force_finalize(_current_order_id):
+                        log(f"[TRACKER] Force finalizing previous order {_current_order_id} on order change")
+                        finalize_order(_current_order_id)
+                        _order_tracker.mark_finalized(_current_order_id)
+                
+                # OCR LAG COMPENSATION: Skip next N frames after order change
+                # Because OCR takes ~2s but frames come every ~0.3s, when OCR detects
+                # a new order, the current frame might still show OLD order content.
+                # Skip ~3 frames (1s worth at 3fps) to let visual content catch up.
+                # Reduced from 10 to allow more frames for end-of-video orders.
+                OCR_LAG_SKIP_FRAMES = 3
+                _pipeline_state.skip_frames_remaining = OCR_LAG_SKIP_FRAMES
+                log(f"[TRACKER] OCR lag compensation: skipping next {OCR_LAG_SKIP_FRAMES} frames")
             
             _current_order_id = order_id
             _pipeline_state.current_order_id = order_id
@@ -761,6 +831,13 @@ def process_frame(frame: "VideoFrame"):
         _pipeline_state.metrics['tracker_errors'] += 1
 
     # Step 8: Update tracker and upload current frame
+    # Check if we should skip this frame (OCR lag compensation)
+    if _pipeline_state.skip_frames_remaining > 0:
+        _pipeline_state.skip_frames_remaining -= 1
+        if _pipeline_state.skip_frames_remaining % 3 == 0:
+            log(f"[TRACKER] Skipping frame {_frame_counter} (OCR lag, {_pipeline_state.skip_frames_remaining} remaining)")
+        return True
+    
     try:
         _order_frame_count += 1
         _last_order_time = time.time()

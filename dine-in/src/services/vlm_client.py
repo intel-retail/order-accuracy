@@ -20,7 +20,8 @@ from PIL import Image, ImageOps, ImageEnhance, ImageFilter
 from vlm_metrics_logger import (
     log_start_time, 
     log_end_time, 
-    log_custom_event
+    log_custom_event,
+    log_ovms_performance_metric
 )
 
 logger = logging.getLogger(__name__)
@@ -657,19 +658,16 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
             if not await self._circuit_breaker.can_execute():
                 raise CircuitOpenError(f"Circuit breaker is OPEN for OVMS service. Service may be unavailable.")
             
-            logger.info(f"[VLM_REQUEST] Endpoint: {self.chat_endpoint}")
-            logger.info(f"[VLM_REQUEST] Model: {self.model_name}")
-            logger.info(f"[VLM_REQUEST] Payload size: {len(str(payload))//1024}KB")
+            logger.debug(f"[VLM_REQUEST] Endpoint: {self.chat_endpoint}, Model: {self.model_name}, "
+                        f"Payload size: {len(str(payload))//1024}KB")
             
             # Step 4: Make async request using shared client with connection pooling
             client = await self.get_http_client()
             try:
-                logger.info(f"[VLM_REQUEST] Sending POST to {self.chat_endpoint} for {req_id}")
                 inference_start = time.time()
                 
                 # Log start time for metrics
                 log_start_time("USECASE_1", unique_id)
-                
                 response = await client.post(
                     self.chat_endpoint,
                     json=payload,
@@ -680,16 +678,25 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                 # Record success for circuit breaker
                 await self._circuit_breaker.record_success()
                 
+                # Calculate timing metrics
                 inference_time_ms = (time.time() - inference_start) * 1000
                 total_time_ms = (time.time() - total_start) * 1000
+                inference_time_sec = inference_time_ms / 1000
                 
                 # Log end time for metrics
                 log_end_time("USECASE_1", unique_id)
                 
                 result = response.json()
+                logger.debug(f"[OVMS-CLIENT] Raw response: {result}")
                 
-                # Step 4: Create response with enhanced metadata
+                # Step 5: Create response and parse detected items
                 vlm_response = VLMResponse(result)
+                
+                # Extract token usage for metrics
+                usage = result.get("usage", {})
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
+                tps = completion_tokens / inference_time_sec if inference_time_sec > 0 else 0
                 
                 # Attach performance metadata to response
                 vlm_response.performance_metadata = {
@@ -699,19 +706,10 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                     "input_size_kb": len(image_bytes) // 1024,
                     "processed_size_kb": preprocess_meta.get("processed_size", 0) // 1024,
                     "compression_ratio": preprocess_meta.get("compression_ratio", 1.0),
-                    "image_dimensions": preprocess_meta.get("processed_dimensions", None)
+                    "image_dimensions": preprocess_meta.get("processed_dimensions", None),
+                    "tokens_per_second": round(tps, 2),
+                    "completion_tokens": completion_tokens
                 }
-                
-                # Extract token usage for metrics
-                usage = result.get("usage", {})
-                logger.info(f"[OVMS-CLIENT] result: {result}")
-                prompt_tokens = usage.get("prompt_tokens", 0)
-                completion_tokens = usage.get("completion_tokens", 0)
-                total_tokens = usage.get("total_tokens", 0)
-                elapsed_sec = inference_time_ms / 1000
-                tps = completion_tokens / elapsed_sec if elapsed_sec > 0 else 0
-                logger.info(f"[OVMS-CLIENT] Token usage - Prompt: {prompt_tokens}, Completion: {completion_tokens}, Total: {total_tokens}")
-                logger.info(f"[OVMS-CLIENT] Tokens per second (TPS): {tps:.2f}")
                 
                 # Log custom metrics event
                 log_custom_event(
@@ -719,17 +717,15 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                     tps=tps,
                     prompt_tokens=prompt_tokens,
                     completion_tokens=completion_tokens,
-                    elapsed_sec=elapsed_sec,
+                    elapsed_sec=inference_time_sec,
                     preprocess_ms=encode_time_ms,
                     items_detected=len(vlm_response.detected_items)
                 )
                 
-                logger.info(f"[VLM_RESPONSE] Completed for {req_id}: "
-                           f"preprocess={encode_time_ms:.1f}ms, "
-                           f"inference={inference_time_ms:.1f}ms, "
-                           f"total={total_time_ms:.1f}ms, "
-                           f"items_detected={len(vlm_response.detected_items)}, "
-                           f"tps={tps:.2f}")
+                logger.info(f"[VLM] {req_id} completed: "
+                           f"preprocess={encode_time_ms:.1f}ms, inference={inference_time_ms:.1f}ms, "
+                           f"total={total_time_ms:.1f}ms, items={len(vlm_response.detected_items)}, "
+                           f"tokens={completion_tokens}, tps={tps:.2f}")
                 
                 return vlm_response
             

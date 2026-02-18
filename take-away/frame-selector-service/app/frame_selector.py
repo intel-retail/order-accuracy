@@ -25,7 +25,7 @@ except ImportError:
     PIKA_AVAILABLE = False
     logging.warning("pika not installed, RabbitMQ disabled")
 
-# Configure logging
+# Configure logging (initial setup - will be reconfigured after YOLO import)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -38,7 +38,8 @@ logger = logging.getLogger(__name__)
 MULTI_STATION_MODE = os.environ.get('MULTI_STATION_MODE', 'true').lower() == 'true'
 
 # Number of stations to monitor (only used in multi-station mode)
-NUM_STATIONS = int(os.environ.get('WORKERS', '2'))
+# Default to 1 if WORKERS is 0 or not set
+NUM_STATIONS = max(1, int(os.environ.get('WORKERS', '1')))
 
 # Legacy single-station mode: auto-detect STATION_ID from hostname
 if not MULTI_STATION_MODE:
@@ -68,15 +69,29 @@ MINIO_ENDPOINT = MINIO["endpoint"]
 FRAMES_BUCKET = BUCKETS["frames"]
 SELECTED_BUCKET = BUCKETS["selected"]
 
-TOP_K = FS_CFG["top_k"]
-POLL_INTERVAL = FS_CFG["poll_interval_sec"]
-SKIP_LABELS = set(FS_CFG["skip_labels"])
+# Reconfigure logging after all imports (YOLO overwrites logging config)
+# This must be AFTER ultralytics import
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    force=True  # Force reconfiguration
+)
+logger = logging.getLogger(__name__)
+
+TOP_K = FS_CFG.get("top_k", 3)  # Default to 5 if not specified
+POLL_INTERVAL = FS_CFG.get("poll_interval_sec", 1.5)
+SKIP_LABELS = set(FS_CFG.get("skip_labels", ["hand", "person"]))
 
 # How many consecutive frames required to confirm a new order
 MIN_FRAMES_PER_ORDER = FS_CFG.get("min_frames_per_order", 2)
 
 # Minimum frames before allowing finalization (prevents early finalization)
 MIN_FRAMES_BEFORE_FINALIZE = FS_CFG.get("min_frames_before_finalize", 5)
+
+# Inactivity timeout - finalize current order if no new frames after this many seconds
+# This handles the case where the video ends (last order has no subsequent order)
+INACTIVITY_TIMEOUT = FS_CFG.get("inactivity_timeout_sec", 15)
 
 VLM_ENDPOINT = VLM_CFG["endpoint"]
 
@@ -91,6 +106,7 @@ class StationState:
     pending_count: int = 0
     processed_keys: Set[str] = field(default_factory=set)
     processed_orders: Set[str] = field(default_factory=set)
+    last_frame_time: float = field(default_factory=time.time)
     
     def reset(self):
         """Reset state for next video/stream"""
@@ -100,6 +116,7 @@ class StationState:
         self.pending_count = 0
         self.processed_keys.clear()
         self.processed_orders.clear()
+        self.last_frame_time = time.time()
 
 # Initialize per-station state
 station_states: Dict[str, StationState] = {
@@ -411,6 +428,9 @@ def list_frames_sorted(station_id: str):
             parts = obj.object_name.split("/")
             if len(parts) >= 3 and parts[0] == station_id:
                 order_id = parts[1]
+                # Skip "pending" folder - these are frames awaiting OCR, not real orders
+                if order_id.lower() == "pending":
+                    continue
                 frames.append((order_id, obj.object_name))
 
     frames.sort(key=lambda x: x[1])
@@ -470,6 +490,22 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
         return
 
     logger.info(f"[{station_id}][ORDER-FINALIZE] Processing order_id={order_id} with {len(keys)} frames")
+    
+    # CRITICAL: Clean up any existing selected frames for this order before saving new ones
+    # This prevents stale frames from previous video loops affecting VLM detection
+    order_prefix = f"{station_id}/{order_id}/"
+    try:
+        stale_count = 0
+        for obj in client.list_objects(SELECTED_BUCKET, prefix=order_prefix, recursive=True):
+            try:
+                client.remove_object(SELECTED_BUCKET, obj.object_name)
+                stale_count += 1
+            except Exception:
+                pass
+        if stale_count > 0:
+            logger.info(f"[{station_id}][ORDER-FINALIZE] Cleaned {stale_count} stale frames from SELECTED_BUCKET for order_id={order_id}")
+    except Exception as e:
+        logger.warning(f"[{station_id}][ORDER-FINALIZE] Failed to cleanup stale frames for order_id={order_id}: {e}")
 
     scored = []
     fallback_frames = []  # Keep frames with hands/persons as fallback
@@ -601,8 +637,20 @@ def process_station(station_id: str, state: StationState) -> bool:
         # Collect frame into current order
         state.current_keys.append(key)
         state.processed_keys.add(key)
+        state.last_frame_time = time.time()  # Update last frame time
 
         logger.debug(f"[{station_id}][MAIN-LOOP] Collected frame: {key} (order_id={order_id}, total_frames={len(state.current_keys)})")
+
+    # Inactivity timeout handling - finalize current order if no new frames for a while
+    # This handles the case where the video ends (last order has no subsequent order)
+    if state.current_order and state.current_keys:
+        time_since_last_frame = time.time() - state.last_frame_time
+        if time_since_last_frame >= INACTIVITY_TIMEOUT:
+            logger.info(f"[{station_id}][INACTIVITY] No new frames for {time_since_last_frame:.1f}s. Finalizing current order: {state.current_order}")
+            process_completed_order(station_id, state.current_order, state.current_keys, state)
+            state.current_order = None
+            state.current_keys = []
+            state.last_frame_time = time.time()  # Reset timer
 
     # End-of-stream handling
     if eos_seen:
@@ -619,7 +667,7 @@ def process_station(station_id: str, state: StationState) -> bool:
         except Exception as e:
             logger.error(f"[{station_id}][MAIN-LOOP] Failed to delete EOS marker: {e}")
         
-        # Delete all station frames from MinIO to prevent re-processing loop
+        # Delete all station frames from FRAMES_BUCKET to prevent re-processing loop
         logger.info(f"[{station_id}][MAIN-LOOP] Cleaning up {len(state.processed_keys)} processed frames from MinIO")
         deleted_count = 0
         for key in list(state.processed_keys):
@@ -628,7 +676,23 @@ def process_station(station_id: str, state: StationState) -> bool:
                 deleted_count += 1
             except Exception as e:
                 logger.debug(f"[{station_id}][MAIN-LOOP] Failed to delete frame {key}: {e}")
-        logger.info(f"[{station_id}][MAIN-LOOP] Deleted {deleted_count} frames from MinIO")
+        logger.info(f"[{station_id}][MAIN-LOOP] Deleted {deleted_count} frames from FRAMES_BUCKET")
+        
+        # CRITICAL: Also cleanup SELECTED_BUCKET to prevent stale frames affecting next video loop
+        # Without this, old frames from previous order processing stay in MinIO and can cause
+        # item detection mismatches when VLM picks up stale frames for the same order_id.
+        logger.info(f"[{station_id}][MAIN-LOOP] Cleaning up all selected frames from SELECTED_BUCKET")
+        selected_deleted = 0
+        try:
+            for obj in client.list_objects(SELECTED_BUCKET, prefix=f"{station_id}/", recursive=True):
+                try:
+                    client.remove_object(SELECTED_BUCKET, obj.object_name)
+                    selected_deleted += 1
+                except Exception as e:
+                    logger.debug(f"[{station_id}][MAIN-LOOP] Failed to delete selected frame {obj.object_name}: {e}")
+            logger.info(f"[{station_id}][MAIN-LOOP] Deleted {selected_deleted} frames from SELECTED_BUCKET")
+        except Exception as e:
+            logger.error(f"[{station_id}][MAIN-LOOP] Failed to cleanup SELECTED_BUCKET: {e}")
         
         # Clear state for next video
         logger.info(f"[{station_id}][MAIN-LOOP] Clearing state for next video")

@@ -13,7 +13,7 @@ video:
   fps_target: 1
 
 frame_selector:
- # Increased from 3 to capture items that appear later in order
+  top_k: 3  # Send 3 best frames to VLM for better accuracy
   poll_interval_sec: 1.5
   skip_labels:
     - hand

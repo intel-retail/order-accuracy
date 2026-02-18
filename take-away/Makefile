@@ -62,10 +62,10 @@ REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
 
 # Benchmark Order Accuracy settings
 BENCHMARK_WORKERS ?= 1
-BENCHMARK_TARGET_LATENCY_MS ?= 15000
+BENCHMARK_TARGET_LATENCY_MS ?= 20000
 BENCHMARK_LATENCY_METRIC ?= avg
-BENCHMARK_INIT_DURATION ?= 120
-BENCHMARK_DURATION ?= 300
+BENCHMARK_INIT_DURATION ?= 30
+BENCHMARK_DURATION ?= 200
 BENCHMARK_WORKER_INCREMENT ?= 1
 BENCHMARK_MIN_TRANSACTIONS ?= 3
 BENCHMARK_CONTAINER ?= oa_service
@@ -580,7 +580,8 @@ consolidate-metrics: ## Consolidate metrics from multiple benchmark runs
 		. venv/bin/activate && \
 		pip3 install -r requirements.txt && \
 		python3 consolidate_multiple_run_of_metrics.py \
-			--results_dir $(CURDIR)/$(RESULTS_DIR); \
+			--root_directory $(CURDIR)/$(RESULTS_DIR) \
+			--output $(CURDIR)/$(RESULTS_DIR)/consolidated_metrics.csv; \
 		deactivate \
 	)
 

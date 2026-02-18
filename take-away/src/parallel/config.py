@@ -31,7 +31,7 @@ class ScalingConfig:
 class VLMConfig:
     """VLM inference configuration"""
     ovms_url: str = "http://localhost:8000"
-    model_name: str = "Qwen/Qwen2.5-VL-7B-Instruct"  # Must match OVMS config
+    model_name: str = os.getenv('OVMS_MODEL_NAME', 'Qwen/Qwen2.5-VL-7B-Instruct')  # Read from env
     batch_window_ms: int = 100
     max_batch_size: int = 16
     max_workers: int = 4

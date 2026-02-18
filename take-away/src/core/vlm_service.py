@@ -134,12 +134,16 @@ class VLMComponent:
 
     @staticmethod
     def extract_items(text: str):
-        item_pattern = r"([A-Za-z ]+?)\s*[x:\-]\s*(\d+)"
+        # Pattern allows hyphens, digits, and spaces in item names
+        # Matches items like "coca-cola 2 liter bottle x 1" or "water bottle x 2"
+        item_pattern = r"([A-Za-z][A-Za-z0-9\- ]*?)\s*[x:\-]\s*(\d+)"
         items = {}
 
         for name, qty in re.findall(item_pattern, text, flags=re.IGNORECASE):
             clean_name = name.strip().lower()
-            if not clean_name.isdigit():
+            # Normalize common variations
+            clean_name = clean_name.replace('coca-cola', 'coke').replace('coca cola', 'coke')
+            if clean_name and not clean_name.isdigit():
                 items[clean_name] = int(qty)
 
         clean_items = {}

@@ -11,7 +11,8 @@ from PIL import Image
 from vlm_metrics_logger import (
     log_start_time, 
     log_end_time, 
-    log_custom_event
+    log_custom_event,
+    log_ovms_performance_metric
 )
 
 logger = logging.getLogger(__name__)
@@ -170,6 +171,15 @@ class OVMSVLMClient:
             logger.info(f"[OVMS-CLIENT] Throughput_mean (tokens/sec): {throughput_mean:.2f}")
             logger.info(f"[OVMS-CLIENT] Token usage - Prompt: {prompt_tokens}, Completion: {completion_tokens}, Total: {total_tokens}")
             logger.info(f"[OVMS-CLIENT] =================================")
+            
+            # Create metrics object and log OVMS performance
+            vlm_metrics_result = {
+                "generated_tokens": generated_tokens,
+                "Generate_Duration_Mean": total_latency,
+                "tpot_sec": tpot,
+                "throughput_mean_sec": throughput_mean
+            }
+            log_ovms_performance_metric("USECASE_1", vlm_metrics_result)
             
             if unique_id:
                 log_end_time("USECASE_1", unique_id)

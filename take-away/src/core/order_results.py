@@ -15,6 +15,22 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
+# Import video history tracking (lazy to avoid circular imports)
+_video_history = None
+
+def _get_video_history():
+    """Lazy import video history module"""
+    global _video_history
+    if _video_history is None:
+        try:
+            from core.video_history import add_result_to_video, get_current_video_id
+            _video_history = {'add_result': add_result_to_video, 'get_current': get_current_video_id}
+            logger.info("[RESULTS] Video history tracking enabled")
+        except ImportError as e:
+            logger.warning(f"[RESULTS] Video history tracking not available: {e}")
+            _video_history = {'add_result': lambda r: None, 'get_current': lambda: None}
+    return _video_history
+
 # Default Station ID from environment (for backwards compatibility)
 DEFAULT_STATION_ID = os.environ.get('STATION_ID', 'station_1')
 
@@ -176,6 +192,18 @@ def add_result(result: dict, station_id: Optional[str] = None):
         _update_summary(station)
         _update_readable_report(station)
         
+        # Track in video history
+        try:
+            vh = _get_video_history()
+            current_video_id = vh['get_current']()
+            if current_video_id:
+                vh['add_result'](current_video_id, result)
+                logger.debug(f"[RESULTS] Result added to video history for order_id={order_id}, video_id={current_video_id}")
+            else:
+                logger.debug(f"[RESULTS] No current video to track result for order_id={order_id}")
+        except Exception as e:
+            logger.debug(f"[RESULTS] Could not add to video history: {e}")
+        
         logger.debug(f"[RESULTS] Current result count for {station_id}: {len(station.results)}/{MAX_RESULTS}")
         logger.info(f"[RESULTS] {station_id} stats: {station.total_processed} processed, {station.total_validated} validated, {station.total_mismatch} mismatch")
 
@@ -223,3 +251,30 @@ def get_all_statistics():
             station_id: get_statistics(station_id)
             for station_id in _station_registry.keys()
         }
+
+
+def clear_all_results():
+    """Clear all results and statistics for all stations"""
+    with _registry_lock:
+        count = 0
+        for station_id, station in _station_registry.items():
+            with station.lock:
+                count += len(station.results)
+                station.results.clear()
+                station.total_processed = 0
+                station.total_validated = 0
+                station.total_mismatch = 0
+                
+                # Clear files
+                try:
+                    if station.results_file.exists():
+                        station.results_file.unlink()
+                    if station.summary_file.exists():
+                        station.summary_file.unlink()
+                    if station.report_file.exists():
+                        station.report_file.unlink()
+                except Exception as e:
+                    logger.error(f"[RESULTS] Failed to clear files for {station_id}: {e}")
+        
+        logger.info(f"[RESULTS] Cleared {count} results from all stations")
+        return {'cleared_count': count}

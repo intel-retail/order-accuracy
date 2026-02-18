@@ -981,6 +981,15 @@ class StationWorker:
                 
                 for order_id in completed_orders:
                     if order_id not in self._processed_orders and order_id not in self._active_orders:
+                        # Skip orders not in orders.json to avoid wasted VLM inference
+                        if self._orders and str(order_id) not in self._orders:
+                            self._log_structured("debug", "skipping_unknown_order", {
+                                "order_id": order_id,
+                                "reason": "not in orders.json"
+                            })
+                            self._processed_orders.add(order_id)  # Mark as processed to avoid re-checking
+                            continue
+                        
                         # Update last frame time for stall detection
                         self._pipeline_metrics.last_frame_time = time.time()
                         self._pipeline_metrics.successful_frames_processed += 1
@@ -1233,6 +1242,14 @@ class StationWorker:
         """
         self._log_structured("info", "processing_order", {"order_id": order_id})
         
+        # Skip orders not in orders.json (invalid/partial OCR detections)
+        if str(order_id) not in self._orders:
+            self._log_structured("warning", "skipping_unknown_order", {
+                "order_id": order_id,
+                "reason": "not in orders.json"
+            })
+            return
+        
         try:
             order_start_time = time.time()
             
@@ -1292,8 +1309,8 @@ class StationWorker:
             )
             status = 'validated' if not has_errors else 'mismatch'
             
-            # Get expected items
-            expected_items = self._orders.get(str(order_id), {}).get('items', [])
+            # Get expected items (orders.json has items directly as a list)
+            expected_items = self._orders.get(str(order_id), [])
             
             # Build complete result
             complete_result = {
@@ -1559,9 +1576,8 @@ class StationWorker:
             }
         
         try:
-            # Get expected items
-            order = self._orders.get(str(order_id), {})
-            expected_items = order.get('items', [])
+            # Get expected items (orders.json has items directly as a list)
+            expected_items = self._orders.get(str(order_id), [])
             
             # Format detected items
             detected_formatted = []

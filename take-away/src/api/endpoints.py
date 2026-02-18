@@ -6,13 +6,18 @@ import os
 import logging
 import uuid
 import shutil
-from fastapi import FastAPI, Body, UploadFile, File
-from typing import Dict, Any
+from fastapi import FastAPI, Body, UploadFile, File, Query
+from typing import Dict, Any, Optional, List
 
 from core.pipeline_runner import run_pipeline_async
-from core.order_results import get_results, get_statistics
+from core.order_results import get_results, get_statistics, clear_all_results
 from core.config_loader import load_config
 from core.vlm_service import run_vlm
+from core.video_history import (
+    start_video, complete_video, fail_video,
+    get_video, get_video_history, get_video_summary,
+    get_current_video_id, add_result_to_video, clear_video_history
+)
 
 # Configure logging
 logging.basicConfig(
@@ -59,6 +64,10 @@ def create_app() -> FastAPI:
         
         logger.info(f"Video saved successfully: video_id={video_id}, path={save_path}")
 
+        # Register video in history tracker
+        start_video(video_id, file.filename, save_path)
+        logger.info(f"Video registered in history: video_id={video_id}")
+
         # Trigger pipeline
         logger.info(f"Triggering GStreamer pipeline for video_id={video_id}")
         run_pipeline_async(
@@ -70,7 +79,8 @@ def create_app() -> FastAPI:
         return {
             "status": "started",
             "video_id": video_id,
-            "path": save_path
+            "path": save_path,
+            "filename": file.filename
         }
 
     @app.post("/run-video")
@@ -155,6 +165,102 @@ def create_app() -> FastAPI:
         stats = get_statistics()
         logger.info(f"[API] Station statistics: {stats}")
         return stats
+
+    # ==================== Video History Endpoints ====================
+
+    @app.get("/videos/history")
+    def get_videos_history(limit: int = 50):
+        """Get history of processed videos"""
+        logger.info(f"[API] Fetching video history, limit={limit}")
+        history = get_video_history(limit=limit)
+        logger.info(f"[API] Returning {len(history)} videos from history")
+        return {
+            "status": "success",
+            "count": len(history),
+            "videos": history
+        }
+
+    @app.get("/videos/summary")
+    def get_videos_summary():
+        """Get summary statistics for video processing history"""
+        logger.info("[API] Fetching video history summary")
+        summary = get_video_summary()
+        logger.info(f"[API] Video summary: {summary}")
+        return {
+            "status": "success",
+            "summary": summary
+        }
+
+    @app.get("/videos/current")
+    def get_current_video():
+        """Get currently processing video ID"""
+        logger.info("[API] Fetching current video ID")
+        video_id = get_current_video_id()
+        if video_id:
+            video = get_video(video_id)
+            return {
+                "status": "success",
+                "video_id": video_id,
+                "video": video
+            }
+        return {
+            "status": "success",
+            "video_id": None,
+            "video": None
+        }
+
+    @app.get("/videos/{video_id}")
+    def get_video_details(video_id: str):
+        """Get details for a specific video by ID"""
+        logger.info(f"[API] Fetching video details for video_id={video_id}")
+        video = get_video(video_id)
+        if video:
+            logger.info(f"[API] Found video: {video_id}")
+            return {
+                "status": "success",
+                "video": video
+            }
+        logger.warning(f"[API] Video not found: {video_id}")
+        return {
+            "status": "not_found",
+            "video_id": video_id
+        }
+
+    @app.post("/videos/{video_id}/complete")
+    def mark_video_complete(video_id: str):
+        """Mark a video as completed"""
+        logger.info(f"[API] Marking video complete: video_id={video_id}")
+        complete_video(video_id)
+        return {
+            "status": "success",
+            "video_id": video_id,
+            "message": "Video marked as completed"
+        }
+
+    @app.post("/videos/{video_id}/fail")
+    def mark_video_failed(video_id: str, error: str = "Unknown error"):
+        """Mark a video as failed"""
+        logger.info(f"[API] Marking video failed: video_id={video_id}, error={error}")
+        fail_video(video_id, error)
+        return {
+            "status": "success",
+            "video_id": video_id,
+            "message": "Video marked as failed"
+        }
+
+    @app.delete("/videos/history")
+    def delete_video_history():
+        """Clear all video processing history and results"""
+        logger.info("[API] Clearing video history and results")
+        history_result = clear_video_history()
+        results_result = clear_all_results()
+        logger.info(f"[API] Video history cleared: {history_result}, Results cleared: {results_result}")
+        return {
+            "status": "success",
+            "message": "Video history and results cleared",
+            "videos_cleared": history_result.get('cleared_count', 0),
+            "results_cleared": results_result.get('cleared_count', 0)
+        }
 
     return app
 
