@@ -1,0 +1,17 @@
+minio==7.2.9
+opencv-python-headless
+ultralytics
+numpy
+fastapi
+uvicorn
+requests
+pyyaml
+openvino
+openvino-genai
+python-multipart
+pika>=1.3.0
+# EasyOCR with dependencies
+easyocr
+torch
+torchvision
+git+https://github.com/intel-retail/performance-tools.git@main#subdirectory=benchmark-scripts

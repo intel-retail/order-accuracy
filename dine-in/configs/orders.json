@@ -1,0 +1,108 @@
+{
+  "orders": [
+    {
+      "image_id": "DD-6993",
+      "restaurant": "Dunkin Donuts",
+      "table_number": "T97",
+      "items_ordered": [
+        {"item": "Maharaja Mac Chicken", "quantity": 1},
+        {"item": "Cheese", "quantity": 1}
+      ],
+      "order_id": "DD-6993"
+    },
+    {
+      "image_id": "DD-7004",
+      "restaurant": "Dunkin Donuts",
+      "table_number": "T27",
+      "items_ordered": [
+        {"item": "Multi-Millet Bun", "quantity": 1},
+        {"item": "Chicken Burger", "quantity": 1}
+      ],
+      "order_id": "DD-7004"
+    },
+    {
+      "image_id": "MCD-4880",
+      "restaurant": "McDonald's",
+      "table_number": "T25",
+      "items_ordered": [
+        {"item": "Big Mac", "quantity": 2},
+        {"item": "Quarter Pounder", "quantity": 2},
+        {"item": "McVeggie", "quantity": 1}
+      ],
+      "order_id": "MCD-4880"
+    },
+    {
+      "image_id": "MCD-6346",
+      "restaurant": "McDonald's",
+      "table_number": "T45",
+      "items_ordered": [
+        {"item": "Crispy Veggie Burger", "quantity": 1},
+        {"item": "Cheesy Fries", "quantity": 1}
+      ],
+      "order_id": "MCD-6346"
+    },
+    {
+      "image_id": "KFC-6436",
+      "restaurant": "KFC",
+      "table_number": "T37",
+      "items_ordered": [
+        {"item": "Sausage McMuffin", "quantity": 1},
+        {"item": "Hash Brown", "quantity": 1}
+      ],
+      "order_id": "KFC-6436"
+    },
+    {
+      "image_id": "FG-6829",
+      "restaurant": "Five Guys",
+      "table_number": "T89",
+      "items_ordered": [
+        {"item": "Big Mac", "quantity": 1},
+        {"item": "Small Fries", "quantity": 1}
+      ],
+      "order_id": "FG-6829"
+    },
+    {
+      "image_id": "INO-1815",
+      "restaurant": "In-N-Out Burger",
+      "table_number": "T54",
+      "items_ordered": [
+        {"item": "Egg and Cheese McMuffin", "quantity": 1},
+        {"item": "Hash Brown", "quantity": 4},
+        {"item": "Hot Cakes", "quantity": 1}
+      ],
+      "order_id": "INO-1815"
+    },
+    {
+      "image_id": "PH-5872",
+      "restaurant": "Pizza Hut",
+      "table_number": "T01",
+      "items_ordered": [
+        {"item": "Multigrain Bun", "quantity": 1},
+        {"item": "Pizza McPuff", "quantity": 1},
+        {"item": "Chicken McNuggets", "quantity": 6},
+        {"item": "Cheese Burger", "quantity": 1}
+      ],
+      "order_id": "PH-5872"
+    },
+    {
+      "image_id": "SUB-7779",
+      "restaurant": "Subway",
+      "table_number": "T26",
+      "items_ordered": [
+        {"item": "Chicken McNuggets", "quantity": 1},
+        {"item": "French Fries", "quantity": 1}
+      ],
+      "order_id": "SUB-7779"
+    },
+    {
+      "image_id": "CFA-7365",
+      "restaurant": "Chick-fil-A",
+      "table_number": "T87",
+      "items_ordered": [
+        {"item": "McVeggie", "quantity": 1},
+        {"item": "Small Fries", "quantity": 1}
+      ],
+      "order_id": "CFA-7365"
+    }
+  ]
+}

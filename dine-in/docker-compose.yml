@@ -1,0 +1,187 @@
+services:
+  # OVMS VLM service for Vision-Language Model inference
+  ovms-vlm:
+    image: openvino/model_server:latest-gpu
+    container_name: dinein_ovms_vlm
+    ports:
+      - "8002:8000"  # Changed from 8001 to avoid conflict
+    volumes:
+      - ../ovms-service/models:/models:ro
+      - ../ovms-service/cache:/tmp/ov_cache
+    environment:
+      - OV_CACHE_DIR=/tmp/ov_cache
+    command:
+      - --rest_port=8000
+      - --config_path=/models/config.json
+      - --log_level=INFO
+    devices:
+      - /dev/dri:/dev/dri
+    group_add:
+      - "44"   # video group for GPU access
+      - "992"  # render group for GPU access
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/config"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    networks:
+      - dinein-net
+
+  # Semantic Comparison Service for AI-powered item matching
+  # Note: This service is optional and disabled by default since the dine-in app
+  # uses pre-configured validation results. To enable, run with --profile with-semantic
+  semantic-service:
+    image: intel/semantic-search-agent:1.0.0
+    container_name: dinein_semantic_service
+    ports:
+      - "8081:8080"  # Changed from 8080 to avoid conflict
+      - "9091:9090"  # Changed from 9090 to avoid conflict
+    volumes:
+      - ../config:/app/config:ro
+      - ./configs:/app/configs:ro
+    environment:
+      - SERVICE_NAME=semantic-comparison-service
+      - LOG_LEVEL=INFO
+      - VLM_BACKEND=ovms
+      - OVMS_ENDPOINT=http://ovms-vlm:8000
+      - OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
+      - CACHE_ENABLED=true
+      - CACHE_BACKEND=memory
+      - PROMETHEUS_ENABLED=true
+      - CONFIG_DIR=/app/config
+      - ORDERS_FILE=/app/configs/orders.json
+      - INVENTORY_FILE=/app/configs/inventory.json
+      - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,dine-in,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,dine-in,host.docker.internal
+    depends_on:
+      ovms-vlm:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - dinein-net
+
+  # Dine-In Order Accuracy Gradio UI
+  dine-in:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        http_proxy: http://proxy-pilot.intel.com:912
+        https_proxy: http://proxy-pilot.intel.com:912
+        HTTP_PROXY: http://proxy-pilot.intel.com:912
+        HTTPS_PROXY: http://proxy-pilot.intel.com:912
+        no_proxy: localhost,127.0.0.1
+        NO_PROXY: localhost,127.0.0.1
+    container_name: dinein_app
+    user: "${UID:-1000}:${GID:-1000}"
+    ports:
+      - "7861:7860"  # Gradio UI
+      - "8083:8080"  # FastAPI
+    volumes:
+      - ./images:/app/images:ro
+      - ./results:/app/results
+      - ./configs:/app/configs:ro
+    environment:
+      - SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
+      - OVMS_ENDPOINT=http://ovms-vlm:8000
+      - METRICS_COLLECTOR_ENDPOINT=http://metrics-collector:8084
+      - CONTAINER_RESULTS_PATH=/app/results
+      - USECASE_1=dine-in-order-accuracy
+      - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
+      - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
+    depends_on:
+      ovms-vlm:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dinein-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  # Dine-In Worker Service for Stream Density Testing
+  # Scale with: docker compose up -d --scale dinein-worker=4
+  # Or set WORKERS env variable and use profile: docker compose --profile benchmark up -d
+  dinein-worker:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    profiles:
+      - benchmark
+      - worker
+    user: "${UID:-1000}:${GID:-1000}"
+    deploy:
+      replicas: ${WORKERS:-1}
+    volumes:
+      - ./images:/app/images:ro
+      - ./results:/app/results
+      - ./configs:/app/configs:ro
+    environment:
+      - WORKERS=${WORKERS:-1}
+      - ITERATIONS=${ITERATIONS:-0}
+      - REQUEST_DELAY=${REQUEST_DELAY:-0}
+      - IMAGES_DIR=/app/images
+      - ORDERS_FILE=/app/configs/orders.json
+      - RESULTS_DIR=/app/results
+      - SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
+      - OVMS_ENDPOINT=http://ovms-vlm:8000
+      - CONTAINER_RESULTS_PATH=/app/results
+      - USECASE_1=dine-in-order-accuracy
+      - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
+    command: ["python", "/app/worker.py"]
+    depends_on:
+      ovms-vlm:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - dinein-net
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+
+  metrics-collector:
+      image: intel/hl-ai-metrics-collector:1.0.0
+      container_name: metrics-collector
+      privileged: true
+      pid: host
+      ports:
+        - "8084:8084"  # Metrics API
+      environment:
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
+        - http_proxy=${HTTP_PROXY}
+        - https_proxy=${HTTPS_PROXY}
+        - no_proxy=${NO_PROXY}
+        - NPU_LOG=/tmp/results/npu_usage.csv
+        - METRICS_DIR=/tmp/results
+        - DEVICE_ENV_PATH=/configs/device.env
+      volumes:
+        - ./metrics:/tmp/results
+        - ./configs:/configs
+        - /tmp/.X11-unix:/tmp/.X11-unix
+        - /sys/devices:/sys/devices
+        - /dev/dri:/dev/dri:rw
+        - /sys/class/drm:/sys/class/drm:ro
+        - /sys/kernel/debug:/sys/kernel/debug:ro
+      devices:
+        - "/sys:/sys"
+        - "/dev:/dev"
+        - "/run:/run"
+        - "/proc:/proc"
+      networks:
+        - dinein-net
+networks:
+  dinein-net:
+    driver: bridge
+
+volumes:
+  ov_cache:
+    driver: local
