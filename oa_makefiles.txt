@@ -1,6 +1,0 @@
-./dine-in/Makefile
-./performance-tools/benchmark-scripts/Makefile
-./performance-tools/docker/Makefile
-./performance-tools/Makefile
-./performance-tools/helm/Makefile
-./Makefile
