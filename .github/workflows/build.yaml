@@ -16,6 +16,11 @@ jobs:
       steps:
           - name: Checkout code
             uses: actions/checkout@v4
-          - name: Make dlstreamer Docker image
+          - name: Make dine-in Docker image
             run: |
+              cd dine-in
+              make build REGISTRY=false
+          - name: Make take-away Docker image
+            run: |
+              cd dine-in
               make build REGISTRY=false
