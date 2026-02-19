@@ -113,6 +113,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        http_proxy: http://proxy-pilot.intel.com:912
+        https_proxy: http://proxy-pilot.intel.com:912
+        HTTP_PROXY: http://proxy-pilot.intel.com:912
+        HTTPS_PROXY: http://proxy-pilot.intel.com:912
+        no_proxy: localhost,127.0.0.1
+        NO_PROXY: localhost,127.0.0.1
     profiles:
       - benchmark
       - worker
@@ -136,11 +143,11 @@ services:
       - USECASE_1=dine-in-order-accuracy
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
-    command: ["python", "/app/worker.py"]
+    command: ["python", "/app/src/worker.py"]
     depends_on:
       ovms-vlm:
         condition: service_healthy
-    restart: unless-stopped
+    restart: "no"
     networks:
       - dinein-net
     extra_hosts:

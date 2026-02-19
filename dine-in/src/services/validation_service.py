@@ -22,6 +22,10 @@ class ValidationMetrics:
     total_validation_time_ms: float
     items_processed: int
     matches_found: int
+    items_detected: int = 0
+    tps: float = 0.0
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
     
     def to_dict(self) -> Dict[str, Any]:
         return {
@@ -29,7 +33,10 @@ class ValidationMetrics:
             "semantic_matching_ms": round(self.semantic_matching_time_ms, 2),
             "total_time_ms": round(self.total_validation_time_ms, 2),
             "items_processed": self.items_processed,
-            "matches_found": self.matches_found
+            "matches_found": self.matches_found,
+            "items_detected": self.items_detected,
+            "tps": round(self.tps, 2),
+            "tokens": self.prompt_tokens + self.completion_tokens
         }
 
 
@@ -297,14 +304,22 @@ class ValidationService:
                 len(extra_items) == 0
             )
             
-            # Step 5: Build metrics
+            # Step 5: Build metrics with VLM performance data
             total_time_ms = (time.time() - start_time) * 1000
+            
+            # Extract VLM performance metrics if available
+            vlm_perf = getattr(vlm_response, 'performance_metadata', {}) or {}
+            
             metrics = ValidationMetrics(
                 vlm_inference_time_ms=vlm_time_ms,
                 semantic_matching_time_ms=semantic_time_ms,
                 total_validation_time_ms=total_time_ms,
                 items_processed=len(expected_items),
-                matches_found=len(matches)
+                matches_found=len(matches),
+                items_detected=len(vlm_response.detected_items),
+                tps=vlm_perf.get('tokens_per_second', 0.0),
+                prompt_tokens=vlm_perf.get('prompt_tokens', 0),
+                completion_tokens=vlm_perf.get('completion_tokens', 0)
             )
             
             result = ValidationResult(

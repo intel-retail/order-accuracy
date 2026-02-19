@@ -43,6 +43,7 @@ REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
 
 # Benchmark Order Accuracy settings
 BENCHMARK_WORKERS ?= 1
+BENCHMARK_ITERATIONS ?= 1
 BENCHMARK_DURATION ?= 300
 BENCHMARK_TARGET_FPS ?= 15.0
 BENCHMARK_TARGET_DEVICE ?= GPU
@@ -144,7 +145,7 @@ benchmark-density-help:
 update-submodules:
 	@echo "$(BLUE)Cloning/updating performance tool repositories...$(NC)"
 	cd .. && git submodule deinit -f .
-	cd .. && git submodule update --init --recursive
+	cd .. && git submodule update --init --recursive --remote
 	@echo "$(GREEN)Submodules updated successfully.$(NC)"
 
 fetch-benchmark:
@@ -191,7 +192,7 @@ worker: ## Run worker locally (WORKERS=N ITERATIONS=M)
 	@echo "Request Delay: $(REQUEST_DELAY)s"
 	@echo ""
 	@mkdir -p $(RESULTS_DIR)
-	cd src && python3 worker.py \
+	cd src && PYTHONPATH=$(CURDIR)/../performance-tools/benchmark-scripts:$$PYTHONPATH python3 worker.py \
 		--workers $(WORKERS) \
 		--iterations $(ITERATIONS) \
 		--delay $(REQUEST_DELAY) \
@@ -262,7 +263,7 @@ benchmark-test: ## Quick single image test (1 worker, 1 iteration)
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
 	@mkdir -p $(RESULTS_DIR)
 	@echo "Running 1 worker with 1 iteration..."
-	cd src && python3 worker.py \
+	cd src && PYTHONPATH=$(CURDIR)/../performance-tools/benchmark-scripts:$$PYTHONPATH python3 worker.py \
 		--workers 1 \
 		--iterations 1 \
 		--delay 0 \
@@ -311,12 +312,12 @@ benchmark-single: ## Test with specific image via API (IMAGE_ID=DD-6993)
 		echo "$(GREEN)Latency: $${LATENCY}ms$(NC)"; \
 	'
 
-benchmark: build-benchmark
+benchmark:
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║       Dine-In Order Accuracy Benchmark                            ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
 	@echo "Workers: $(BENCHMARK_WORKERS)"
-	@echo "Duration: $(BENCHMARK_DURATION)s"
+	@echo "Iterations: $(BENCHMARK_ITERATIONS)"
 	@echo "Target Device: $(BENCHMARK_TARGET_DEVICE)"
 	@echo "Results Dir: $(RESULTS_DIR)"
 	@echo ""
@@ -327,12 +328,14 @@ benchmark: build-benchmark
 		. venv/bin/activate && \
 		pip3 install -r requirements.txt && \
 		python3 benchmark_order_accuracy.py \
-			--compose_file $(shell pwd)/$(COMPOSE_FILE) \
+			--compose_file $(CURDIR)/$(COMPOSE_FILE) \
 			--workers $(BENCHMARK_WORKERS) \
-			--duration $(BENCHMARK_DURATION) \
+			--iterations $(BENCHMARK_ITERATIONS) \
+			--profile benchmark \
 			--init_duration $(BENCHMARK_INIT_DURATION) \
+			--duration $(BENCHMARK_DURATION) \
+			--results_dir $(CURDIR)/$(RESULTS_DIR) \
 			--target_device $(BENCHMARK_TARGET_DEVICE) \
-			--results_dir $(shell pwd)/$(RESULTS_DIR) \
 			--skip_perf_tools; \
 		deactivate \
 	)
@@ -412,7 +415,7 @@ benchmark-quickstart: ## Quick benchmark with workers (uses venv)
 		python3 -m venv venv && \
 		. venv/bin/activate && \
 		pip3 install -r ../requirements.txt && \
-		python3 worker.py \
+		PYTHONPATH=$(CURDIR)/../performance-tools/benchmark-scripts:$$PYTHONPATH python3 worker.py \
 			--workers $(WORKERS) \
 			--iterations $(ITERATIONS) \
 			--delay $(REQUEST_DELAY) \

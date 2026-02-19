@@ -75,11 +75,18 @@ Optimized for validating food trays at serving stations before delivery to table
 ### Quick Start
 
 ```bash
-cd dine-in
+# 1. Setup OVMS Model (first time only - takes 30-60 min)
+cd ovms-service
+./setup_models.sh
+
+# 2. Build and start dine-in
+cd ../dine-in
 make build
 make up
-# Access UI at http://localhost:7860
+# Access UI at http://localhost:7861
 ```
+
+> **Note**: The OVMS model setup only needs to be done once. Model files are shared between dine-in and take-away applications.
 
 ### Documentation
 
@@ -269,7 +276,10 @@ make build                  # Build Docker images
 make up                     # Start services
 make down                   # Stop services
 make logs                   # View logs
+make update-submodules      # Initialize performance-tools (required before benchmarking)
 make benchmark              # Run benchmark
+make benchmark-density      # Run stream density test
+make benchmark-density-results  # View density benchmark results
 ```
 
 ### Take-Away Commands
@@ -281,6 +291,7 @@ make up                     # Start (single mode)
 make up-parallel WORKERS=4  # Start (parallel mode)
 make down                   # Stop services
 make logs                   # View logs
+make update-submodules      # Initialize performance-tools (required before benchmarking)
 make benchmark-oa-density   # Stream density test
 ```
 

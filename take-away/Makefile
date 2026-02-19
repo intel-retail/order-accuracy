@@ -135,7 +135,7 @@ check-env:
 update-submodules:
 	@echo "$(BLUE)Cloning/updating performance tool repositories...$(NC)"
 	cd .. && git submodule deinit -f .
-	cd .. && git submodule update --init --recursive
+	cd .. && git submodule update --init --recursive --remote
 	@echo "$(GREEN)Submodules updated successfully.$(NC)"
 
 fetch-benchmark:

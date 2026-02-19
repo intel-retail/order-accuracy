@@ -18,6 +18,24 @@
 - 32GB+ RAM recommended
 - Intel Xeon or equivalent CPU
 
+### Setup Test Data (Required)
+
+Before running the application, you must prepare your test data:
+
+1. **Add Images**: Place your food tray images in the `images/` folder
+   - Supported formats: `.jpg`, `.jpeg`, `.png`
+   - Images should clearly show the food items on the tray
+
+2. **Update Orders**: Edit `config/orders.json` with your test orders
+   - Each order should have an `order_id` and list of `items`
+   - Order IDs should match your image filenames
+
+3. **Update Inventory**: Edit `config/inventory.json` to match your menu items
+   - Define all possible food items that can appear in orders
+   - Include item names, categories, and any relevant metadata
+
+> **Note**: The `images/` folder does not contain sample images by default. You must add your own images before testing.
+
 ### 1. Setup OVMS Model (First Time Only)
 
 The VLM model must be exported before running the application:
