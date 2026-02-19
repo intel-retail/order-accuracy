@@ -292,7 +292,9 @@ make up-parallel WORKERS=4  # Start (parallel mode)
 make down                   # Stop services
 make logs                   # View logs
 make update-submodules      # Initialize performance-tools (required before benchmarking)
-make benchmark-oa-density   # Stream density test
+make benchmark              # Run Order Accuracy benchmark
+make benchmark-oa-density   # Stream density test (latency-based)
+make benchmark-oa-results   # View benchmark results
 ```
 
 ---

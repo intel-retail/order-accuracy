@@ -26,11 +26,11 @@ Before running the application, you must prepare your test data:
    - Supported formats: `.jpg`, `.jpeg`, `.png`
    - Images should clearly show the food items on the tray
 
-2. **Update Orders**: Edit `config/orders.json` with your test orders
+2. **Update Orders**: Edit `configs/orders.json` with your test orders
    - Each order should have an `order_id` and list of `items`
    - Order IDs should match your image filenames
 
-3. **Update Inventory**: Edit `config/inventory.json` to match your menu items
+3. **Update Inventory**: Edit `configs/inventory.json` to match your menu items
    - Define all possible food items that can appear in orders
    - Include item names, categories, and any relevant metadata
 
@@ -71,8 +71,9 @@ make up
 
 | Service | URL | Purpose |
 |---------|-----|--------|
-| Gradio UI | http://localhost:7860 | Interactive order validation |
-| Order Accuracy API | http://localhost:8000 | REST API endpoints |
+| Gradio UI | http://localhost:7861 | Interactive order validation |
+| Order Accuracy API | http://localhost:8083 | REST API endpoints |
+| API Docs | http://localhost:8083/docs | Swagger/OpenAPI documentation |
 | OVMS VLM | http://localhost:8002 | VLM model server |
 
 ---
@@ -123,11 +124,15 @@ make benchmark-single    # Quick single image test
 make benchmark           # Run Order Accuracy benchmark
 ```
 
+> **Note**: `make benchmark` uses Docker profiles to start worker containers. Both the `dine-in` app and `dinein-worker` services use the **same Docker image** (built from the same Dockerfile). The worker is simply the same container running `worker.py` instead of the UI.
+
 ### Stream Density Test
 
 ```bash
 make benchmark-density   # Find max concurrent validations
 ```
+
+> **Note**: `make benchmark-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
 
 ### Metrics Processing
 

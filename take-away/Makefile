@@ -348,7 +348,7 @@ logs-all:
 # Benchmark
 # =============================================================================
 
-benchmark: build-benchmark ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
+benchmark: ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║       Take-Away Order Accuracy Benchmark                          ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
