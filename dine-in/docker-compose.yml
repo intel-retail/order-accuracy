@@ -74,12 +74,12 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        http_proxy: http://proxy-pilot.intel.com:912
-        https_proxy: http://proxy-pilot.intel.com:912
-        HTTP_PROXY: http://proxy-pilot.intel.com:912
-        HTTPS_PROXY: http://proxy-pilot.intel.com:912
-        no_proxy: localhost,127.0.0.1
-        NO_PROXY: localhost,127.0.0.1
+        #http_proxy: http://proxy-pilot.intel.com:912
+        #https_proxy: http://proxy-pilot.intel.com:912
+        #HTTP_PROXY: http://proxy-pilot.intel.com:912
+        #HTTPS_PROXY: http://proxy-pilot.intel.com:912
+        #no_proxy: localhost,127.0.0.1
+        #NO_PROXY: localhost,127.0.0.1
     container_name: dinein_app
     user: "${UID:-1000}:${GID:-1000}"
     ports:
