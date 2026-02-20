@@ -60,8 +60,8 @@ class SystemConfig:
     yolo_model_path: str = "./models/yolo11n_openvino_model"
     
     # Data paths
-    inventory_path: str = "./config/inventory.json"
-    orders_path: str = "./config/orders.json"
+    inventory_path: str = "/config/inventory.json"
+    orders_path: str = "/config/orders.json"
     
     # Queue backend
     queue_backend: str = "multiprocessing"  # or "redis"
@@ -118,8 +118,8 @@ class SystemConfig:
         return cls(
             rtsp_urls=data.get('rtsp_urls', []),
             yolo_model_path=data.get('yolo_model_path', './models/yolo11n_openvino_model'),
-            inventory_path=data.get('inventory_path', './config/inventory.json'),
-            orders_path=data.get('orders_path', './config/orders.json'),
+            inventory_path=data.get('inventory_path', '/config/inventory.json'),
+            orders_path=data.get('orders_path', '/config/orders.json'),
             queue_backend=data.get('queue_backend', 'multiprocessing'),
             redis_host=data.get('redis_host', 'localhost'),
             redis_port=data.get('redis_port', 6379),
@@ -189,8 +189,8 @@ def create_default_config() -> SystemConfig:
     return SystemConfig(
         rtsp_urls=rtsp_urls,
         yolo_model_path='./models/yolo11n_openvino_model',
-        inventory_path='./config/inventory.json',
-        orders_path='./config/orders.json',
+        inventory_path='/config/inventory.json',
+        orders_path='/config/orders.json',
         queue_backend='multiprocessing'
     )
 

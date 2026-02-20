@@ -21,7 +21,8 @@ from vlm_metrics_logger import (
     log_start_time, 
     log_end_time, 
     log_custom_event,
-    log_ovms_performance_metric
+    log_ovms_performance_metric,
+    get_logger
 )
 
 logger = logging.getLogger(__name__)
@@ -665,6 +666,7 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
             client = await self.get_http_client()
             try:
                 inference_start = time.time()
+                request_start = time.time()  # For total_latency calculation
                 
                 # Log start time for metrics
                 log_start_time("USECASE_1", unique_id)
@@ -687,16 +689,60 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                 log_end_time("USECASE_1", unique_id)
                 
                 result = response.json()
+                total_latency = time.time() - request_start
+                
+                # Extract text from response
+                text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+                logger.info(f"[OVMS-CLIENT] Response received in {total_latency:.2f}s")
+                logger.debug(f"[OVMS-CLIENT] Generated text: {text[:200]}...")
+
+                # Log VLM output (detected items) - FULL OUTPUT
+                logger.info(f"[OVMS-CLIENT] ========== VLM OUTPUT ==========")
+                logger.info(f"[OVMS-CLIENT] Transaction ID: {unique_id}")
+                logger.info(f"[OVMS-CLIENT] Detected items (raw output):")
+                for line in text.strip().split('\n'):
+                    logger.info(f"[OVMS-CLIENT]   {line}")
+                logger.info(f"[OVMS-CLIENT] ================================")
+
+                # Extract token usage from response
+                usage = result.get("usage", {})
+                prompt_tokens = usage.get("prompt_tokens", 0)
+                completion_tokens = usage.get("completion_tokens", 0)
+                total_tokens = usage.get("total_tokens", 0)
+                generated_tokens = completion_tokens
+                
+                # Calculate VLM performance metrics
+                tpot = (total_latency / generated_tokens) if generated_tokens > 0 else 0.0
+                throughput_mean = (generated_tokens / total_latency) if total_latency > 0 else 0.0
+                tps = throughput_mean
+                
+                # Log VLM metrics
+                logger.info(f"[OVMS-CLIENT] ========== VLM METRICS ==========")
+                logger.info(f"[OVMS-CLIENT] Generated_tokens: {generated_tokens}")
+                logger.info(f"[OVMS-CLIENT] Total_latency: {total_latency:.4f}s")
+                logger.info(f"[OVMS-CLIENT] TPOT (Time per output token): {tpot:.4f}s")
+                logger.info(f"[OVMS-CLIENT] Throughput_mean (tokens/sec): {throughput_mean:.2f}")
+                logger.info(f"[OVMS-CLIENT] Token usage - Prompt: {prompt_tokens}, Completion: {completion_tokens}, Total: {total_tokens}")
+                logger.info(f"[OVMS-CLIENT] =================================")
+                
+                # Create metrics object and log OVMS performance
+                vlm_metrics_result = {
+                    "generated_tokens": generated_tokens,
+                    "Generate_Duration_Mean": total_latency,
+                    "tpot_sec": tpot,
+                    "throughput_mean_sec": throughput_mean
+                }
+                log_ovms_performance_metric("USECASE_1", vlm_metrics_result)
+                # Force flush performance logger to ensure metrics are written
+                perf_logger = get_logger()
+                for handler in perf_logger.performance_logger.handlers:
+                    handler.flush()
+                logger.info(f"[OVMS-CLIENT] Performance metrics logged and flushed")
+                
                 logger.debug(f"[OVMS-CLIENT] Raw response: {result}")
                 
                 # Step 5: Create response and parse detected items
                 vlm_response = VLMResponse(result)
-                
-                # Extract token usage for metrics
-                usage = result.get("usage", {})
-                prompt_tokens = usage.get("prompt_tokens", 0)
-                completion_tokens = usage.get("completion_tokens", 0)
-                tps = completion_tokens / inference_time_sec if inference_time_sec > 0 else 0
                 
                 # Attach performance metadata to response
                 vlm_response.performance_metadata = {
@@ -708,7 +754,10 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                     "compression_ratio": preprocess_meta.get("compression_ratio", 1.0),
                     "image_dimensions": preprocess_meta.get("processed_dimensions", None),
                     "tokens_per_second": round(tps, 2),
-                    "completion_tokens": completion_tokens
+                    "completion_tokens": completion_tokens,
+                    "prompt_tokens": prompt_tokens,
+                    "tpot_sec": round(tpot, 4),
+                    "throughput_mean_sec": round(throughput_mean, 2)
                 }
                 
                 # Log custom metrics event

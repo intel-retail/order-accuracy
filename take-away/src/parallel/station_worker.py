@@ -562,8 +562,8 @@ class StationWorker:
                 from core.order_results import add_result  # type: ignore
                 import json
                 # Load order inventory for validation
-                inventory_path = self.config.get('inventory_path', './config/inventory.json')
-                orders_path = self.config.get('orders_path', './config/orders.json')
+                inventory_path = self.config.get('inventory_path', '/config/inventory.json')
+                orders_path = self.config.get('orders_path', '/config/orders.json')
                 with open(inventory_path) as f:
                     self._inventory = json.load(f)
                 with open(orders_path) as f:
