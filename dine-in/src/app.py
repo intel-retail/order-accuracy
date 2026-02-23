@@ -5,7 +5,7 @@ import logging
 import httpx
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 from io import BytesIO
 
 import gradio as gr
@@ -79,7 +79,19 @@ def _load_orders() -> Dict[str, Scenario]:
         if not image_id:
             continue
 
-        image_path = IMAGES_DIR / f"{image_id}.jpg"
+        # Try multiple image extensions
+        image_path = None
+        for ext in ['.jpg', '.jpeg', '.png', '.JPG', '.JPEG', '.PNG']:
+            potential_path = IMAGES_DIR / f"{image_id}{ext}"
+            if potential_path.exists():
+                image_path = potential_path
+                break
+        
+        # Skip orders without images (user must add images first)
+        if image_path is None:
+            logger.warning(f"[APP] Skipping order {image_id} - no image found in {IMAGES_DIR}")
+            continue
+            
         manifest = {
             key: value
             for key, value in order.items()
@@ -104,13 +116,23 @@ def _load_orders() -> Dict[str, Scenario]:
 _SCENARIOS = _load_orders()
 _DEFAULT_SCENARIO = next(iter(_SCENARIOS)) if _SCENARIOS else ""
 
+# Pre-compute initial values for UI components
+_INITIAL_IMAGE, _INITIAL_ORDER = (None, {})
+if _DEFAULT_SCENARIO:
+    _scenario = _SCENARIOS.get(_DEFAULT_SCENARIO)
+    if _scenario:
+        _INITIAL_IMAGE = str(_scenario.image_path) if _scenario.image_path.exists() else None
+        _INITIAL_ORDER = _scenario.order_manifest
 
-def load_scenario(name: str) -> Tuple[str, Dict[str, object]]:
+
+def load_scenario(name: str) -> Tuple[Optional[str], Dict[str, object]]:
     scenario = _SCENARIOS.get(name)
     if not scenario:
-        return "", {"error": f"Scenario '{name}' is not available"}
+        return None, {"error": f"Scenario '{name}' is not available"}
 
-    image_value = str(scenario.image_path) if scenario.image_path.exists() else ""
+    image_value = str(scenario.image_path) if scenario.image_path.exists() else None
+    if image_value is None:
+        logger.warning(f"[APP] Image not found: {scenario.image_path}")
     return image_value, scenario.order_manifest
 
 
@@ -341,6 +363,7 @@ def _format_metrics_table(metrics: Dict[str, object], has_result: bool = False) 
         '''
     
     e2e = metrics.get("end_to_end_latency_ms")
+    image_decode = metrics.get("image_decode_ms")
     vlm = metrics.get("vlm_inference_ms")
     semantic = metrics.get("agent_reconciliation_ms")
     within_window = metrics.get("within_operational_window", False)
@@ -350,6 +373,7 @@ def _format_metrics_table(metrics: Dict[str, object], has_result: bool = False) 
     
     # Format values
     e2e_str = f"{e2e:,.0f} ms" if e2e else "N/A"
+    decode_str = f"{image_decode:,.0f} ms" if image_decode else "N/A"
     vlm_str = f"{vlm:,.0f} ms" if vlm else "N/A"
     semantic_str = f"{semantic:,.0f} ms" if semantic else "N/A"
     
@@ -367,18 +391,22 @@ def _format_metrics_table(metrics: Dict[str, object], has_result: bool = False) 
         
         <!-- Latency Metrics -->
         <div style="padding: 16px 20px; border-bottom: 1px solid #e5e7eb;">
-            <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; text-align: center;">
+            <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; text-align: center;">
                 <div>
-                    <div style="font-size: 24px; font-weight: 700; color: #1f2937;">{e2e_str}</div>
-                    <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">End-to-End</div>
+                    <div style="font-size: 20px; font-weight: 700; color: #1f2937;">{e2e_str}</div>
+                    <div style="font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">End-to-End</div>
                 </div>
                 <div>
-                    <div style="font-size: 24px; font-weight: 700; color: #0071C5;">{vlm_str}</div>
-                    <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">VLM Inference</div>
+                    <div style="font-size: 20px; font-weight: 700; color: #059669;">{decode_str}</div>
+                    <div style="font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Image Decode</div>
                 </div>
                 <div>
-                    <div style="font-size: 24px; font-weight: 700; color: #8b5cf6;">{semantic_str}</div>
-                    <div style="font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Semantic Match</div>
+                    <div style="font-size: 20px; font-weight: 700; color: #0071C5;">{vlm_str}</div>
+                    <div style="font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">VLM Inference</div>
+                </div>
+                <div>
+                    <div style="font-size: 20px; font-weight: 700; color: #8b5cf6;">{semantic_str}</div>
+                    <div style="font-size: 10px; color: #6b7280; text-transform: uppercase; letter-spacing: 0.5px;">Semantic Match</div>
                 </div>
             </div>
         </div>
@@ -595,7 +623,7 @@ with gr.Blocks(
             scenario_dropdown = gr.Dropdown(
                 label="📋 Select Order Scenario",
                 choices=list(_SCENARIOS.keys()),
-                value=None,
+                value=_DEFAULT_SCENARIO if _DEFAULT_SCENARIO else None,
                 interactive=True,
                 elem_classes=["scenario-dropdown"],
             )
@@ -616,6 +644,7 @@ with gr.Blocks(
             gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">📸 Plate Image</div>')
             image_display = gr.Image(
                 label="",
+                value=_INITIAL_IMAGE,
                 interactive=False,
                 show_label=False,
                 elem_classes=["image-container"],
@@ -626,7 +655,7 @@ with gr.Blocks(
         with gr.Column(scale=1):
             gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">🎫 Order Ticket</div>')
             order_display = gr.HTML(
-                value=_format_order_ticket({}),
+                value=_format_order_ticket(_INITIAL_ORDER),
                 elem_classes=["card-panel"],
             )
     

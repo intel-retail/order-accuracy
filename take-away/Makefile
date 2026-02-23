@@ -135,7 +135,7 @@ check-env:
 update-submodules:
 	@echo "$(BLUE)Cloning/updating performance tool repositories...$(NC)"
 	cd .. && git submodule deinit -f .
-	cd .. && git submodule update --init --recursive
+	cd .. && git submodule update --init --recursive --remote
 	@echo "$(GREEN)Submodules updated successfully.$(NC)"
 
 fetch-benchmark:
@@ -356,7 +356,7 @@ logs-all:
 # Benchmark
 # =============================================================================
 
-benchmark: build-benchmark ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
+benchmark: ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║       Take-Away Order Accuracy Benchmark                          ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"

@@ -174,6 +174,39 @@ class DineInWorker:
         
         logger.info(f"Found {len(self.images)} images with matching orders")
     
+    async def _wait_for_ovms_ready(self, max_retries: int = 30, retry_interval: int = 5):
+        """Wait for OVMS VLM endpoint to be ready"""
+        import httpx
+        
+        cfg = config_manager.config
+        endpoint = f"{cfg.service.ovms_endpoint}/v3/chat/completions"
+        
+        logger.info(f"Worker {self.worker_id}: Waiting for OVMS VLM to be ready at {endpoint}...")
+        
+        for attempt in range(max_retries):
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    # Send a minimal test request
+                    response = await client.post(
+                        endpoint,
+                        json={
+                            "model": cfg.service.ovms_model_name,
+                            "messages": [{"role": "user", "content": "test"}],
+                            "max_tokens": 1
+                        }
+                    )
+                    if response.status_code == 200:
+                        logger.info(f"Worker {self.worker_id}: OVMS VLM is ready (attempt {attempt + 1})")
+                        return True
+                    else:
+                        logger.warning(f"Worker {self.worker_id}: OVMS returned {response.status_code}, retrying...")
+            except Exception as e:
+                logger.warning(f"Worker {self.worker_id}: OVMS not ready (attempt {attempt + 1}/{max_retries}): {e}")
+            
+            await asyncio.sleep(retry_interval)
+        
+        raise RuntimeError(f"OVMS VLM not ready after {max_retries * retry_interval} seconds")
+    
     def _initialize_services(self):
         """Initialize validation services"""
         cfg = config_manager.config
@@ -254,8 +287,8 @@ class DineInWorker:
             # Extract VLM metrics if available
             if validation_result.metrics:
                 metrics = validation_result.metrics
-                result.vlm_latency_ms = getattr(metrics, 'vlm_inference_ms', 0)
-                result.semantic_latency_ms = getattr(metrics, 'semantic_matching_ms', 0)
+                result.vlm_latency_ms = getattr(metrics, 'vlm_inference_time_ms', 0)
+                result.semantic_latency_ms = getattr(metrics, 'semantic_matching_time_ms', 0)
                 result.items_detected = getattr(metrics, 'items_detected', 0)
                 result.tps = getattr(metrics, 'tps', 0)
                 result.prompt_tokens = getattr(metrics, 'prompt_tokens', 0)
@@ -313,6 +346,9 @@ class DineInWorker:
     
     async def run(self):
         """Main worker loop"""
+        # Wait for OVMS to be ready before initializing services
+        await self._wait_for_ovms_ready()
+        
         self._initialize_services()
         
         self.stats.start_time = datetime.now().isoformat()
