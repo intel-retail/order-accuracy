@@ -20,8 +20,7 @@ from pathlib import Path
 import statistics
 
 from .station_manager import StationManager
-from .shared_queue import QueueBackend
-from .scaling_policy import ScalingThresholds
+from .shared_queue import QueueBackend, QueueManager
 from .vlm_scheduler import VLMScheduler
 
 logger = logging.getLogger(__name__)
@@ -227,15 +226,15 @@ class BenchmarkRunner:
         # Initialize results
         results = BenchmarkResults(scenario)
         
-        # Create station manager with autoscaling disabled
+        # Create queue manager
+        queue_manager = QueueManager(backend=self.queue_backend)
+        
+        # Create station manager
         manager = StationManager(
             config=self.config,
-            initial_stations=0,  # Start with 0, manually set
-            queue_backend=self.queue_backend
+            queue_manager=queue_manager,
+            initial_stations=0  # Start with 0, manually set
         )
-        
-        # Disable autoscaling for controlled benchmark
-        manager.disable_autoscaling()
         
         # Start VLM scheduler
         vlm_scheduler = VLMScheduler(
@@ -487,8 +486,8 @@ if __name__ == "__main__":
         'max_batch_size': 16,
         'minio_endpoint': 'localhost:9000',
         'minio_bucket': 'orders',
-        'inventory_path': './config/inventory.json',
-        'orders_path': './config/orders.json',
+        'inventory_path': '/config/inventory.json',
+        'orders_path': '/config/orders.json',
         'yolo_model_path': './models/yolo11n_openvino_model'
     }
     

@@ -128,7 +128,7 @@ class VLMScheduler:
             self._vlm_client = OVMSVLMClient(
                 endpoint=ovms_url,
                 model_name=model_name,
-                timeout=300,  # 5 minutes for large VLM model
+                timeout=400,  # 7B VLM on iGPU takes ~300s; 400s gives headroom
                 max_new_tokens=512,
                 temperature=0.2
             )

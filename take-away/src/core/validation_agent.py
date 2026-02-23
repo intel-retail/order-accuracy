@@ -144,11 +144,30 @@ def validate_order(expected_items, detected_items, vlm_pipeline, transaction_id=
         missing = still_missing
         logger.info(f"{tx_prefix}[VALIDATION] Pass 2 complete: {len(missing)} items truly missing")
 
+    # ---- Pass 3: check unmatched detections against ALL expected items (duplicate-detection guard) ----
+    # VLMs often label the same physical item twice with slightly different names
+    # (e.g. "green apple" + "apple" for the same fruit). If an unmatched detected
+    # item is semantically equivalent to an already-matched expected item, treat it
+    # as a duplicate detection rather than a true extra.
+    logger.debug(f"{tx_prefix}[VALIDATION] Pass 3: Duplicate-detection check for unmatched items")
+    duplicate_detected = set()
+    for det in detected_items:
+        det_name = det["name"].lower()
+        if det_name in matched_detected:
+            continue
+        for exp in expected_items:
+            exp_name = exp["name"].lower()
+            if semantic_match_wrapper(vlm_pipeline, exp_name, det_name, transaction_id):
+                logger.info(f"{tx_prefix}[VALIDATION] Duplicate detection: '{det_name}' is a re-label of already-matched '{exp_name}' — ignored")
+                duplicate_detected.add(det_name)
+                break
+
     # ---- Extras ----
     logger.debug(f"{tx_prefix}[VALIDATION] Checking for extra detected items")
     for det in detected_items:
-        if det["name"].lower() not in matched_detected:
-            logger.info(f"{tx_prefix}[VALIDATION] Extra item detected: '{det['name']}' (not in expected order)")
+        det_name = det["name"].lower()
+        if det_name not in matched_detected and det_name not in duplicate_detected:
+            logger.info(f"{tx_prefix}[VALIDATION] Extra item detected: '{det_name}' (not in expected order)")
             extra.append(det)
 
     validation_result = {

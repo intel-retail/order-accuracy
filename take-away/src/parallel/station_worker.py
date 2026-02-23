@@ -68,7 +68,7 @@ class PipelineConfig:
     
     # Health monitoring
     health_check_interval_sec: float = 5.0
-    stall_detection_timeout_sec: float = 90.0  # No EOS markers for this long = stalled (based on order duration)
+    stall_detection_timeout_sec: float = 300.0  # No EOS markers for this long = stalled (based on order duration)
     
     # RTSP availability check
     rtsp_wait_timeout_sec: int = 120
@@ -93,7 +93,7 @@ class PipelineConfig:
             circuit_breaker_window_sec=pipeline_cfg.get('circuit_breaker_window_sec', 300.0),
             circuit_breaker_cooldown_sec=pipeline_cfg.get('circuit_breaker_cooldown_sec', 30.0),
             health_check_interval_sec=pipeline_cfg.get('health_check_interval_sec', 5.0),
-            stall_detection_timeout_sec=pipeline_cfg.get('stall_detection_timeout_sec', 90.0),
+            stall_detection_timeout_sec=pipeline_cfg.get('stall_detection_timeout_sec', 300.0),
             rtsp_wait_timeout_sec=pipeline_cfg.get('rtsp_wait_timeout_sec', 120),
             rtsp_poll_interval_sec=pipeline_cfg.get('rtsp_poll_interval_sec', 1.0),
             rtsp_probe_timeout_sec=pipeline_cfg.get('rtsp_probe_timeout_sec', 4),
@@ -562,8 +562,9 @@ class StationWorker:
                 from core.order_results import add_result  # type: ignore
                 import json
                 # Load order inventory for validation
-                inventory_path = self.config.get('inventory_path', './config/inventory.json')
-                orders_path = self.config.get('orders_path', './config/orders.json')
+                # Use absolute paths for Docker container
+                inventory_path = self.config.get('inventory_path', '/config/inventory.json')
+                orders_path = self.config.get('orders_path', '/config/orders.json')
                 with open(inventory_path) as f:
                     self._inventory = json.load(f)
                 with open(orders_path) as f:
@@ -979,6 +980,12 @@ class StationWorker:
                 # Scan MinIO for completed orders
                 completed_orders = self._scan_minio_for_completed_orders()
                 
+                # Heartbeat: any EOS marker in MinIO means the pipeline is alive and
+                # producing frames.  Update regardless of whether the order was already
+                # processed so that loop-2+ restarts don't false-trigger stall detection.
+                if completed_orders:
+                    self._pipeline_metrics.last_frame_time = time.time()
+
                 for order_id in completed_orders:
                     if order_id not in self._processed_orders and order_id not in self._active_orders:
                         # Skip orders not in orders.json to avoid wasted VLM inference
@@ -990,8 +997,6 @@ class StationWorker:
                             self._processed_orders.add(order_id)  # Mark as processed to avoid re-checking
                             continue
                         
-                        # Update last frame time for stall detection
-                        self._pipeline_metrics.last_frame_time = time.time()
                         self._pipeline_metrics.successful_frames_processed += 1
                         
                         self._log_structured("info", "completed_order_detected", {
@@ -1241,7 +1246,17 @@ class StationWorker:
         Frames are already in MinIO - no pipeline startup needed.
         """
         self._log_structured("info", "processing_order", {"order_id": order_id})
-        
+
+        # When oa_frame_selector service is running it owns YOLO frame selection
+        # and the VLM call. Skip the duplicate path in station_worker to avoid
+        # two concurrent VLM requests for the same order.
+        import os
+        if os.environ.get("EXTERNAL_FRAME_SELECTOR", "false").lower() == "true":
+            self._log_structured("info", "skipping_order_external_frame_selector",
+                                 {"order_id": order_id,
+                                  "reason": "oa_frame_selector handles VLM calls"})
+            return
+
         # Skip orders not in orders.json (invalid/partial OCR detections)
         if str(order_id) not in self._orders:
             self._log_structured("warning", "skipping_unknown_order", {

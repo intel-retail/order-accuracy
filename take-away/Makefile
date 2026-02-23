@@ -11,7 +11,7 @@
         benchmark-oa-metrics benchmark-oa-results benchmark-oa-help \
         update-submodules fetch-benchmark build-benchmark \
         consolidate-metrics plot-metrics clean-images clean-containers clean-all \
-        clean-metrics clean-results
+        clean-metrics clean-results clean-minio
 
 # =============================================================================
 # Load Environment Variables from .env file
@@ -62,7 +62,7 @@ REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
 
 # Benchmark Order Accuracy settings
 BENCHMARK_WORKERS ?= 1
-BENCHMARK_TARGET_LATENCY_MS ?= 20000
+BENCHMARK_TARGET_LATENCY_MS ?= 30000
 BENCHMARK_LATENCY_METRIC ?= avg
 BENCHMARK_INIT_DURATION ?= 30
 BENCHMARK_DURATION ?= 200
@@ -297,7 +297,15 @@ down:
 	docker compose -f $(COMPOSE_FILE) --profile parallel down
 	@echo "✓ All services stopped"
 
-restart: down up
+clean-minio:
+	@echo "Removing MinIO data volume..."
+	@docker stop oa_minio 2>/dev/null || true
+	@docker rm oa_minio 2>/dev/null || true
+	@docker volume rm take-away_minio_data 2>/dev/null || true
+	@echo "✓ MinIO data cleared"
+
+restart: down clean-minio up
+	@echo "✓ Services restarted with clean MinIO"
 
 # =============================================================================
 # Status & Monitoring

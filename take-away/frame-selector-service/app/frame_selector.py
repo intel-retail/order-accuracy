@@ -69,6 +69,10 @@ MINIO_ENDPOINT = MINIO["endpoint"]
 FRAMES_BUCKET = BUCKETS["frames"]
 SELECTED_BUCKET = BUCKETS["selected"]
 
+# Debug directory for saving received frames
+DEBUG_FRAME_DIR = os.environ.get('DEBUG_FRAME_DIR', '/app/debug/frame-selector-in')
+DEBUG_FRAMES_ENABLED = os.environ.get('DEBUG_FRAMES_ENABLED', 'true').lower() == 'true'
+
 # Reconfigure logging after all imports (YOLO overwrites logging config)
 # This must be AFTER ultralytics import
 logging.basicConfig(
@@ -93,6 +97,11 @@ MIN_FRAMES_BEFORE_FINALIZE = FS_CFG.get("min_frames_before_finalize", 5)
 # This handles the case where the video ends (last order has no subsequent order)
 INACTIVITY_TIMEOUT = FS_CFG.get("inactivity_timeout_sec", 15)
 
+# Cooldown between re-processing the same order_id (seconds).
+# Prevents duplicate VLM calls within the same video loop while allowing
+# the order to be re-processed on the next loop iteration.
+REPROCESS_COOLDOWN_SEC = int(os.environ.get('REPROCESS_COOLDOWN_SEC', '30'))
+
 VLM_ENDPOINT = VLM_CFG["endpoint"]
 
 # Per-station state tracking for multi-station mode
@@ -104,18 +113,31 @@ class StationState:
     current_keys: List[str] = field(default_factory=list)
     pending_order: Optional[str] = None
     pending_count: int = 0
+    pending_keys: List[str] = field(default_factory=list)  # frames seen for the next‐order candidate
     processed_keys: Set[str] = field(default_factory=set)
-    processed_orders: Set[str] = field(default_factory=set)
+    # Maps order_id → wall-clock of last VLM call (replaces the old Set).
+    # Allows re-processing on the next video loop while preventing duplicate
+    # calls within the same loop (guarded by REPROCESS_COOLDOWN_SEC).
+    processed_order_times: Dict[str, float] = field(default_factory=dict)
+    # Maps order_id → how many times it has been processed this session.
+    processed_order_counts: Dict[str, int] = field(default_factory=dict)
     last_frame_time: float = field(default_factory=time.time)
-    
+
+    @property
+    def processed_orders(self) -> set:
+        """Backward-compatible view of all orders processed at least once."""
+        return set(self.processed_order_times.keys())
+
     def reset(self):
         """Reset state for next video/stream"""
         self.current_order = None
         self.current_keys = []
         self.pending_order = None
         self.pending_count = 0
+        self.pending_keys = []
         self.processed_keys.clear()
-        self.processed_orders.clear()
+        self.processed_order_times.clear()
+        self.processed_order_counts.clear()
         self.last_frame_time = time.time()
 
 # Initialize per-station state
@@ -259,7 +281,7 @@ def get_producer():
 # VLM Caller (with RabbitMQ support)
 # =====================================================
 
-def call_vlm(order_id, station_id=None, timeout=120):
+def call_vlm(order_id, station_id=None, timeout=400):
     """
     Submit order for VLM processing.
     Uses RabbitMQ queue if available, falls back to direct HTTP call.
@@ -378,6 +400,31 @@ client = Minio(
 
 logger.info(f"MinIO client initialized: endpoint={MINIO_ENDPOINT}")
 
+# Initialize debug directory
+if DEBUG_FRAMES_ENABLED:
+    Path(DEBUG_FRAME_DIR).mkdir(parents=True, exist_ok=True)
+    logger.info(f"Debug frames enabled: saving to {DEBUG_FRAME_DIR}")
+
+
+def save_debug_frame(station_id: str, order_id: str, key: str, img: np.ndarray):
+    """Save frame to debug directory for debugging frame flow."""
+    if not DEBUG_FRAMES_ENABLED:
+        return
+    
+    try:
+        # Create folder: /app/debug/frame-selector-in/{station_id}/{order_id}/
+        debug_folder = Path(DEBUG_FRAME_DIR) / station_id / order_id
+        debug_folder.mkdir(parents=True, exist_ok=True)
+        
+        # Extract frame name from key
+        frame_name = key.split('/')[-1]  # e.g., frame_1.jpg
+        debug_path = debug_folder / frame_name
+        
+        cv2.imwrite(str(debug_path), img)
+        logger.debug(f"[DEBUG] Saved frame to: {debug_path}")
+    except Exception as e:
+        logger.warning(f"[DEBUG] Failed to save debug frame: {e}")
+
 
 # =====================================================
 # Helpers
@@ -407,25 +454,42 @@ def ensure_buckets():
 
 
 def list_frames_sorted(station_id: str):
-    """List frames for a specific station, sorted by name"""
+    """List frames for a specific station, sorted by name.
+
+    Returns:
+        frames              : list of (order_id, object_name) sorted by name
+        eos_seen            : True if the station-level __EOS__ marker exists
+        finalized_order_ids : set of order_ids that have a per-order __EOS__ marker
+                              (written by frame_pipeline on each order transition)
+    """
     logger.debug(f"Listing frames from bucket: {FRAMES_BUCKET} (station: {station_id})")
     frames = []
     eos_seen = False
+    finalized_order_ids = set()  # orders whose upload is complete
 
     for obj in client.list_objects(FRAMES_BUCKET, recursive=True):
-        # Check for EOS marker for this station
+        # Station-level EOS — full end-of-video cleanup signal
         if obj.object_name == f"{station_id}/__EOS__":
             eos_seen = True
             logger.info(f"EOS marker detected for station {station_id}")
             continue
 
-        # Only process frames for this station
+        # Only process objects for this station
         if not obj.object_name.startswith(f"{station_id}/"):
+            continue
+
+        parts = obj.object_name.split("/")
+
+        # Per-order EOS written by frame_pipeline: station_id/order_id/__EOS__
+        if len(parts) == 3 and parts[2] == "__EOS__":
+            order_id = parts[1]
+            if order_id.lower() != "pending":
+                finalized_order_ids.add(order_id)
+                logger.info(f"[{station_id}] Per-order EOS detected: order_id={order_id}")
             continue
 
         if obj.object_name.lower().endswith(".jpg"):
             # Extract: station_id/order_id/frame_X.jpg -> order_id
-            parts = obj.object_name.split("/")
             if len(parts) >= 3 and parts[0] == station_id:
                 order_id = parts[1]
                 # Skip "pending" folder - these are frames awaiting OCR, not real orders
@@ -434,16 +498,26 @@ def list_frames_sorted(station_id: str):
                 frames.append((order_id, obj.object_name))
 
     frames.sort(key=lambda x: x[1])
-    logger.debug(f"Found {len(frames)} frames for station {station_id}, eos_seen={eos_seen}")
-    return frames, eos_seen
+    logger.debug(f"Found {len(frames)} frames for station {station_id}, eos_seen={eos_seen}, "
+                 f"finalized_orders={finalized_order_ids}")
+    return frames, eos_seen, finalized_order_ids
 
 
 def load_image(key):
-    resp = client.get_object(FRAMES_BUCKET, key)
-    data = resp.read()
-    resp.close()
-    resp.release_conn()
-    return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    resp = None
+    try:
+        resp = client.get_object(FRAMES_BUCKET, key)
+        data = resp.read()
+        return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    except Exception as e:
+        # Key may have been overwritten or deleted between scan and load (race condition).
+        # Log a warning and return None so the caller skips this frame gracefully.
+        logger.warning(f"[load_image] Could not fetch {key}: {e}")
+        return None
+    finally:
+        if resp is not None:
+            resp.close()
+            resp.release_conn()
 
 
 def count_items(frame):
@@ -479,10 +553,19 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
         logger.debug(f"[{station_id}] Skipping empty order: order_id={order_id}")
         return
 
-    # Prevent duplicate VLM calls (check per-station state)
-    if order_id in state.processed_orders:
-        logger.warning(f"[{station_id}] Order already processed, skipping: order_id={order_id}")
+    # Prevent duplicate VLM calls within the same video loop using a cooldown.
+    # If the order was processed less than REPROCESS_COOLDOWN_SEC ago, skip it.
+    # Once the cooldown expires (next video loop), it will be re-processed.
+    last_processed = state.processed_order_times.get(order_id, 0)
+    elapsed_since = time.time() - last_processed
+    if last_processed > 0 and elapsed_since < REPROCESS_COOLDOWN_SEC:
+        logger.warning(
+            f"[{station_id}] Order {order_id} processed {elapsed_since:.0f}s ago "
+            f"(cooldown={REPROCESS_COOLDOWN_SEC}s) — skipping duplicate call"
+        )
         return
+    run_number = state.processed_order_counts.get(order_id, 0) + 1
+    logger.info(f"[{station_id}] Processing order_id={order_id} — run #{run_number}")
 
     # Ignore tiny OCR-noise orders
     if len(keys) < MIN_FRAMES_PER_ORDER:
@@ -510,12 +593,19 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
     scored = []
     fallback_frames = []  # Keep frames with hands/persons as fallback
     
+    logger.info(f"[{station_id}][ORDER-FINALIZE] Processing {len(keys)} frames for order_id={order_id}")
+    logger.info(f"[{station_id}][ORDER-FINALIZE] Frame keys: {keys}")
+    
     for key in keys:
         logger.debug(f"[{station_id}][ORDER-FINALIZE] Loading and scoring frame: {key}")
         img = load_image(key)
         if img is None:
             logger.warning(f"[{station_id}][ORDER-FINALIZE] Failed to load image: {key}")
             continue
+        
+        # Save debug frame
+        save_debug_frame(station_id, order_id, key, img)
+        
         items = count_items(img)
 
         # Skip frames containing person/hand etc. (but keep as fallback)
@@ -569,12 +659,55 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
 
     try:
         response = call_vlm(order_id, station_id=station_id)
-        logger.info(f"[{station_id}][ORDER-FINALIZE] VLM call successful for order_id={order_id}")
+        logger.info(f"[{station_id}][ORDER-FINALIZE] VLM call successful for order_id={order_id} (run #{run_number})")
         logger.debug(f"[{station_id}][ORDER-FINALIZE] VLM response: {response}")
-        state.processed_orders.add(order_id)
-        logger.info(f"[{station_id}][ORDER-FINALIZE] Processed orders so far: {state.processed_orders}")
+        state.processed_order_times[order_id] = time.time()
+        state.processed_order_counts[order_id] = run_number
+        logger.info(
+            f"[{station_id}][ORDER-FINALIZE] Order {order_id} processed {run_number} time(s). "
+            f"All processed: { {k: v for k, v in state.processed_order_counts.items()} }"
+        )
     except Exception as e:
         logger.error(f"[{station_id}][ORDER-FINALIZE] VLM call failed for order_id={order_id}: {e}", exc_info=True)
+
+
+def _cleanup_order(station_id: str, order_id: str, state: StationState) -> None:
+    """Delete all frames and the per-order EOS marker for a completed order from
+    FRAMES_BUCKET.  This prevents second-loop (video looping) frames from the
+    same order_id accumulating in the same MinIO prefix and inflating counts.
+    """
+    deleted = 0
+    # Remove frames already tracked in processed_keys
+    keys_to_remove = [k for k in list(state.processed_keys)
+                      if k.startswith(f"{station_id}/{order_id}/")]
+    for key in keys_to_remove:
+        try:
+            client.remove_object(FRAMES_BUCKET, key)
+            state.processed_keys.discard(key)
+            deleted += 1
+        except Exception as e:
+            logger.debug(f"[{station_id}] Failed to delete tracked frame {key}: {e}")
+    # Sweep MinIO for any frames that weren't yet in processed_keys
+    try:
+        for obj in client.list_objects(FRAMES_BUCKET,
+                                        prefix=f"{station_id}/{order_id}/",
+                                        recursive=True):
+            if obj.object_name in state.processed_keys:
+                continue
+            try:
+                client.remove_object(FRAMES_BUCKET, obj.object_name)
+                deleted += 1
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug(f"[{station_id}] Error sweeping MinIO for order {order_id}: {e}")
+    # Delete the per-order EOS marker itself
+    try:
+        client.remove_object(FRAMES_BUCKET, f"{station_id}/{order_id}/__EOS__")
+    except Exception:
+        pass
+    logger.info(f"[{station_id}][CLEANUP] Removed {deleted} frames + EOS for order_id={order_id} "
+                f"— next video loop will start with a clean bucket")
 
 
 def process_station(station_id: str, state: StationState) -> bool:
@@ -583,7 +716,7 @@ def process_station(station_id: str, state: StationState) -> bool:
     Returns True if EOS was detected for this station.
     """
     try:
-        frames, eos_seen = list_frames_sorted(station_id)
+        frames, eos_seen, finalized_order_ids = list_frames_sorted(station_id)
     except S3Error as e:
         logger.error(f"[{station_id}] MinIO list error: {e}")
         return False
@@ -610,10 +743,12 @@ def process_station(station_id: str, state: StationState) -> bool:
                 logger.debug(f"[{station_id}][MAIN-LOOP] New order candidate: {order_id}")
                 state.pending_order = order_id
                 state.pending_count = 1
+                state.pending_keys = []  # reset buffer when candidate changes
 
-            # New order not stable yet → ignore this frame
+            # New order not stable yet → buffer in pending_keys (NOT current_keys)
             if state.pending_count < MIN_FRAMES_PER_ORDER:
                 logger.debug(f"[{station_id}][MAIN-LOOP] Pending new order: {order_id} ({state.pending_count}/{MIN_FRAMES_PER_ORDER})")
+                state.pending_keys.append(key)  # hold for new order, never mix into current
                 state.processed_keys.add(key)
                 continue
 
@@ -621,14 +756,16 @@ def process_station(station_id: str, state: StationState) -> bool:
             current_frame_count = len(state.current_keys)
             if current_frame_count >= MIN_FRAMES_BEFORE_FINALIZE:
                 logger.info(f"[{station_id}][MAIN-LOOP] New order confirmed: {order_id}. Closing current order: {state.current_order} ({current_frame_count} frames)")
+                _prev_order = state.current_order
                 process_completed_order(station_id, state.current_order, state.current_keys, state)
+                _cleanup_order(station_id, _prev_order, state)
                 state.current_order = order_id
-                state.current_keys = []
+                state.current_keys = list(state.pending_keys)  # seed new order with already-seen frames
+                state.pending_keys = []
             else:
-                # Not enough frames yet - keep collecting for current order
+                # Not enough frames to finalize current order yet → buffer this frame for the new order
                 logger.info(f"[{station_id}][MAIN-LOOP] New order {order_id} detected but waiting for more frames on {state.current_order} ({current_frame_count}/{MIN_FRAMES_BEFORE_FINALIZE})")
-                # Add pending frames to current order instead of discarding
-                state.current_keys.append(key)
+                state.pending_keys.append(key)  # buffer for new order, NOT current_keys
                 state.processed_keys.add(key)
                 continue
             state.pending_order = None
@@ -641,13 +778,40 @@ def process_station(station_id: str, state: StationState) -> bool:
 
         logger.debug(f"[{station_id}][MAIN-LOOP] Collected frame: {key} (order_id={order_id}, total_frames={len(state.current_keys)})")
 
+    # ---- Per-order EOS: finalize as soon as frame_pipeline signals upload complete ----
+    # frame_pipeline writes station_id/order_id/__EOS__ on every order transition.
+    # Finalizing here (rather than waiting for frame-count transitions) means:
+    #  • Each order is processed with only its own frames (no cross-loop contamination).
+    #  • The bucket is cleaned before the next video loop writes to the same prefix.
+    if state.current_order and state.current_order in finalized_order_ids:
+        logger.info(f"[{station_id}][PER-ORDER-EOS] Order {state.current_order} upload complete — "
+                    f"finalizing ({len(state.current_keys)} frames)")
+        if state.current_keys:
+            process_completed_order(station_id, state.current_order, state.current_keys, state)
+        _cleanup_order(station_id, state.current_order, state)
+        # Promote pending order if one is already confirmed, otherwise go idle
+        if state.pending_order and state.pending_count >= MIN_FRAMES_PER_ORDER:
+            logger.info(f"[{station_id}][PER-ORDER-EOS] Promoting pending order "
+                        f"{state.pending_order} ({len(state.pending_keys)} buffered frames)")
+            state.current_order = state.pending_order
+            state.current_keys  = list(state.pending_keys)
+        else:
+            state.current_order = None
+            state.current_keys  = []
+        state.pending_order = None
+        state.pending_count = 0
+        state.pending_keys  = []
+        state.last_frame_time = time.time()
+
     # Inactivity timeout handling - finalize current order if no new frames for a while
     # This handles the case where the video ends (last order has no subsequent order)
     if state.current_order and state.current_keys:
         time_since_last_frame = time.time() - state.last_frame_time
         if time_since_last_frame >= INACTIVITY_TIMEOUT:
             logger.info(f"[{station_id}][INACTIVITY] No new frames for {time_since_last_frame:.1f}s. Finalizing current order: {state.current_order}")
+            _timeout_order = state.current_order
             process_completed_order(station_id, state.current_order, state.current_keys, state)
+            _cleanup_order(station_id, _timeout_order, state)
             state.current_order = None
             state.current_keys = []
             state.last_frame_time = time.time()  # Reset timer
@@ -723,7 +887,10 @@ if __name__ == "__main__":
         # Process each station
         for station_id in STATION_IDS:
             state = station_states[station_id]
-            process_station(station_id, state)
+            try:
+                process_station(station_id, state)
+            except Exception as exc:
+                logger.error(f"[{station_id}] Unhandled error in process_station, continuing: {exc}", exc_info=True)
         
         # Log status every 10 polls
         if poll_count % 10 == 0:

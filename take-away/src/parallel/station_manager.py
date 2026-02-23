@@ -1,27 +1,21 @@
 """
-Station Manager with Autoscaling
+Station Manager
 
-Manages pool of station worker processes with dynamic scaling based on:
-- CPU utilization
-- GPU utilization  
-- Order latency
-- Scaling policy
+Manages pool of station worker processes with fixed worker count.
 
 Responsibilities:
 - Start/stop station workers
-- Monitor system metrics
-- Apply scaling policy
 - Graceful worker lifecycle management
+- Signal handling for clean shutdown
 """
 
 import multiprocessing as mp
 import time
 import logging
-from typing import Dict, List, Optional
+from typing import Dict, Optional
 import signal
-import sys
 
-from .shared_queue import QueueManager, QueueBackend
+from .shared_queue import QueueManager
 from .metrics_collector import MetricsCollector, MetricsStore
 from .station_worker import start_worker_process
 
@@ -30,14 +24,12 @@ logger = logging.getLogger(__name__)
 
 class StationManager:
     """
-    Manages pool of station worker processes with autoscaling.
+    Manages pool of station worker processes.
     
     Architecture:
     1. Maintains pool of worker processes (one per station)
     2. Monitors metrics via MetricsCollector
-    3. Evaluates scaling decisions via ScalingPolicy
-    4. Dynamically starts/stops workers
-    5. Handles graceful shutdown
+    3. Handles graceful shutdown
     """
     
     def __init__(
@@ -47,7 +39,7 @@ class StationManager:
         initial_stations: int = 1
     ):
         """
-        Initialize the station manager with configuration and scaling policy.
+        Initialize the station manager.
         
         Args:
             config: Global configuration dictionary with settings for:
@@ -58,11 +50,9 @@ class StationManager:
                 - orders_path: Path to orders JSON file
                 - yolo_model_path: Path to YOLO model for frame selection
             queue_manager: Shared queue manager instance (REQUIRED)
-            initial_stations: Number of station workers to start initially
+            initial_stations: Number of station workers to start
         """
         self.config = config
-        
-        # Use shared infrastructure
         self.queue_manager = queue_manager
         self.metrics_store = MetricsStore(window_size=30)
         self.metrics_collector = MetricsCollector(
@@ -77,58 +67,37 @@ class StationManager:
         
         # Control
         self._running = False
+        self._monitor_interval = 5.0
         
-        # Check scaling mode from config
-        scaling_config = config.get('scaling', {})
-        scaling_mode = scaling_config.get('mode', 'auto') if isinstance(scaling_config, dict) else 'auto'
-        self._autoscaling_enabled = (scaling_mode != 'fixed')
-        
-        self._control_loop_interval = 5.0  # Check every 5 seconds
-        
-        # Statistics
-        self._scaling_events = []
-        
-        logger.info(
-            f"StationManager initialized: "
-            f"initial_stations={initial_stations}, "
-            f"scaling_mode={scaling_mode}, "
-            f"autoscaling_enabled={self._autoscaling_enabled}"
-        )
+        logger.info(f"StationManager initialized: stations={initial_stations}")
         
         # Setup signal handlers
         signal.signal(signal.SIGTERM, self._handle_shutdown_signal)
         signal.signal(signal.SIGINT, self._handle_shutdown_signal)
         
-        # Pre-create response queues for all potential stations
-        # This ensures queues are created BEFORE worker processes spawn
+        # Pre-create response queues for all stations
         max_stations = config.get('scaling', {}).get('max_stations', 8) if isinstance(config.get('scaling'), dict) else 8
-        station_ids = [f"station_{i+1}" for i in range(max_stations)]
-        for station_id in station_ids:
-            self.queue_manager.get_response_queue(station_id)
-        logger.info(f"Pre-created response queues for {len(station_ids)} stations")
+        for i in range(max_stations):
+            self.queue_manager.get_response_queue(f"station_{i+1}")
+        logger.info(f"Pre-created response queues for {max_stations} stations")
         
-        # Start initial stations
-        for i in range(initial_stations):
+        # Start workers
+        for _ in range(initial_stations):
             self._start_worker()
     
     def start(self):
-        """Start station manager"""
+        """Start station manager and block until shutdown"""
         if self._running:
             logger.warning("StationManager already running")
             return
         
         self._running = True
-        
-        # Start metrics collector
         self.metrics_collector.start()
         
-        logger.info(
-            f"StationManager started with {len(self.workers)} stations"
-        )
+        logger.info(f"StationManager started with {len(self.workers)} workers")
         
-        # Run control loop
         try:
-            self._control_loop()
+            self._monitor_loop()
         except KeyboardInterrupt:
             logger.info("KeyboardInterrupt received")
         finally:
@@ -142,44 +111,25 @@ class StationManager:
         logger.info("Stopping StationManager...")
         self._running = False
         
-        # Stop metrics collector
         self.metrics_collector.stop()
-        
-        # Stop all workers
         self._stop_all_workers()
-        
-        # Cleanup queues
         self.queue_manager.shutdown()
         
         logger.info("StationManager stopped")
     
-    def _control_loop(self):
-        """Main control loop for autoscaling"""
-        logger.info("Control loop started")
+    def _monitor_loop(self):
+        """Monitor loop - keeps manager running and updates metrics"""
+        logger.info("Monitor loop started")
         
         while self._running:
             try:
-                time.sleep(self._control_loop_interval)
-                
-                # Update queue depth metrics only (no auto-scaling)
+                time.sleep(self._monitor_interval)
                 self._update_queue_metrics()
-            
             except Exception as e:
-                logger.error(f"Error in control loop: {e}")
-                time.sleep(self._control_loop_interval)
+                logger.error(f"Error in monitor loop: {e}")
+                time.sleep(self._monitor_interval)
         
-        logger.info("Control loop stopped")
-    
-    def _get_current_metrics(self) -> Dict:
-        """Get current system metrics"""
-        return {
-            'cpu_avg': self.metrics_store.get_cpu_avg(),
-            'gpu_avg': self.metrics_store.get_gpu_avg(),
-            'latency_avg': self.metrics_store.get_latency_avg(),
-            'latency_p95': self.metrics_store.get_latency_p95(),
-            'active_stations': len(self.metrics_store.get_active_stations()),
-            'total_orders': self.metrics_store.get_throughput()
-        }
+        logger.info("Monitor loop stopped")
     
     def _start_worker(self) -> str:
         """
@@ -338,10 +288,7 @@ class StationManager:
         """Update queue depth metrics"""
         try:
             vlm_queue_depth = self.queue_manager.vlm_request_queue.qsize()
-            self.metrics_store.update_queue_depth(
-                'vlm_requests',
-                vlm_queue_depth
-            )
+            self.metrics_store.update_queue_depth('vlm_requests', vlm_queue_depth)
         except Exception as e:
             logger.debug(f"Failed to update queue metrics: {e}")
     
@@ -350,19 +297,9 @@ class StationManager:
         logger.info(f"Received signal {signum}, shutting down...")
         self._running = False
     
-    def enable_autoscaling(self):
-        """Enable autoscaling"""
-        self._autoscaling_enabled = True
-        logger.info("Autoscaling enabled")
-    
-    def disable_autoscaling(self):
-        """Disable autoscaling (for benchmark mode)"""
-        self._autoscaling_enabled = False
-        logger.info("Autoscaling disabled")
-    
     def set_station_count(self, count: int):
         """
-        Manually set number of stations (for benchmark mode).
+        Manually set number of stations.
         
         Args:
             count: Target number of stations
@@ -370,33 +307,24 @@ class StationManager:
         current = len(self.workers)
         
         if count > current:
-            # Add workers
-            for i in range(count - current):
+            for _ in range(count - current):
                 self._start_worker()
-        
         elif count < current:
-            # Remove workers
-            for i in range(current - count):
+            for _ in range(current - count):
                 self._stop_worker()
         
-        logger.info(f"Manually set station count: {current} → {count}")
+        logger.info(f"Set station count: {current} → {count}")
     
     def get_status(self) -> Dict:
         """Get current manager status"""
-        metrics = self._get_current_metrics()
-        
         return {
             'running': self._running,
-            'autoscaling_enabled': self._autoscaling_enabled,
             'active_stations': len(self.workers),
-            'worker_pids': {
-                sid: proc.pid for sid, proc in self.workers.items()
+            'worker_pids': {sid: proc.pid for sid, proc in self.workers.items()},
+            'metrics': {
+                'cpu_avg': self.metrics_store.get_cpu_avg(),
+                'gpu_avg': self.metrics_store.get_gpu_avg(),
+                'latency_avg': self.metrics_store.get_latency_avg(),
             },
-            'metrics': metrics,
-            'scaling_events': len(self._scaling_events),
-            'queue_depths': self.metrics_store.get_snapshot()['queue_depths']
+            'queue_depths': self.metrics_store.get_snapshot().get('queue_depths', {})
         }
-    
-    def get_scaling_history(self) -> List[Dict]:
-        """Get history of scaling events"""
-        return self._scaling_events.copy()
