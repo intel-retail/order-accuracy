@@ -12,6 +12,13 @@ from datetime import datetime
 
 API_BASE = "http://oa_service:8000"
 
+# Dedicated session for all internal Docker API calls.
+# trust_env=False disables proxy env-var lookup (HTTP_PROXY, HTTPS_PROXY)
+# which caused requests to oa_service to be routed through the corporate proxy
+# and time out, even though oa_service was listed in NO_PROXY.
+_api = requests.Session()
+_api.trust_env = False
+
 # Global variables for RTSP streaming
 STREAM_STOP_EVENT = threading.Event()
 frame_queue = queue.Queue(maxsize=5)  # Buffer for smooth streaming
@@ -94,6 +101,23 @@ a[href*="gradio.app"] {
     background: white;
     border-radius: 12px;
     border: 1px solid #e2e8f0;
+    overflow: hidden;
+}
+
+/* RTSP Stream - fills right column card, preserves aspect ratio */
+#rtsp-stream-image img {
+    width: 100% !important;
+    height: auto !important;
+    min-height: 360px !important;
+    object-fit: contain !important;
+    border-radius: 8px;
+    background: #000;
+    display: block;
+}
+#rtsp-stream-image {
+    width: 100% !important;
+    background: #000;
+    border-radius: 8px;
     overflow: hidden;
 }
 
@@ -324,9 +348,16 @@ rtsp_reader = None
 def start_smooth_stream(rtsp_url):
     """Start smooth RTSP streaming"""
     global rtsp_reader
-    
-    if not rtsp_url or not rtsp_url.startswith("rtsp://"):
-        yield None, "❌ Invalid RTSP URL"
+
+    if not rtsp_url:
+        yield None, "❌ RTSP URL is empty"
+        return
+
+    # Normalize localhost addresses to host.docker.internal for container network
+    rtsp_url = normalize_rtsp_url(rtsp_url)
+
+    if not rtsp_url.startswith("rtsp://") and not rtsp_url.startswith("rtsps://"):
+        yield None, "❌ Invalid RTSP URL — must start with rtsp:// or rtsps://"
         return
     
     # Stop any existing stream
@@ -403,7 +434,7 @@ def stop_smooth_stream():
 def fetch_statistics():
     """Fetch processing statistics from backend"""
     try:
-        resp = requests.get(
+        resp = _api.get(
             f"{API_BASE}/statistics",
             timeout=5
         )
@@ -433,7 +464,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
         progress(0.1, desc="📤 Uploading video...")
         
         with open(file.name, "rb") as f:
-            resp = requests.post(
+            resp = _api.post(
                 f"{API_BASE}/upload-video",
                 files={"file": f},
                 timeout=60
@@ -493,7 +524,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
         
         # Mark video as completed via API
         try:
-            requests.post(f"{API_BASE}/videos/{video_id}/complete", timeout=5)
+            _api.post(f"{API_BASE}/videos/{video_id}/complete", timeout=5)
         except Exception as e:
             print(f"Failed to mark video complete: {e}")
         
@@ -523,7 +554,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
         # Mark video as failed if we have a video_id
         if 'video_id' in dir():
             try:
-                requests.post(f"{API_BASE}/videos/{video_id}/fail?error={str(e)}", timeout=5)
+                _api.post(f"{API_BASE}/videos/{video_id}/fail?error={str(e)}", timeout=5)
             except:
                 pass
         return f"❌ Upload error: {e}", gr.update(interactive=True)
@@ -542,10 +573,35 @@ def generate_validation_summary(results):
         "mismatch": mismatch
     }
 
+def fetch_service_mode():
+    """Fetch current service mode from backend"""
+    try:
+        resp = _api.get(f"{API_BASE}/mode", timeout=3)
+        if resp.status_code == 200:
+            return resp.json()
+    except Exception:
+        pass
+    return {"service_mode": "unknown", "workers": 1}
+
+
+def normalize_rtsp_url(url: str) -> str:
+    """Normalize RTSP URL for use inside Docker containers.
+    - localhost / 127.0.0.1  → rtsp-streamer (direct Docker network, avoids host hop)
+    - host.docker.internal   → rtsp-streamer (same reasoning; streamer is on the same network)
+    """
+    for prefix in ("rtsp://localhost", "rtsp://127.0.0.1", "rtsp://host.docker.internal"):
+        if url.startswith(prefix):
+            rest = url[len(prefix):]
+            return f"rtsp://rtsp-streamer{rest}"
+    return url
+
+
 def start_rtsp_processing(rtsp_url):
-    """Start RTSP processing pipeline"""
+    """Start RTSP processing pipeline via backend"""
     if not rtsp_url:
         return "❌ RTSP URL missing"
+
+    rtsp_url = normalize_rtsp_url(rtsp_url)
 
     payload = {
         "source_type": "rtsp",
@@ -553,23 +609,30 @@ def start_rtsp_processing(rtsp_url):
     }
 
     try:
-        resp = requests.post(
+        resp = _api.post(
             f"{API_BASE}/run-video",
             json=payload,
-            timeout=10
+            timeout=15
         )
 
         if resp.status_code != 200:
             return f"❌ RTSP processing failed: {resp.text}"
 
-        return "✅ RTSP processing pipeline started"
+        data = resp.json()
+        video_id = data.get("video_id", "")
+        return (
+            f"✅ RTSP pipeline started\n"
+            f"Source: {rtsp_url}\n"
+            f"Video ID: {video_id}\n"
+            f"Results will appear in the '📊 Detected Orders' tab."
+        )
 
     except Exception as e:
         return f"❌ RTSP processing error: {e}"
 
 def fetch_results():
     try:
-        resp = requests.get(
+        resp = _api.get(
             f"{API_BASE}/vlm/results",
             timeout=5
         )
@@ -706,7 +769,7 @@ def format_order_card(result):
 def fetch_video_history():
     """Fetch video history from backend API"""
     try:
-        response = requests.get(f"{API_BASE}/videos/history", timeout=5)
+        response = _api.get(f"{API_BASE}/videos/history", timeout=5)
         if response.status_code == 200:
             data = response.json()
             return data.get("videos", [])
@@ -717,7 +780,7 @@ def fetch_video_history():
 def clear_history():
     """Clear all video history via backend API"""
     try:
-        response = requests.delete(f"{API_BASE}/videos/history", timeout=5)
+        response = _api.delete(f"{API_BASE}/videos/history", timeout=5)
         if response.status_code == 200:
             return format_history_html()
     except Exception as e:
@@ -941,42 +1004,66 @@ with gr.Blocks(
         # ======================
         with gr.TabItem("📡 RTSP Stream"):
             gr.HTML('<div style="height: 8px;"></div>')
-            
+
+            # ── Row 1: Mode badge ──────────────────────────────────────────
+            with gr.Row():
+                mode_status = gr.Textbox(
+                    label="Service Mode",
+                    value="Loading...",
+                    lines=1,
+                    interactive=False
+                )
+
+            # ── Row 2: Left controls | Right video ────────────────────────
             with gr.Row():
                 # Left column: Controls
                 with gr.Column(scale=1):
                     gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">🔗 Stream Configuration</div>')
                     rtsp_url = gr.Textbox(
                         label="RTSP URL",
-                        placeholder="rtsp://host.docker.internal:8554/test",
-                        value="rtsp://host.docker.internal:8554/test"
+                        placeholder="rtsp://rtsp-streamer:8554/station_1",
+                        value="rtsp://rtsp-streamer:8554/station_1"
                     )
-                    
+
                     gr.HTML('<div style="height: 16px;"></div>')
                     gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">🎥 Stream Controls</div>')
-                    
+
                     with gr.Row():
                         stream_start_btn = gr.Button("▶️ Start Preview", variant="primary", elem_classes=["primary-btn"])
                         stream_stop_btn = gr.Button("⏹️ Stop", variant="secondary")
-                    
+
                     gr.HTML('<div style="height: 16px;"></div>')
                     gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">🔄 Processing Pipeline</div>')
                     process_btn = gr.Button("🚀 Start Processing", variant="primary", elem_classes=["primary-btn"])
-                    
+
                     processing_status = gr.Textbox(label="Pipeline Status", lines=2, interactive=False)
-                
+
                 # Right column: Stream display
                 with gr.Column(scale=2):
                     gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">📺 Live Stream Preview</div>')
                     stream_image = gr.Image(
                         label="",
                         width=None,
-                        height=400,
+                        height=None,
                         interactive=False,
                         show_label=False,
-                        container=True
+                        container=False,
+                        elem_id="rtsp-stream-image"
                     )
-                    stream_status = gr.Textbox(label="Stream Status", lines=2, interactive=False)
+                    stream_status = gr.Textbox(label="Stream Status", lines=1, interactive=False)
+
+            # Populate mode badge when tab loads
+            def _load_mode_status():
+                info = fetch_service_mode()
+                mode = info.get('service_mode', 'unknown')
+                workers = info.get('workers', 1)
+                if mode == 'parallel':
+                    return f"⚡ Parallel mode — {workers} station(s) running. 'Start Processing' will show station status."
+                elif mode == 'single':
+                    return "🔵 Single mode — 'Start Processing' will launch a new GStreamer pipeline for this URL."
+                return f"⚠️  Mode unknown ({mode})"
+
+            demo.load(fn=_load_mode_status, inputs=None, outputs=[mode_status])
 
             # Connect button functions
             stream_start_btn.click(
@@ -984,12 +1071,12 @@ with gr.Blocks(
                 inputs=[rtsp_url],
                 outputs=[stream_image, stream_status]
             )
-            
+
             stream_stop_btn.click(
                 fn=stop_smooth_stream,
                 outputs=[stream_image, stream_status]
             )
-            
+
             process_btn.click(
                 fn=start_rtsp_processing,
                 inputs=[rtsp_url],

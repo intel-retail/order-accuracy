@@ -82,6 +82,9 @@ services:
       WORKERS: ${WORKERS:-0}
       VLM_WORKERS: ${VLM_WORKERS:-2}
       SCALING_MODE: ${SCALING_MODE:-fixed}
+      # When the external oa_frame_selector service is running it owns frame
+      # selection and VLM calls. Station worker skips its own duplicate path.
+      EXTERNAL_FRAME_SELECTOR: ${EXTERNAL_FRAME_SELECTOR:-true}
       
       # Common configuration
       APP_CONFIG: /config/application.yaml
@@ -105,6 +108,8 @@ services:
       RTSP_STREAMER_PORT: ${RTSP_STREAMER_PORT:-8554}
       RTSP_STREAMS: ${RTSP_STREAMS:-}
       RTSP_STREAM_NAME: ${RTSP_STREAM_NAME:-test}
+      
+
       
       # Performance tuning
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-4}
@@ -170,10 +175,13 @@ services:
       - ./config:/config:ro
       - ./model:/app/models
       - ./datasets:/app/datasets
+      - ./results/frame-selector-in:/app/debug/frame-selector-in  # Debug frames
     environment:
       # Multi-station mode: single instance handles all stations
       MULTI_STATION_MODE: "true"
       WORKERS: ${WORKERS:-1}
+      # Debug frame saving
+      DEBUG_FRAMES_ENABLED: ${DEBUG_FRAMES_ENABLED:-true}
       # Legacy single-station config (ignored when MULTI_STATION_MODE=true)
       STATION_ID: ${STATION_ID:-station_1}
       APP_CONFIG: /config/application.yaml
@@ -290,12 +298,12 @@ services:
       - RTSP_STREAMER_HOST=rtsp-streamer
       - RTSP_STREAMER_PORT=8554
       # Stream configuration - read from .env
-      - WORKERS=${WORKERS:-2}
+      - WORKERS=${WORKERS:-1}
       - RTSP_STREAM_NAME=${RTSP_STREAM_NAME:-test}
       - RTSP_STREAMS=${RTSP_STREAMS:-}
       # Use -1 for infinite loop (ensures all orders captured in benchmark)
       - STREAM_LOOP=-1
-      - STARTUP_DELAY=${STARTUP_DELAY:-30}  # Seconds to wait for pipelines before streaming
+      - STARTUP_DELAY=${STARTUP_DELAY:-5}  # Seconds to wait for pipelines before streaming
     ports:
       - "8554:8554"  # RTSP port
     restart: unless-stopped
