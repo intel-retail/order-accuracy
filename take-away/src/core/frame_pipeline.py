@@ -38,6 +38,10 @@ HAND_LABELS = {"hand", "person"}
 # Default to station_1 for single station frontend mode
 STATION_ID = os.environ.get('STATION_ID', 'station_1')
 
+# Number of consecutive frames an order_id must appear before it is committed.
+# Prevents a single blurry/misread OCR frame from triggering a false order change.
+DEBOUNCE_FRAMES = int(os.environ.get('ORDER_DEBOUNCE_FRAMES', '3'))
+
 # ====== MinIO client ======
 client = Minio(
     MINIO_ENDPOINT,
@@ -58,6 +62,10 @@ _frame_counter = 0
 _current_order_id = None
 _order_frame_count = 0
 _last_order_time = time.time()
+
+# Debounce state: candidate order being evaluated before committing
+_pending_order_id = None    # OCR read in most recent consecutive run
+_pending_order_count = 0    # how many consecutive frames confirmed _pending_order_id
 
 # ====== helpers ======
 def safe_get_image(frame):
@@ -243,8 +251,9 @@ def process_frame(frame: "VideoFrame"):
     - EOS marker writing when order changes
     """
     global _frame_counter, _current_order_id, _order_frame_count, _last_order_time
+    global _pending_order_id, _pending_order_count
     _frame_counter += 1
-    
+
     if _frame_counter % 50 == 0:  # Log every 50 frames to reduce noise
         print(f"[frame_to_minio] Processed {_frame_counter} frames total")
 
@@ -280,7 +289,9 @@ def process_frame(frame: "VideoFrame"):
         order_id = READ_ORDER_ID_FN(image)
 
         if not order_id:
-            # No order detected, check if we should timeout current order
+            # OCR found nothing - reset debounce candidate and check timeout
+            _pending_order_id = None
+            _pending_order_count = 0
             if _current_order_id and (time.time() - _last_order_time) > 10:
                 print(f"[frame_to_minio] Order {_current_order_id} timeout after 10s, finalizing with {_order_frame_count} frames")
                 finalize_order(_current_order_id)
@@ -288,28 +299,39 @@ def process_frame(frame: "VideoFrame"):
                 _order_frame_count = 0
             return True
 
-        # Order detected - check if it's a new order
-        if order_id != _current_order_id:
-            # New order detected!
+        # ── Debounce / voting window ──────────────────────────────────────────
+        # An order_id must be seen in DEBOUNCE_FRAMES consecutive frames before
+        # we commit to it.  This prevents a single blurry/misread OCR result
+        # from falsely triggering an order change.
+        if order_id == _pending_order_id:
+            _pending_order_count += 1
+        else:
+            # Different candidate seen - restart the window
+            _pending_order_id = order_id
+            _pending_order_count = 1
+            if order_id != _current_order_id:
+                print(f"[frame_to_minio] Debounce: candidate order '{order_id}' seen (1/{DEBOUNCE_FRAMES})")
+
+        # Only commit when the candidate has been stable for DEBOUNCE_FRAMES frames
+        if _pending_order_count >= DEBOUNCE_FRAMES and _pending_order_id != _current_order_id:
             if _current_order_id:
-                # Finalize previous order
-                print(f"[frame_to_minio] Order change: {_current_order_id} -> {order_id}, finalizing previous with {_order_frame_count} frames")
+                print(f"[frame_to_minio] Order change confirmed after {DEBOUNCE_FRAMES} frames: "
+                      f"{_current_order_id} -> {_pending_order_id}, finalizing previous with {_order_frame_count} frames")
                 finalize_order(_current_order_id)
-            
-            # Start new order
-            print(f"[frame_to_minio] Starting new order: {order_id}")
-            _current_order_id = order_id
+            else:
+                print(f"[frame_to_minio] New order confirmed after {DEBOUNCE_FRAMES} frames: {_pending_order_id}")
+            _current_order_id = _pending_order_id
             _order_frame_count = 0
-        
-        # Upload frame for current order
-        _order_frame_count += 1
-        _last_order_time = time.time()
-        
-        upload_frame(order_id, _order_frame_count, image)
-        
-        if _order_frame_count % 10 == 0:
-            print(f"[frame_to_minio] Order {order_id}: {_order_frame_count} frames")
-        
+        # ─────────────────────────────────────────────────────────────────────
+
+        # Upload only to the committed (confirmed) order
+        if _current_order_id and order_id == _current_order_id:
+            _order_frame_count += 1
+            _last_order_time = time.time()
+            upload_frame(_current_order_id, _order_frame_count, image)
+            if _order_frame_count % 10 == 0:
+                print(f"[frame_to_minio] Order {_current_order_id}: {_order_frame_count} frames")
+
         return True
 
     except Exception:

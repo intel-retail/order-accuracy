@@ -87,6 +87,17 @@ TOP_K = FS_CFG.get("top_k", 3)  # Default to 5 if not specified
 POLL_INTERVAL = FS_CFG.get("poll_interval_sec", 1.5)
 SKIP_LABELS = set(FS_CFG.get("skip_labels", ["hand", "person"]))
 
+# Confidence threshold for detecting skip-labels (person/hand).
+# Kept LOW so even a partially-visible hand dismisses the frame.
+SKIP_LABEL_CONF = float(os.environ.get("SKIP_LABEL_CONF",
+                        str(FS_CFG.get("skip_label_conf", 0.1))))
+
+# Confidence threshold for counting valid food items.
+# Higher than SKIP_LABEL_CONF to suppress YOLO false-positives
+# (e.g. 'clock', 'dining table', 'remote') that inflate frame scores.
+ITEM_COUNT_CONF = float(os.environ.get("ITEM_COUNT_CONF",
+                        str(FS_CFG.get("item_count_conf", 0.35))))
+
 # How many consecutive frames required to confirm a new order
 MIN_FRAMES_PER_ORDER = FS_CFG.get("min_frames_per_order", 2)
 
@@ -520,25 +531,48 @@ def load_image(key):
             resp.release_conn()
 
 
-def count_items(frame):
-    logger.debug("Running YOLO detection on frame")
-    result = model(frame, conf=0.1, verbose=False)[0]
+def count_items(frame, frame_key="?"):
+    # Run YOLO at the lower skip-label threshold so even a faint hand is caught.
+    result = model(frame, conf=SKIP_LABEL_CONF, verbose=False)[0]
 
-    # If ANY skip-label (like person/hand) is present → discard frame
+    # Log every raw detection for diagnosis
+    all_detections = []
+    for box in result.boxes:
+        cls_name = result.names.get(int(box.cls), "unknown").lower()
+        conf_val  = float(box.conf)
+        all_detections.append(f"{cls_name}({conf_val:.2f})")
+    logger.info(f"[YOLO][{frame_key}] Detections (conf>={SKIP_LABEL_CONF}): "
+                f"{all_detections if all_detections else 'none'}")
+
+    # If ANY skip-label (like person/hand) is present at low conf → discard frame
     for box in result.boxes:
         cls_name = result.names.get(int(box.cls), "").lower()
         if cls_name in SKIP_LABELS:
-            logger.debug(f"Frame contains skip label: {cls_name}")
+            logger.info(f"[YOLO][{frame_key}] DROPPED — skip label '{cls_name}' "
+                        f"detected at conf={float(box.conf):.2f}")
             return -1   # mark frame as invalid
 
-    # Otherwise count valid objects
+    # Count valid objects only above the higher item-count threshold.
+    # This suppresses false-positive classes (clock, remote, dining table etc.)
+    # that YOLO hallucinates on food items at low confidence.
     count = 0
+    valid_items = []
+    low_conf_ignored = []
     for box in result.boxes:
         cls_name = result.names.get(int(box.cls), "").lower()
-        if cls_name not in SKIP_LABELS:
+        conf_val  = float(box.conf)
+        if cls_name in SKIP_LABELS:
+            continue   # already checked above
+        if conf_val >= ITEM_COUNT_CONF:
             count += 1
+            valid_items.append(f"{cls_name}({conf_val:.2f})")
+        else:
+            low_conf_ignored.append(f"{cls_name}({conf_val:.2f})")
 
-    logger.debug(f"Frame contains {count} valid objects")
+    if low_conf_ignored:
+        logger.info(f"[YOLO][{frame_key}] Ignored low-conf items "
+                    f"(conf<{ITEM_COUNT_CONF}): {low_conf_ignored}")
+    logger.info(f"[YOLO][{frame_key}] ACCEPTED — {count} valid item(s): {valid_items}")
     return count
 
 
@@ -591,46 +625,54 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
         logger.warning(f"[{station_id}][ORDER-FINALIZE] Failed to cleanup stale frames for order_id={order_id}: {e}")
 
     scored = []
-    fallback_frames = []  # Keep frames with hands/persons as fallback
-    
+
     logger.info(f"[{station_id}][ORDER-FINALIZE] Processing {len(keys)} frames for order_id={order_id}")
     logger.info(f"[{station_id}][ORDER-FINALIZE] Frame keys: {keys}")
     
+    dropped_keys  = []
+    accepted_keys = []
+
     for key in keys:
-        logger.debug(f"[{station_id}][ORDER-FINALIZE] Loading and scoring frame: {key}")
         img = load_image(key)
         if img is None:
             logger.warning(f"[{station_id}][ORDER-FINALIZE] Failed to load image: {key}")
             continue
-        
+
         # Save debug frame
         save_debug_frame(station_id, order_id, key, img)
-        
-        items = count_items(img)
 
-        # Skip frames containing person/hand etc. (but keep as fallback)
+        frame_label = key.split('/')[-1]   # e.g. frame_12.jpg
+        items = count_items(img, frame_key=f"{order_id}/{frame_label}")
+
+        # Skip frames containing person/hand etc.
+        # (Option D fix: never use hand/person frames as fallback — always drop them
+        #  to keep VLM input clean, matching the original design's accuracy guarantee.)
         if items < 0:
-            logger.debug(f"[{station_id}][ORDER-FINALIZE] Frame has skip-labels (kept as fallback): {key}")
-            fallback_frames.append((0, key, img))  # Score 0 for frames with hands
+            dropped_keys.append(key)
             continue
 
         scored.append((items, key, img))
+        accepted_keys.append((items, key))
 
-    # If no clean frames, use fallback frames (frames with hands/persons)
-    # This ensures no orders are missed due to filtering
-    if not scored and fallback_frames:
-        logger.warning(f"[{station_id}][ORDER-FINALIZE] No clean frames for order_id={order_id}, using {len(fallback_frames)} fallback frames (with hands/persons)")
-        scored = fallback_frames
-    
+    logger.info(f"[{station_id}][SCORE-SUMMARY] order={order_id} | "
+                f"total={len(keys)} | accepted={len(accepted_keys)} | dropped={len(dropped_keys)}")
+    logger.info(f"[{station_id}][SCORE-SUMMARY] Accepted scores: "
+                f"{[(k.split('/')[-1], s) for s, k in accepted_keys]}")
+    if dropped_keys:
+        logger.info(f"[{station_id}][SCORE-SUMMARY] Dropped (hand/person): "
+                    f"{[k.split('/')[-1] for k in dropped_keys]}")
+
     if not scored:
         logger.warning(f"[{station_id}][ORDER-FINALIZE] No valid frames after filtering for order_id={order_id}")
         return
 
-    # Pick TOP_K best frames
+    # Pick TOP_K best frames (sorted by item count desc, then filename desc as tiebreaker)
     scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
     topk = scored[:min(TOP_K, len(scored))]
-    
-    logger.info(f"[{station_id}][ORDER-FINALIZE] Selected {len(topk)} top frames for order_id={order_id}")
+
+    logger.info(f"[{station_id}][TOP-K] order={order_id} — selected {len(topk)} frame(s):")
+    for rank, (items, key, _) in enumerate(topk, 1):
+        logger.info(f"[{station_id}][TOP-K]   rank_{rank} → {key.split('/')[-1]}  (yolo_items={items})")
 
     for rank, (items, key, frame) in enumerate(topk, 1):
         # Save to: {station_id}/{order_id}/rank_{rank}.jpg
@@ -752,22 +794,17 @@ def process_station(station_id: str, state: StationState) -> bool:
                 state.processed_keys.add(key)
                 continue
 
-            # New order confirmed stable → close current (if we have enough frames)
+            # New order confirmed stable → always close current order regardless of frame count.
+            # (Option C fix: never silently discard an order just because it has few frames —
+            #  min-frame filtering inside process_completed_order is sufficient.)
             current_frame_count = len(state.current_keys)
-            if current_frame_count >= MIN_FRAMES_BEFORE_FINALIZE:
-                logger.info(f"[{station_id}][MAIN-LOOP] New order confirmed: {order_id}. Closing current order: {state.current_order} ({current_frame_count} frames)")
-                _prev_order = state.current_order
-                process_completed_order(station_id, state.current_order, state.current_keys, state)
-                _cleanup_order(station_id, _prev_order, state)
-                state.current_order = order_id
-                state.current_keys = list(state.pending_keys)  # seed new order with already-seen frames
-                state.pending_keys = []
-            else:
-                # Not enough frames to finalize current order yet → buffer this frame for the new order
-                logger.info(f"[{station_id}][MAIN-LOOP] New order {order_id} detected but waiting for more frames on {state.current_order} ({current_frame_count}/{MIN_FRAMES_BEFORE_FINALIZE})")
-                state.pending_keys.append(key)  # buffer for new order, NOT current_keys
-                state.processed_keys.add(key)
-                continue
+            logger.info(f"[{station_id}][MAIN-LOOP] New order confirmed: {order_id}. Closing current order: {state.current_order} ({current_frame_count} frames)")
+            _prev_order = state.current_order
+            process_completed_order(station_id, state.current_order, state.current_keys, state)
+            _cleanup_order(station_id, _prev_order, state)
+            state.current_order = order_id
+            state.current_keys = list(state.pending_keys)  # seed new order with already-seen frames
+            state.pending_keys = []
             state.pending_order = None
             state.pending_count = 0
 

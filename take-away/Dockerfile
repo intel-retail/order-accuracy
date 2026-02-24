@@ -38,9 +38,11 @@ RUN apt-get update && \
         curl \
         ca-certificates \
         jq \
-        python3-gi \
-        python3-gst-1.0 \
     && rm -rf /var/lib/apt/lists/*
+# Note: python3-gi and python3-gst-1.0 are already provided by the
+# intel/dlstreamer base image. Installing them here conflicts with
+# Intel's libglvnd0 (1.7.0-2101~22.04) which satisfies a different
+# version than libegl1 expects (= 1.4.0-1).
 
 # -------------------------------
 # Install Python dependencies
