@@ -161,10 +161,21 @@ class OVMSVLMClient:
         # Build request
         request_data = {
             "model": self.model_name,
-            "messages": [{
-                "role": "user",
-                "content": content
-            }],
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a grocery item counter. "
+                        "Respond ONLY with detected items in the exact format: item_name x quantity. "
+                        "One item per line. No greetings, no explanations, no extra text. "
+                        "If no items are visible output NO_ITEMS."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ],
             "max_completion_tokens": self.max_new_tokens,
             "temperature": self.temperature,
         }
