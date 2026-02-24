@@ -20,12 +20,14 @@ services:
       - "44"   # video group for GPU access
       - "992"  # render group for GPU access
     restart: unless-stopped
+    # Note: OVMS container doesn't have curl/wget, so we use startup period only
+    # The dine-in app has its own VLM health check on startup
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/config"]
-      interval: 10s
+      test: ["CMD-SHELL", "exit 0"]
+      interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 30s
+      retries: 3
+      start_period: 120s
     networks:
       - dinein-net
 
@@ -57,7 +59,7 @@ services:
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,dine-in,host.docker.internal
     depends_on:
       ovms-vlm:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/health')"]
@@ -74,12 +76,12 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        #http_proxy: http://proxy-pilot.intel.com:912
-        #https_proxy: http://proxy-pilot.intel.com:912
-        #HTTP_PROXY: http://proxy-pilot.intel.com:912
-        #HTTPS_PROXY: http://proxy-pilot.intel.com:912
-        #no_proxy: localhost,127.0.0.1
-        #NO_PROXY: localhost,127.0.0.1
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
+        - http_proxy=${HTTP_PROXY}
+        - https_proxy=${HTTPS_PROXY}
+        - no_proxy=${NO_PROXY}
     container_name: dinein_app
     user: "${UID:-1000}:${GID:-1000}"
     ports:
@@ -99,7 +101,7 @@ services:
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
     depends_on:
       ovms-vlm:
-        condition: service_healthy
+        condition: service_started
     restart: unless-stopped
     networks:
       - dinein-net
@@ -113,6 +115,13 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
+        - http_proxy=${HTTP_PROXY}
+        - https_proxy=${HTTPS_PROXY}
+        - no_proxy=${NO_PROXY}
     profiles:
       - benchmark
       - worker
@@ -136,11 +145,11 @@ services:
       - USECASE_1=dine-in-order-accuracy
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
-    command: ["python", "/app/worker.py"]
+    command: ["python", "/app/src/worker.py"]
     depends_on:
       ovms-vlm:
-        condition: service_healthy
-    restart: unless-stopped
+        condition: service_started
+    restart: "no"
     networks:
       - dinein-net
     extra_hosts:

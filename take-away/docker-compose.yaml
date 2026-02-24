@@ -41,11 +41,12 @@ services:
       - "992"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/v1/config"]
+      # Check that model is AVAILABLE, not just that HTTP server is up
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/v1/config | grep -q AVAILABLE"]
       interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
     networks:
       - order-accuracy-net
 
@@ -56,12 +57,12 @@ services:
     build:
       context: .
       args:
-        http_proxy: http://proxy-pilot.intel.com:912
-        https_proxy: http://proxy-pilot.intel.com:912
-        HTTP_PROXY: http://proxy-pilot.intel.com:912
-        HTTPS_PROXY: http://proxy-pilot.intel.com:912
-        no_proxy: localhost,127.0.0.1
-        NO_PROXY: localhost,127.0.0.1
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
+        - http_proxy=${HTTP_PROXY}
+        - https_proxy=${HTTPS_PROXY}
+        - no_proxy=${NO_PROXY}
     container_name: oa_service  # Single container name for parallel mode
     devices:
       - /dev/dri:/dev/dri
@@ -153,12 +154,12 @@ services:
     build:
       context: ./frame-selector-service
       args:
-        http_proxy: http://proxy-pilot.intel.com:912
-        https_proxy: http://proxy-pilot.intel.com:912
-        HTTP_PROXY: http://proxy-pilot.intel.com:912
-        HTTPS_PROXY: http://proxy-pilot.intel.com:912
-        no_proxy: localhost,127.0.0.1
-        NO_PROXY: localhost,127.0.0.1
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
+        - http_proxy=${HTTP_PROXY}
+        - https_proxy=${HTTPS_PROXY}
+        - no_proxy=${NO_PROXY}
     container_name: oa_frame_selector
     healthcheck:
       test: ["CMD-SHELL", "kill -0 1 2>/dev/null"]
@@ -179,10 +180,10 @@ services:
       APP_CONFIG: /config/application.yaml
       # RabbitMQ disabled for simplicity (direct HTTP calls used)
       USE_RABBITMQ: "false"
-      http_proxy: http://proxy-pilot.intel.com:912
-      https_proxy: http://proxy-pilot.intel.com:912
-      HTTP_PROXY: http://proxy-pilot.intel.com:912
-      HTTPS_PROXY: http://proxy-pilot.intel.com:912
+      HTTP_PROXY: ${HTTP_PROXY}
+      HTTPS_PROXY: ${HTTPS_PROXY}
+      http_proxy: ${HTTP_PROXY}
+      https_proxy: ${HTTPS_PROXY}
       NO_PROXY: "localhost,127.0.0.1,order-accuracy,oa_service,minio,ovms-vlm,host.docker.internal"
       no_proxy: "localhost,127.0.0.1,order-accuracy,oa_service,minio,ovms-vlm,host.docker.internal"
     depends_on:
@@ -195,12 +196,12 @@ services:
     build:
       context: ./gradio-ui
       args:
-        http_proxy: http://proxy-pilot.intel.com:912
-        https_proxy: http://proxy-pilot.intel.com:912
-        HTTP_PROXY: http://proxy-pilot.intel.com:912
-        HTTPS_PROXY: http://proxy-pilot.intel.com:912
-        no_proxy: localhost,127.0.0.1
-        NO_PROXY: localhost,127.0.0.1
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
+        - http_proxy=${HTTP_PROXY}
+        - https_proxy=${HTTPS_PROXY}
+        - no_proxy=${NO_PROXY}
     container_name: oa_gradio
     ports:
       - "7860:7860"
@@ -268,12 +269,12 @@ services:
     build:
       context: ./rtsp-streamer
       args:
-        http_proxy: http://proxy-pilot.intel.com:912
-        https_proxy: http://proxy-pilot.intel.com:912
-        HTTP_PROXY: http://proxy-pilot.intel.com:912
-        HTTPS_PROXY: http://proxy-pilot.intel.com:912
-        no_proxy: localhost,127.0.0.1
-        NO_PROXY: localhost,127.0.0.1
+        - HTTP_PROXY=${HTTP_PROXY}
+        - HTTPS_PROXY=${HTTPS_PROXY}
+        - NO_PROXY=${NO_PROXY}
+        - http_proxy=${HTTP_PROXY}
+        - https_proxy=${HTTPS_PROXY}
+        - no_proxy=${NO_PROXY}
     container_name: oa_rtsp_streamer
     profiles:
       - parallel  # Only start this service in parallel mode

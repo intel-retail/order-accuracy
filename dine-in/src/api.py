@@ -8,6 +8,7 @@ import uuid
 import logging
 import threading
 import asyncio
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional
@@ -236,12 +237,52 @@ async def call_metrics_collector() -> Dict:
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint"""
+    """Health check endpoint with VLM status"""
+    import httpx
+    
     logger.debug("Health check requested")
+    
+    ovms_endpoint = config_manager.config.service.ovms_endpoint
+    vlm_status = "unknown"
+    vlm_models = []
+    
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            # Check OVMS config endpoint (returns model status)
+            response = await client.get(f"{ovms_endpoint}/v1/config")
+            if response.status_code == 200:
+                data = response.json()
+                # Parse model names from config response
+                vlm_models = list(data.keys()) if isinstance(data, dict) else []
+                # Check if any model is AVAILABLE
+                for model_name, model_info in data.items():
+                    versions = model_info.get("model_version_status", [])
+                    for v in versions:
+                        if v.get("state") == "AVAILABLE":
+                            vlm_status = "healthy"
+                            break
+                if vlm_status != "healthy":
+                    vlm_status = "models_not_ready"
+            else:
+                vlm_status = f"error_{response.status_code}"
+    except httpx.ConnectError:
+        vlm_status = "connection_failed"
+    except Exception as e:
+        vlm_status = f"error: {str(e)[:50]}"
+    
+    overall_status = "healthy" if vlm_status == "healthy" else "degraded"
+    
     return {
-        "status": "healthy",
+        "status": overall_status,
         "timestamp": datetime.now().isoformat(),
-        "benchmark_mode": config_manager.config.benchmark.enabled
+        "benchmark_mode": config_manager.config.benchmark.enabled,
+        "services": {
+            "vlm": {
+                "status": vlm_status,
+                "endpoint": ovms_endpoint,
+                "models": vlm_models
+            }
+        }
     }
 
 
@@ -343,6 +384,9 @@ async def validate_plate(
     Returns:
         ValidationResult with detailed analysis
     """
+    # Start end-to-end timing
+    request_start_time = time.time()
+    
     logger.info(f"[API] Validation request received: image={image.filename}")
     validation_id = str(uuid.uuid4())
     
@@ -358,7 +402,8 @@ async def validate_plate(
             logger.error(f"Invalid order manifest format: {e}")
             raise HTTPException(status_code=400, detail=f"Invalid order format: {e}")
         
-        # Read image bytes
+        # Read image bytes - timing for upload/decode
+        image_read_start = time.time()
         image_bytes = await image.read()
         logger.debug(f"Image read: {len(image_bytes)} bytes")
         
@@ -370,6 +415,9 @@ async def validate_plate(
             logger.error(f"Invalid image file: {e}")
             raise HTTPException(status_code=400, detail=f"Invalid image: {e}")
         
+        image_decode_ms = (time.time() - image_read_start) * 1000
+        logger.info(f"[API] Image upload/decode completed in {image_decode_ms:.2f}ms")
+        
         # Get validation service
         validation_service = get_validation_service()
         
@@ -380,8 +428,9 @@ async def validate_plate(
         # Generate unique request ID with station prefix
         request_id = f"station1_{order_id}"
         
-        # Perform validation
+        # Perform validation (includes VLM inference + semantic matching)
         logger.info(f"[API] Starting validation: validation_id={validation_id}, image_id={image_id}, request_id={request_id}")
+        validation_start = time.time()
         
         result = await validation_service.validate_plate(
             image_bytes=image_bytes,
@@ -390,27 +439,35 @@ async def validate_plate(
             request_id=request_id
         )
         
+        validation_total_ms = (time.time() - validation_start) * 1000
+        logger.info(f"[API] Validation service completed in {validation_total_ms:.2f}ms")
+        
         # Collect system metrics
         logger.info(f"[API] Calling metrics collector for {request_id}")
         system_metrics = await call_metrics_collector()
         logger.info(f"[API] Metrics collector response for {request_id}: {system_metrics}")
+        
+        # Calculate end-to-end latency (from request start to now, before response serialization)
+        end_to_end_ms = (time.time() - request_start_time) * 1000
         
         # Enhance metrics with system data
         enhanced_metrics = None
         if result.metrics:
             base_metrics = result.metrics.to_dict()
             vlm_latency_ms = int(base_metrics.get("vlm_inference_ms", 0))
+            semantic_matching_ms = int(base_metrics.get("semantic_matching_ms", 0))
             enhanced_metrics = {
-                "end_to_end_latency_ms": vlm_latency_ms,  # Use VLM latency as primary metric
-                "vlm_inference_ms": vlm_latency_ms,
-                "agent_reconciliation_ms": int(base_metrics.get("semantic_matching_ms", 0)),
-                "within_operational_window": vlm_latency_ms < 2000,
+                "end_to_end_latency_ms": int(end_to_end_ms),  # True end-to-end from request start
+                "image_decode_ms": int(image_decode_ms),      # Image upload/decode time
+                "vlm_inference_ms": vlm_latency_ms,           # VLM model inference
+                "agent_reconciliation_ms": semantic_matching_ms,  # Semantic matching
+                "within_operational_window": end_to_end_ms < 2000,
                 "cpu_utilization": system_metrics.get("cpu_utilization", 0.0),
                 "gpu_utilization": system_metrics.get("gpu_utilization", 0.0),
                 "memory_utilization": system_metrics.get("memory_utilization", 0.0),
                 "gpu_memory_utilization": system_metrics.get("gpu_memory_utilization", 0.0)
             }
-            logger.info(f"[API] Metrics for {request_id}: {enhanced_metrics}")
+            logger.info(f"[API] Metrics for {request_id}: e2e={end_to_end_ms:.0f}ms, decode={image_decode_ms:.0f}ms, vlm={vlm_latency_ms}ms, semantic={semantic_matching_ms}ms")
         
         # Build response
         validation_result = ValidationResult(
@@ -705,6 +762,63 @@ async def startup_event():
     logger.info(f"Semantic Endpoint: {config_manager.config.service.semantic_service_endpoint}")
     logger.info(f"Benchmark Mode: {config_manager.config.benchmark.enabled}")
     logger.info("=" * 60)
+    
+    # Check VLM service health
+    await _check_vlm_health()
+
+
+async def _check_vlm_health():
+    """Check if VLM service is ready and responsive."""
+    import httpx
+    
+    ovms_endpoint = config_manager.config.service.ovms_endpoint
+    vlm_url = f"{ovms_endpoint}/v3/chat/completions"
+    config_url = f"{ovms_endpoint}/v1/config"
+    
+    max_retries = 30
+    retry_delay = 2
+    
+    logger.info(f"[HEALTH] Checking VLM service at {ovms_endpoint}...")
+    
+    for attempt in range(1, max_retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                # Check if config endpoint is available (returns model status)
+                config_response = await client.get(config_url)
+                if config_response.status_code == 200:
+                    config_data = config_response.json()
+                    model_names = list(config_data.keys()) if isinstance(config_data, dict) else []
+                    logger.info(f"[HEALTH] OVMS has {len(model_names)} model(s): {model_names}")
+                    
+                    # Check if any model is AVAILABLE
+                    model_available = False
+                    for model_name, model_info in config_data.items():
+                        versions = model_info.get("model_version_status", [])
+                        for v in versions:
+                            if v.get("state") == "AVAILABLE":
+                                model_available = True
+                                logger.info(f"[HEALTH] Model '{model_name}' is AVAILABLE")
+                                break
+                    
+                    if model_available:
+                        logger.info(f"[HEALTH] VLM service is ready")
+                        return
+                    else:
+                        logger.warning(f"[HEALTH] Models not yet AVAILABLE (attempt {attempt}/{max_retries})")
+                else:
+                    logger.warning(f"[HEALTH] OVMS config endpoint returned {config_response.status_code}")
+                    
+        except httpx.ConnectError:
+            logger.warning(f"[HEALTH] Cannot connect to OVMS (attempt {attempt}/{max_retries})")
+        except Exception as e:
+            logger.warning(f"[HEALTH] Health check error: {e} (attempt {attempt}/{max_retries})")
+        
+        if attempt < max_retries:
+            logger.info(f"[HEALTH] Retrying in {retry_delay}s...")
+            await asyncio.sleep(retry_delay)
+    
+    logger.error(f"[HEALTH] VLM service not ready after {max_retries} attempts")
+    logger.warning("[HEALTH] Proceeding anyway - validation requests may fail")
 
 
 @app.on_event("shutdown")
