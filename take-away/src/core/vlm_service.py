@@ -372,6 +372,17 @@ async def _run_vlm_internal(order_id: str, station_id: str):
         vlm_result = vlm_instance.process(images, unique_id=unique_id, expected_items=expected_items)
         detected_items = vlm_result["items"]
         logger.info(f"[VLM-RESPONSE] Transaction ID: {unique_id} - VLM returned {len(detected_items)} items")
+
+        # ---- Retry on empty response ----
+        # The model occasionally returns an empty string when the prompt with expected
+        # items plus 5 frames is large.  Retry once with inventory-only prompt
+        # (no expected-items hint) to maximize the chance of getting a valid response.
+        if not detected_items:
+            logger.warning(f"[VLM-RETRY] {unique_id} - VLM returned empty response, retrying with simplified prompt")
+            vlm_result = vlm_instance.process(images, unique_id=f"{unique_id}_retry", expected_items=None)
+            detected_items = vlm_result["items"]
+            logger.info(f"[VLM-RETRY] {unique_id} - Retry returned {len(detected_items)} items")
+
         logger.info(f"[INTERNAL] VLM detected {len(detected_items)} items for order_id={order_id}")
         logger.debug(f"[INTERNAL] Detected items: {detected_items}")
     except Exception as e:
