@@ -864,10 +864,11 @@ class StationWorker:
             uri = f"file://{self.rtsp_url}"
         
         # Capture framerate for the GStreamer pipeline.
-        # Order 925 appears for only ~5s in the test video; at 1fps that gives
-        # just 5 frames per loop cycle. 2fps doubles coverage without exceeding
-        # the max_bucket_size=100 cap for the longer 651 / 384 sections.
-        capture_fps = int(os.environ.get("CAPTURE_FPS", "2"))
+        # NOTE: 1fps is the recommended rate for CPU-based EasyOCR + YOLO processing.
+        # Order 925 spans only ~5s in the test video (~5 frames at 1fps) — this is a
+        # VIDEO CONTENT limitation. Increasing fps causes YOLO to process 2x more frames
+        # per bucket, adding ~10s of overhead and degrading end-to-end accuracy.
+        capture_fps = int(os.environ.get("CAPTURE_FPS", "1"))
 
         pipeline = (
             f'uridecodebin uri={uri} caps="video/x-raw" '
