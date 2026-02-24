@@ -17,7 +17,8 @@ frame_selector:
   poll_interval_sec: 1.5
   skip_labels:
     - hand
-    - person
+    # 'person' intentionally excluded: the packing worker is always visible
+    # during food-placement and would cause all food frames to be dropped.
   min_frames_per_order: 1  # Reduced to capture brief orders like 384
   min_frames_before_finalize: 5  # Wait for at least N frames before finalizing an order
 
