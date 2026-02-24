@@ -55,82 +55,9 @@ Version history and changelog for Take-Away Order Accuracy.
 
 1. **RTSP Reconnection Delay**: Initial RTSP connection may take 5-10 seconds
 2. **Large Video Upload**: Videos >500MB may timeout on slow connections
-3. **INT4 Model**: INT4 quantization not yet supported
 
 ### Migration Notes
 
 This is the initial release. No migration required.
 
 ---
-
-## Roadmap
-
-### Version 1.1.0 (Planned Q2 2025)
-
-#### Planned Features
-- [ ] INT4 model quantization support
-- [ ] Multi-GPU inference distribution
-- [ ] RabbitMQ integration for async processing
-- [ ] Kubernetes/Helm deployment
-- [ ] Prometheus metrics export
-- [ ] Grafana dashboard templates
-
-#### Planned Improvements
-- [ ] Reduced VLM latency via streaming inference
-- [ ] Enhanced semantic matching with context
-- [ ] Auto-tuning for optimal batch size
-- [ ] Improved error messages and diagnostics
-
-### Version 1.2.0 (Planned Q3 2025)
-
-#### Planned Features
-- [ ] Multi-language item recognition
-- [ ] Receipt OCR integration
-- [ ] Analytics dashboard
-- [ ] A/B testing framework
-- [ ] Model hot-swap capability
-
----
-
-## Version History Summary
-
-| Version | Date | Highlights |
-|---------|------|------------|
-| 1.0.0 | Jan 2025 | Initial production release |
-
----
-
-## Support
-
-### Reporting Issues
-
-When reporting issues, please include:
-
-1. Version number (`make show-config`)
-2. Service mode (single/parallel)
-3. Hardware configuration
-4. Logs (`make logs`)
-5. Steps to reproduce
-
-### Getting Help
-
-- Review [documentation](../user-guide/)
-- Check [System Requirements](system-requirements.md)
-- Submit detailed issue report
-
----
-
-## Acknowledgments
-
-- OpenVINO team for model optimization
-- Qwen team for VLM model
-- GStreamer community
-- FastAPI and Gradio maintainers
-
----
-
-## License
-
-Copyright © 2025 Intel Corporation
-
-Licensed under the Apache License, Version 2.0.
