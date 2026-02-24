@@ -324,8 +324,12 @@ def process_frame(frame: "VideoFrame"):
             _order_frame_count = 0
         # ─────────────────────────────────────────────────────────────────────
 
-        # Upload only to the committed (confirmed) order
-        if _current_order_id and order_id == _current_order_id:
+        # Upload to the committed order for ALL frames until a new order is committed.
+        # Frames where OCR reads a *different* (pending) order are still attributed
+        # to the current confirmed order — they are NOT dropped during the debounce
+        # window.  Only after DEBOUNCE_FRAMES consecutive reads of the new id (above)
+        # does _current_order_id switch and uploads start going to the new order.
+        if _current_order_id:
             _order_frame_count += 1
             _last_order_time = time.time()
             upload_frame(_current_order_id, _order_frame_count, image)
