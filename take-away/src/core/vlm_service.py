@@ -153,7 +153,7 @@ class VLMComponent:
 
         return clean_items
 
-    def process(self, images: list[np.ndarray], unique_id: str = None):
+    def process(self, images: list[np.ndarray], unique_id: str = None, expected_items: list = None):
         if not images:
             logger.error("VLM process called with empty images list")
             raise ValueError("images list is empty")
@@ -165,15 +165,33 @@ class VLMComponent:
         # OVMS automatically associates images with the prompt
         img_tags = ""
 
-        # ===== Inventory-aware prompt =====
+        # Build order-aware hint if expected items are known.
+        # This steers the VLM to actively search for every item rather than
+        # stopping after the most prominent one.
+        if expected_items:
+            expected_text = "\n".join(
+                f"  - {item['name']} (qty expected: {item['quantity']})"
+                for item in expected_items
+            )
+            order_hint = (
+                f"This order is expected to contain:\n{expected_text}\n\n"
+                f"Carefully examine ALL {num_frames} frames for EACH of the above items.\n"
+                f"Report the total quantity of EACH item visible across ALL frames combined.\n\n"
+            )
+        else:
+            order_hint = ""
+
+        # ===== Inventory-aware + order-aware prompt =====
         prompt = (
-            f"You will receive {num_frames} frames.\n\n"
+            f"You will receive {num_frames} frames from a grocery order packing station.\n\n"
+            f"{order_hint}"
             f"Recognize products ONLY from this inventory list:\n"
             f"{INVENTORY_TEXT}\n\n"
             f"Rules:\n"
             f"- Always choose the closest matching inventory item name.\n"
             f"- Never invent new product names outside the list.\n"
-            f"- Format strictly as: inventory_item_name x quantity\n"
+            f"- Count items carefully — report separate lines for different items.\n"
+            f"- Format strictly as: inventory_item_name x quantity (one item per line)\n"
             f"- If no inventory items are visible, output NO_ITEMS.\n"
             f"{img_tags}"
         )
@@ -307,6 +325,14 @@ async def _run_vlm_internal(order_id: str, station_id: str):
     logger.info(f"[INTERNAL] Starting VLM processing for order_id={order_id}, station={station_id}")
     logger.info(f"="*80)
 
+    # Resolve expected items early — needed for the order-aware VLM prompt.
+    expected_items = EXPECTED_ORDERS.get(order_id)
+    if expected_items is None:
+        logger.error(f"[INTERNAL] Order not found in orders.json: order_id={order_id}")
+        return {"order_id": order_id, "status": "error", "reason": "order_not_found"}
+    logger.info(f"[INTERNAL] Expected items for order_id={order_id}: {len(expected_items)} items")
+    logger.debug(f"[INTERNAL] Expected items detail: {expected_items}")
+
     try:
         frames = []
         # Frame selector saves to: {station_id}/{order_id}/rank_{N}.jpg
@@ -341,9 +367,9 @@ async def _run_vlm_internal(order_id: str, station_id: str):
         
         logger.info(f"[INTERNAL] Loaded {len(images)} images, starting VLM inference for order_id={order_id}")
 
-        # ---- Run VLM ----
+        # ---- Run VLM (order-aware: pass expected items so prompt includes them) ----
         logger.info(f"[VLM-CALL] Transaction ID: {unique_id} - Calling VLM with {len(images)} frames")
-        vlm_result = vlm_instance.process(images, unique_id=unique_id)
+        vlm_result = vlm_instance.process(images, unique_id=unique_id, expected_items=expected_items)
         detected_items = vlm_result["items"]
         logger.info(f"[VLM-RESPONSE] Transaction ID: {unique_id} - VLM returned {len(detected_items)} items")
         logger.info(f"[INTERNAL] VLM detected {len(detected_items)} items for order_id={order_id}")
@@ -352,15 +378,6 @@ async def _run_vlm_internal(order_id: str, station_id: str):
         logger.error(f"[INTERNAL] Error before validation for order_id={order_id}: {e}", exc_info=True)
         raise
 
-    expected_items = EXPECTED_ORDERS.get(order_id)
-    if expected_items is None:
-        logger.error(f"[INTERNAL] Order not found in orders.json: order_id={order_id}")
-        return {"order_id": order_id, "status": "error", "reason": "order_not_found"}
-
-    logger.info(f"[INTERNAL] Expected items for order_id={order_id}: {len(expected_items)} items")
-    logger.debug(f"[INTERNAL] Expected items detail: {expected_items}")
-    
-    # ---- Validate (uses VLM semantic reasoning internally) ----
     logger.info(f"[INTERNAL] Starting validation for order_id={order_id}")
     validation = validate_order(expected_items, detected_items, vlm_instance.vlm, transaction_id=unique_id)
     logger.info(f"[INTERNAL] Validation complete for order_id={order_id}")

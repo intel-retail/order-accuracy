@@ -13,7 +13,7 @@ video:
   fps_target: 1
 
 frame_selector:
-  top_k: 3  # Send 3 best frames to VLM for better accuracy
+  top_k: 5  # Send 5 best frames to VLM for better coverage
   poll_interval_sec: 1.5
   skip_labels:
     - hand
@@ -61,4 +61,5 @@ inventory:
   - coke large bottle
   - coke bottle
   - pepsi can
+  - yellow banana
   - banana
