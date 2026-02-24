@@ -85,10 +85,14 @@ logger = logging.getLogger(__name__)
 
 TOP_K = FS_CFG.get("top_k", 3)  # Default to 5 if not specified
 POLL_INTERVAL = FS_CFG.get("poll_interval_sec", 1.5)
-SKIP_LABELS = set(FS_CFG.get("skip_labels", ["hand", "person"]))
+# In a take-away packing scenario the worker is always present while placing
+# items — every useful food frame has `person` detected.  Including 'person'
+# causes ALL food-placement frames to be dropped, leaving only empty slip frames
+# for the VLM.  Keep only 'hand' as a placeholder (COCO has no hand class;
+# override via config 'skip_labels' if a dedicated hand-detection model is used).
+SKIP_LABELS = set(FS_CFG.get("skip_labels", ["hand"]))
 
-# Confidence threshold for detecting skip-labels (person/hand).
-# Kept LOW so even a partially-visible hand dismisses the frame.
+# Confidence threshold for detecting skip-labels (e.g. a dedicated hand model).
 SKIP_LABEL_CONF = float(os.environ.get("SKIP_LABEL_CONF",
                         str(FS_CFG.get("skip_label_conf", 0.1))))
 
@@ -532,7 +536,9 @@ def load_image(key):
 
 
 def count_items(frame, frame_key="?"):
-    # Run YOLO at the lower skip-label threshold so even a faint hand is caught.
+    # Run YOLO at the skip-label threshold.  Skip-labels default to ["hand"] only;
+    # 'person' is intentionally excluded because the packing worker is always
+    # visible in food-placement frames and must not cause them to be dropped.
     result = model(frame, conf=SKIP_LABEL_CONF, verbose=False)[0]
 
     # Log every raw detection for diagnosis
@@ -544,7 +550,7 @@ def count_items(frame, frame_key="?"):
     logger.info(f"[YOLO][{frame_key}] Detections (conf>={SKIP_LABEL_CONF}): "
                 f"{all_detections if all_detections else 'none'}")
 
-    # If ANY skip-label (like person/hand) is present at low conf → discard frame
+    # If ANY skip-label is present → discard frame
     for box in result.boxes:
         cls_name = result.names.get(int(box.cls), "").lower()
         if cls_name in SKIP_LABELS:
@@ -644,8 +650,8 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
         frame_label = key.split('/')[-1]   # e.g. frame_12.jpg
         items = count_items(img, frame_key=f"{order_id}/{frame_label}")
 
-        # Skip frames containing person/hand etc.
-        # (Option D fix: never use hand/person frames as fallback — always drop them
+        # Skip frames containing a detected skip-label (e.g. dedicated hand model).
+        # (Option D: never use skip-label frames as fallback — always drop them
         #  to keep VLM input clean, matching the original design's accuracy guarantee.)
         if items < 0:
             dropped_keys.append(key)
@@ -666,9 +672,44 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
         logger.warning(f"[{station_id}][ORDER-FINALIZE] No valid frames after filtering for order_id={order_id}")
         return
 
-    # Pick TOP_K best frames (sorted by item count desc, then filename desc as tiebreaker)
-    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    topk = scored[:min(TOP_K, len(scored))]
+    # ── Temporal-spread frame selection ──────────────────────────────────────
+    # Divide the accepted frames into TOP_K equal temporal buckets (beginning,
+    # middle, end of the order window).  Pick the highest-YOLO-scoring frame
+    # from each bucket.  This ensures every assembly stage is represented so
+    # items placed early, mid, or late are each visible in at least one frame
+    # sent to the VLM — solving the "item only visible in dropped/late frames"
+    # problem identified in production.
+    #
+    # Fallback: if fewer accepted frames than buckets, fall back to score-only
+    # sort (avoids wasting slots on empty buckets).
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # scored is currently in insertion order (same as keys order = frame number order)
+    # Keep temporal order for bucket splitting.
+    n = len(scored)
+    topk = []
+
+    if n >= TOP_K:
+        # Split into TOP_K equal buckets and pick best from each
+        bucket_size = n / TOP_K
+        for b in range(TOP_K):
+            start = int(b * bucket_size)
+            end   = int((b + 1) * bucket_size)
+            bucket = scored[start:end]
+            if not bucket:
+                continue
+            # Best frame in this bucket = highest item count, then latest key as tiebreaker
+            best = max(bucket, key=lambda x: (x[0], x[1]))
+            topk.append(best)
+            logger.info(f"[{station_id}][TOP-K] bucket_{b+1} "
+                        f"[frames {start}–{end-1} of {n}]: "
+                        f"chose {best[1].split('/')[-1]} (yolo_items={best[0]})")
+    else:
+        # Fewer frames than buckets — fall back to pure score sort
+        logger.info(f"[{station_id}][TOP-K] only {n} accepted frame(s) < TOP_K={TOP_K}, "
+                    f"using score-only fallback")
+        scored_sorted = sorted(scored, key=lambda x: (x[0], x[1]), reverse=True)
+        topk = scored_sorted[:n]
 
     logger.info(f"[{station_id}][TOP-K] order={order_id} — selected {len(topk)} frame(s):")
     for rank, (items, key, _) in enumerate(topk, 1):
