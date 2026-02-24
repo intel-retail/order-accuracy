@@ -13,9 +13,11 @@ video:
   fps_target: 1
 
 frame_selector:
-  top_k: 3
+  top_k: 4
   max_bucket_size: 100  # hard cap on frames per order; prevents runaway accumulation during VLM/OVMS hangs
-  min_item_frames: 3    # minimum frames with YOLO item detections required before calling VLM
+  min_item_frames: 2    # minimum frames with YOLO item detections required before calling VLM
+                        # NOTE: set to 2 (not 3) because order 925's video section is only ~6s
+                        # giving just 5-8 frames per cycle; 3 would skip too many valid buckets
   non_food_labels:      # YOLO classes that indicate order slips / non-food objects; excluded from frame scoring
     - remote
     - cell phone

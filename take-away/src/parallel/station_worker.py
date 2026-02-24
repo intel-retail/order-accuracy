@@ -21,6 +21,7 @@ Maintains all business logic from original sequential implementation.
 """
 
 import multiprocessing as mp
+import os
 import time
 import logging
 import signal
@@ -862,12 +863,18 @@ class StationWorker:
             # Local file path - convert to file:// URI
             uri = f"file://{self.rtsp_url}"
         
+        # Capture framerate for the GStreamer pipeline.
+        # Order 925 appears for only ~5s in the test video; at 1fps that gives
+        # just 5 frames per loop cycle. 2fps doubles coverage without exceeding
+        # the max_bucket_size=100 cap for the longer 651 / 384 sections.
+        capture_fps = int(os.environ.get("CAPTURE_FPS", "2"))
+
         pipeline = (
             f'uridecodebin uri={uri} caps="video/x-raw" '
             "! videoconvert "
             "! video/x-raw,format=BGR "
             "! videorate "
-            "! video/x-raw,framerate=1/1 "
+            f"! video/x-raw,framerate={capture_fps}/1 "
             f"! gvapython module={frame_pipeline_module} function=process_frame "
             "! fakesink sync=false"
         )
