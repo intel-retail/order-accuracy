@@ -143,7 +143,9 @@ class VLMComponent:
             clean_name = name.strip().lower()
             # Normalize common variations
             clean_name = clean_name.replace('coca-cola', 'coke').replace('coca cola', 'coke')
-            if clean_name and not clean_name.isdigit():
+            # Skip items explicitly reported as 0 — VLM lists expected items it
+            # cannot find as "item x 0"; treat those as not detected.
+            if clean_name and not clean_name.isdigit() and int(qty) > 0:
                 items[clean_name] = int(qty)
 
         clean_items = {}

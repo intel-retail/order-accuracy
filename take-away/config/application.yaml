@@ -13,7 +13,14 @@ video:
   fps_target: 1
 
 frame_selector:
-  top_k: 3  # 3 frames keeps OVMS stable; diversity selection ensures coverage
+  top_k: 3
+  max_bucket_size: 100  # hard cap on frames per order; prevents runaway accumulation during VLM/OVMS hangs
+  min_item_frames: 3    # minimum frames with YOLO item detections required before calling VLM
+  non_food_labels:      # YOLO classes that indicate order slips / non-food objects; excluded from frame scoring
+    - remote
+    - cell phone
+    - book
+    - laptop  # 3 frames keeps OVMS stable; diversity selection ensures coverage
   poll_interval_sec: 1.5
   skip_labels:
     - hand
