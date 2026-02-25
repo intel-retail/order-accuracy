@@ -112,6 +112,9 @@ services:
       
 
       
+      # GStreamer capture settings
+      CAPTURE_FPS: ${CAPTURE_FPS:-2}  # Frames per second for pipeline (increase for short orders)
+      
       # Performance tuning
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-4}
       MKL_NUM_THREADS: ${MKL_NUM_THREADS:-4}
