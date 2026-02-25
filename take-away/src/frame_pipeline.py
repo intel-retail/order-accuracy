@@ -109,7 +109,7 @@ PIPELINE_ID = os.environ.get("PIPELINE_ID", f"{STATION_ID}_{uuid.uuid4().hex[:8]
 
 # Tuneable parameters
 PRE_BUFFER_FRAMES      = int(os.environ.get("PRE_BUFFER_FRAMES",      "30"))
-OCR_SAMPLE_INTERVAL    = int(os.environ.get("OCR_SAMPLE_INTERVAL",     "2"))
+OCR_SAMPLE_INTERVAL    = int(os.environ.get("OCR_SAMPLE_INTERVAL",     "1"))
 OCR_CONFIRM_COUNT      = int(os.environ.get("OCR_CONFIRM_COUNT",        "3"))
 ORDER_IDLE_TIMEOUT_SEC = int(os.environ.get("ORDER_IDLE_TIMEOUT_SEC",   "8"))
 MINIO_UPLOAD_TIMEOUT   = int(os.environ.get("MINIO_UPLOAD_TIMEOUT",    "10"))

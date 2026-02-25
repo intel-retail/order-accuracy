@@ -58,6 +58,8 @@ class WorkerResult:
     items_expected: int = 0
     missing_items: int = 0
     extra_items: int = 0
+    missing_items_list: List[Dict] = field(default_factory=list)
+    extra_items_list: List[Dict] = field(default_factory=list)
     error: Optional[str] = None
     tps: float = 0.0
     prompt_tokens: int = 0
@@ -283,6 +285,8 @@ class DineInWorker:
             result.items_expected = len(order_data.get("items", []))
             result.missing_items = len(validation_result.missing_items)
             result.extra_items = len(validation_result.extra_items)
+            result.missing_items_list = validation_result.missing_items
+            result.extra_items_list = validation_result.extra_items
             
             # Extract VLM metrics if available
             if validation_result.metrics:
