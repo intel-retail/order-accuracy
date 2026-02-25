@@ -579,12 +579,12 @@ class VLMClient:
         if self.inventory_items:
             # Compact format: comma-separated items (faster than numbered list)
             inventory_text = ", ".join(self.inventory_items[:30])  # Limit to 30 items
-            prompt = f"""Food items to detect: {inventory_text}
+            prompt = f"""Known menu items: {inventory_text}
 
-List food items visible in image with quantities.
-JSON: {{"items":[{{"name":"item","quantity":1}}]}}"""
+ONLY list food items CLEARLY VISIBLE in this image. Do NOT guess or include items you cannot see.
+Return JSON: {{"items":[{{"name":"item","quantity":1}}]}}"""
         else:
-            prompt = """List food items in image with quantities.
+            prompt = """ONLY list food items CLEARLY VISIBLE in this image. Do NOT guess.
 JSON: {"items":[{"name":"item","quantity":1}]}"""
         
         logger.info(f"[PROMPT] Built compact prompt with {len(self.inventory_items)} inventory items, length={len(prompt)} chars")

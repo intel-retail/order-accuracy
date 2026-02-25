@@ -174,3 +174,48 @@ echo ""
 echo "=========================================="
 echo "✓ All Model Setup Complete!"
 echo "=========================================="
+
+###############################################
+# EASYOCR MODEL DOWNLOAD
+# EasyOCR models are used by the frame_pipeline for OCR-based order detection.
+# Pre-downloading avoids a 60-90s delay on first container start.
+###############################################
+TAKEAWAY_DIR="$(dirname "${SCRIPT_DIR}")/take-away"
+EASYOCR_DIR="${TAKEAWAY_DIR}/models/easyocr"
+
+echo ""
+echo "=========================================="
+echo "EasyOCR Model Setup"
+echo "=========================================="
+echo "Target: ${EASYOCR_DIR}"
+echo ""
+
+if [ -f "${EASYOCR_DIR}/craft_mlt_25k.pth" ] && [ -f "${EASYOCR_DIR}/english_g2.pth" ]; then
+    echo "✓ EasyOCR models already present, skipping download."
+else
+    read -p "Download EasyOCR models (~200MB)? (y/N): " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        mkdir -p "${EASYOCR_DIR}"
+        echo "Downloading EasyOCR models to ${EASYOCR_DIR} ..."
+        EASYOCR_DIR="${EASYOCR_DIR}" python3 -c "
+import sys, os
+easyocr_dir = os.environ['EASYOCR_DIR']
+try:
+    import easyocr
+except ImportError:
+    import subprocess
+    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'easyocr'])
+    import easyocr
+easyocr.Reader(['en'], gpu=False, verbose=True, model_storage_directory=easyocr_dir)
+print('Done.')
+"
+        if [ -f "${EASYOCR_DIR}/craft_mlt_25k.pth" ] && [ -f "${EASYOCR_DIR}/english_g2.pth" ]; then
+            echo "✓ EasyOCR models downloaded to ${EASYOCR_DIR}"
+        else
+            echo "✗ EasyOCR download may have failed — check ${EASYOCR_DIR}"
+        fi
+    else
+        echo "Skipped EasyOCR download."
+    fi
+fi

@@ -38,7 +38,7 @@ DEFAULT_STATION_ID = os.environ.get('STATION_ID', 'station_1')
 RESULTS_DIR = Path(os.environ.get('RESULTS_DIR', '/results'))
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
-MAX_RESULTS = 10  # Keep more results per station for better reporting
+MAX_RESULTS = 200  # Keep results across many video loops for run comparison
 
 # Per-station state tracking
 class StationResults:
@@ -49,6 +49,7 @@ class StationResults:
         self.total_processed = 0
         self.total_validated = 0
         self.total_mismatch = 0
+        self.order_run_counts: Dict[str, int] = {}  # order_id -> number of times processed
         self.lock = Lock()
         
         # File paths for this station
@@ -86,6 +87,7 @@ def _update_summary(station: StationResults):
             'recent_results': [
                 {
                     'order_id': r.get('order_id'),
+                    'run_number': r.get('run_number', '?'),
                     'status': r.get('status'),
                     'inference_time': r.get('inference_time_sec'),
                     'completed_at': r.get('completed_at', 'N/A')
@@ -133,9 +135,10 @@ def _update_readable_report(station: StationResults):
             qty_mismatch = validation.get('quantity_mismatch', [])
             
             status_emoji = "✅ VALIDATED" if status == "validated" else "❌ MISMATCH"
-            
+            run_number = result.get('run_number', '?')
+
             lines.extend([
-                f"### Order {order_id}",
+                f"### Order {order_id} — Run #{run_number}",
                 f"- **Completed At:** {completed_at}",
                 f"- **Inference Time:** {inference_time:.2f}s",
                 f"- Status: {status_emoji}",
@@ -168,67 +171,79 @@ def add_result(result: dict, station_id: Optional[str] = None):
     
     station = _get_station(station_id)
     
+    order_id = result.get('order_id', 'unknown')
+    status = result.get('status', 'unknown')
+    logger.info(f"[RESULTS] Adding result for {station_id}: order_id={order_id}, status={status}")
+
+    result['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+    # ── Critical section: in-memory mutations only (no I/O inside lock) ──
     with station.lock:
-        order_id = result.get('order_id', 'unknown')
-        status = result.get('status', 'unknown')
-        
-        logger.info(f"[RESULTS] Adding result for {station_id}: order_id={order_id}, status={status}")
-        logger.debug(f"[RESULTS] Result details: {result}")
-        
-        # Add completed_at timestamp in readable format
-        result['completed_at'] = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        
-        # Always append results (even duplicates) to track all detections across video loops
+        station.order_run_counts[order_id] = station.order_run_counts.get(order_id, 0) + 1
+        result['run_number'] = station.order_run_counts[order_id]
         station.results.appendleft(result)
-        
-        # Update statistics
         station.total_processed += 1
         if status == 'validated':
             station.total_validated += 1
         elif status == 'mismatch':
             station.total_mismatch += 1
-        
-        # Update summary and report files (no more appending to JSONL)
-        _update_summary(station)
-        _update_readable_report(station)
-        
-        # Track in video history
-        try:
-            vh = _get_video_history()
-            current_video_id = vh['get_current']()
-            if current_video_id:
-                vh['add_result'](current_video_id, result)
-                logger.debug(f"[RESULTS] Result added to video history for order_id={order_id}, video_id={current_video_id}")
-            else:
-                logger.debug(f"[RESULTS] No current video to track result for order_id={order_id}")
-        except Exception as e:
-            logger.debug(f"[RESULTS] Could not add to video history: {e}")
-        
-        logger.debug(f"[RESULTS] Current result count for {station_id}: {len(station.results)}/{MAX_RESULTS}")
-        logger.info(f"[RESULTS] {station_id} stats: {station.total_processed} processed, {station.total_validated} validated, {station.total_mismatch} mismatch")
+        # Take a snapshot for file writes so we can release lock before I/O
+        station_snapshot = station
+
+    # ── File I/O outside lock so writers never block readers ──────────────
+    _update_summary(station_snapshot)
+    _update_readable_report(station_snapshot)
+
+    # Track in video history (also outside lock)
+    try:
+        vh = _get_video_history()
+        current_video_id = vh['get_current']()
+        if current_video_id:
+            vh['add_result'](current_video_id, result)
+            logger.debug(f"[RESULTS] Result added to video history for order_id={order_id}, video_id={current_video_id}")
+    except Exception as e:
+        logger.debug(f"[RESULTS] Could not add to video history: {e}")
+
+    logger.info(f"[RESULTS] {station_id} stats: {station.total_processed} processed, {station.total_validated} validated, {station.total_mismatch} mismatch")
 
 
 def get_results(station_id: Optional[str] = None):
     """Get results for a station"""
     if station_id is None:
         station_id = DEFAULT_STATION_ID
-    
+
     station = _get_station(station_id)
-    
-    with station.lock:
+
+    if not station.lock.acquire(blocking=True, timeout=2.0):
+        logger.warning(f"[RESULTS] get_results lock timeout for {station_id}, returning empty list")
+        return []
+    try:
         result_list = list(station.results)
         logger.debug(f"[RESULTS] Retrieved {len(result_list)} results for {station_id}")
         return result_list
+    finally:
+        station.lock.release()
 
 
 def get_statistics(station_id: Optional[str] = None):
-    """Get processing statistics for a station"""
+    """Get processing statistics for a station (non-blocking, 2s timeout)"""
     if station_id is None:
         station_id = DEFAULT_STATION_ID
-    
+
     station = _get_station(station_id)
-    
-    with station.lock:
+
+    if not station.lock.acquire(blocking=True, timeout=2.0):
+        logger.warning(f"[RESULTS] get_statistics lock timeout for {station_id}, returning partial stats")
+        # Return what we can read without the lock (ints are atomic-enough for a status read)
+        return {
+            'station_id': station_id,
+            'total_processed': station.total_processed,
+            'total_validated': station.total_validated,
+            'total_mismatch': station.total_mismatch,
+            'validation_rate': 0,
+            'note': 'partial — lock busy'
+        }
+    try:
         return {
             'station_id': station.station_id,
             'total_processed': station.total_processed,
@@ -236,6 +251,8 @@ def get_statistics(station_id: Optional[str] = None):
             'total_mismatch': station.total_mismatch,
             'validation_rate': (station.total_validated / station.total_processed * 100) if station.total_processed > 0 else 0
         }
+    finally:
+        station.lock.release()
 
 
 def get_all_stations():

@@ -4,8 +4,10 @@ import requests
 import base64
 import time
 import logging
+import os
 from io import BytesIO
 from typing import List, Optional
+from pathlib import Path
 import numpy as np
 from PIL import Image
 from vlm_metrics_logger import (
@@ -16,6 +18,9 @@ from vlm_metrics_logger import (
 )
 
 logger = logging.getLogger(__name__)
+
+# Directory for saving VLM input frames
+VLM_INPUT_DIR = os.environ.get('VLM_INPUT_DIR', '/results/vlm-in')
 
 
 class OVMSVLMClient:
@@ -73,6 +78,50 @@ class OVMSVLMClient:
         
         return f"data:image/png;base64,{img_b64}"
 
+    def _save_input_frames(self, images: List, unique_id: str) -> str:
+        """
+        Save input frames to disk for debugging/analysis.
+        
+        Args:
+            images: List of images (ov.Tensor or np.ndarray)
+            unique_id: Transaction ID (e.g., station_2_92)
+            
+        Returns:
+            Path to the saved folder
+        """
+        if not unique_id:
+            return ""
+            
+        # Create folder: /results/vlm-in/{transaction_id}/
+        folder_path = Path(VLM_INPUT_DIR) / unique_id
+        try:
+            folder_path.mkdir(parents=True, exist_ok=True)
+            
+            for idx, img in enumerate(images):
+                # Handle ov.Tensor or np.ndarray
+                if hasattr(img, 'data'):
+                    img_array = np.array(img.data).reshape(img.shape)
+                else:
+                    img_array = img
+                
+                # Convert BGR to RGB if needed
+                if len(img_array.shape) == 3 and img_array.shape[2] == 3:
+                    img_rgb = img_array[:, :, ::-1]
+                else:
+                    img_rgb = img_array
+                
+                # Save as JPEG
+                pil_img = Image.fromarray(img_rgb.astype('uint8'))
+                frame_path = folder_path / f"frame_{idx+1}.jpg"
+                pil_img.save(frame_path, format="JPEG", quality=90)
+            
+            logger.info(f"[OVMS-CLIENT] Saved {len(images)} input frames to: {folder_path}")
+            return str(folder_path)
+            
+        except Exception as e:
+            logger.warning(f"[OVMS-CLIENT] Failed to save input frames: {e}")
+            return ""
+
     def generate(
         self,
         prompt: str,
@@ -112,13 +161,28 @@ class OVMSVLMClient:
         # Build request
         request_data = {
             "model": self.model_name,
-            "messages": [{
-                "role": "user",
-                "content": content
-            }],
+            "messages": [
+                {
+                    "role": "system",
+                    "content": (
+                        "You are a grocery item counter. "
+                        "Respond ONLY with detected items in the exact format: item_name x quantity. "
+                        "One item per line. No greetings, no explanations, no extra text. "
+                        "If no items are visible output NO_ITEMS."
+                    )
+                },
+                {
+                    "role": "user",
+                    "content": content
+                }
+            ],
             "max_completion_tokens": self.max_new_tokens,
             "temperature": self.temperature,
         }
+
+        # Save input frames for debugging (before sending request)
+        if unique_id:
+            self._save_input_frames(images, unique_id)
 
         # Send request
         try:
@@ -151,6 +215,14 @@ class OVMSVLMClient:
             text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
             logger.info(f"[OVMS-CLIENT] Response received in {total_latency:.2f}s")
             logger.debug(f"[OVMS-CLIENT] Generated text: {text[:200]}...")
+
+            # Log VLM output (detected items) - FULL OUTPUT
+            logger.info(f"[OVMS-CLIENT] ========== VLM OUTPUT ==========")
+            logger.info(f"[OVMS-CLIENT] Transaction ID: {unique_id}")
+            logger.info(f"[OVMS-CLIENT] Detected items (raw output):")
+            for line in text.strip().split('\n'):
+                logger.info(f"[OVMS-CLIENT]   {line}")
+            logger.info(f"[OVMS-CLIENT] ================================")
 
             # Extract token usage from response
             usage = result.get("usage", {})

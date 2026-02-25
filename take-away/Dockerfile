@@ -38,8 +38,6 @@ RUN apt-get update && \
         curl \
         ca-certificates \
         jq \
-        python3-gi \
-        python3-gst-1.0 \
     && rm -rf /var/lib/apt/lists/*
 
 # -------------------------------

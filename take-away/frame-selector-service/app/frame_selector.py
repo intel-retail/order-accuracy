@@ -69,6 +69,10 @@ MINIO_ENDPOINT = MINIO["endpoint"]
 FRAMES_BUCKET = BUCKETS["frames"]
 SELECTED_BUCKET = BUCKETS["selected"]
 
+# Debug directory for saving received frames
+DEBUG_FRAME_DIR = os.environ.get('DEBUG_FRAME_DIR', '/app/debug/frame-selector-in')
+DEBUG_FRAMES_ENABLED = os.environ.get('DEBUG_FRAMES_ENABLED', 'true').lower() == 'true'
+
 # Reconfigure logging after all imports (YOLO overwrites logging config)
 # This must be AFTER ultralytics import
 logging.basicConfig(
@@ -81,7 +85,34 @@ logger = logging.getLogger(__name__)
 
 TOP_K = FS_CFG.get("top_k", 3)  # Default to 5 if not specified
 POLL_INTERVAL = FS_CFG.get("poll_interval_sec", 1.5)
-SKIP_LABELS = set(FS_CFG.get("skip_labels", ["hand", "person"]))
+# In a take-away packing scenario the worker is always present while placing
+# items — every useful food frame has `person` detected.  Including 'person'
+# causes ALL food-placement frames to be dropped, leaving only empty slip frames
+# for the VLM.  Keep only 'hand' as a placeholder (COCO has no hand class;
+# override via config 'skip_labels' if a dedicated hand-detection model is used).
+SKIP_LABELS = set(FS_CFG.get("skip_labels", ["hand"]))
+# YOLO classes that indicate non-food objects (order slips, phones, etc.).
+# These are silently excluded from the item score so slip frames don't appear
+# falsely rich — but unlike SKIP_LABELS they don't DROP the whole frame
+# (a frame can contain both a slip and a real food item).
+# YOLO commonly misidentifies order slips as 'remote' or 'cell phone'.
+NON_FOOD_LABELS = set(FS_CFG.get("non_food_labels", ["remote", "cell phone", "book", "laptop"]))
+MAX_BUCKET_SIZE = int(FS_CFG.get("max_bucket_size", 200))
+# Minimum frames that must have YOLO item detections before invoking VLM.
+# Buckets collected at a video-loop boundary (e.g. only 4-6 frames) often
+# lack enough item-bearing frames for reliable detection — skip and wait
+# for the next full cycle.
+MIN_ITEM_FRAMES = int(FS_CFG.get("min_item_frames", 3))
+
+# Confidence threshold for detecting skip-labels (e.g. a dedicated hand model).
+SKIP_LABEL_CONF = float(os.environ.get("SKIP_LABEL_CONF",
+                        str(FS_CFG.get("skip_label_conf", 0.1))))
+
+# Confidence threshold for counting valid food items.
+# Higher than SKIP_LABEL_CONF to suppress YOLO false-positives
+# (e.g. 'clock', 'dining table', 'remote') that inflate frame scores.
+ITEM_COUNT_CONF = float(os.environ.get("ITEM_COUNT_CONF",
+                        str(FS_CFG.get("item_count_conf", 0.35))))
 
 # How many consecutive frames required to confirm a new order
 MIN_FRAMES_PER_ORDER = FS_CFG.get("min_frames_per_order", 2)
@@ -93,7 +124,64 @@ MIN_FRAMES_BEFORE_FINALIZE = FS_CFG.get("min_frames_before_finalize", 5)
 # This handles the case where the video ends (last order has no subsequent order)
 INACTIVITY_TIMEOUT = FS_CFG.get("inactivity_timeout_sec", 15)
 
+# Cooldown between re-processing the same order_id (seconds).
+# Prevents duplicate VLM calls within the same video loop while allowing
+# the order to be re-processed on the next loop iteration.
+REPROCESS_COOLDOWN_SEC = int(os.environ.get('REPROCESS_COOLDOWN_SEC', '30'))
+
+# Number of consecutive frames with no YOLO item detections to trigger
+# a "black frame" reset. This handles the warmup period between video loops
+# where black frames are streamed to keep the RTSP connection alive.
+# When detected, we clean up the current order state to prepare for the next loop.
+BLACK_FRAME_RESET_COUNT = int(os.environ.get('BLACK_FRAME_RESET_COUNT', '10'))
+
 VLM_ENDPOINT = VLM_CFG["endpoint"]
+
+# ── Order-aware diversity selection ──────────────────────────────────────────
+# When selecting the best frame from each temporal bucket we also consider
+# whether the frame contains expected items (even at lower YOLO confidence).
+# This prevents situations where banana/apple detections at conf < ITEM_COUNT_CONF
+# (0.35) are ignored during scoring, causing the VLM to never see those items.
+
+def _load_orders_config():
+    """Load expected orders from config/orders.json for diversity scoring."""
+    try:
+        config_dir = os.path.join(os.path.dirname(__file__), '..', 'config')
+        orders_path = os.path.join(config_dir, 'orders.json')
+        with open(orders_path, 'r') as f:
+            data = json.load(f)
+        result = {k: [item['name'].lower() for item in v] for k, v in data.items()}
+        logger.info(f"[DIVERSITY] Loaded orders.json for diversity selection: {len(result)} orders")
+        return result
+    except Exception as e:
+        logger.warning(f"[DIVERSITY] Could not load orders.json: {e} — diversity selection disabled")
+        return {}
+
+EXPECTED_ORDER_ITEMS = _load_orders_config()  # {order_id: [item_name_lower, ...]}
+
+# Mapping from order item names → YOLO COCO class synonyms.
+# Used to check if a frame contains an expected item at low confidence.
+_ORDER_ITEM_YOLO_MAP = {
+    "apple":               ["apple"],
+    "green apple":         ["apple"],
+    "banana":              ["banana"],
+    "yellow banana":       ["banana"],
+    "water bottle":        ["bottle"],
+    "water":               ["bottle"],
+    "coke bottle":         ["bottle"],
+    "coke large bottle":   ["bottle"],
+    "coke 2 liter bottle": ["bottle"],
+    "pepsi can":           ["cup", "can", "bottle"],  # YOLO labels cans as 'bottle' more often than 'can'
+}
+
+
+def _get_expected_yolo_synonyms(order_id: str) -> set:
+    """Return YOLO class names that correspond to expected items in this order."""
+    synonyms = set()
+    for item_name in EXPECTED_ORDER_ITEMS.get(order_id, []):
+        synonyms.update(_ORDER_ITEM_YOLO_MAP.get(item_name, []))
+    return synonyms
+# ─────────────────────────────────────────────────────────────────────────────
 
 # Per-station state tracking for multi-station mode
 @dataclass
@@ -104,19 +192,38 @@ class StationState:
     current_keys: List[str] = field(default_factory=list)
     pending_order: Optional[str] = None
     pending_count: int = 0
+    pending_keys: List[str] = field(default_factory=list)  # frames seen for the next‐order candidate
     processed_keys: Set[str] = field(default_factory=set)
-    processed_orders: Set[str] = field(default_factory=set)
+    # Maps order_id → wall-clock of last VLM call (replaces the old Set).
+    # Allows re-processing on the next video loop while preventing duplicate
+    # calls within the same loop (guarded by REPROCESS_COOLDOWN_SEC).
+    processed_order_times: Dict[str, float] = field(default_factory=dict)
+    # Maps order_id → how many times it has been processed this session.
+    processed_order_counts: Dict[str, int] = field(default_factory=dict)
     last_frame_time: float = field(default_factory=time.time)
-    
+    # Counter for consecutive frames with no YOLO item detections (black frame detection)
+    consecutive_no_item_frames: int = 0
+    # Flag to track if we're in "loop warmup" mode (waiting for real video to start)
+    in_warmup_mode: bool = False
+
+    @property
+    def processed_orders(self) -> set:
+        """Backward-compatible view of all orders processed at least once."""
+        return set(self.processed_order_times.keys())
+
     def reset(self):
         """Reset state for next video/stream"""
         self.current_order = None
         self.current_keys = []
         self.pending_order = None
         self.pending_count = 0
+        self.pending_keys = []
         self.processed_keys.clear()
-        self.processed_orders.clear()
+        self.processed_order_times.clear()
+        self.processed_order_counts.clear()
         self.last_frame_time = time.time()
+        self.consecutive_no_item_frames = 0
+        self.in_warmup_mode = False
 
 # Initialize per-station state
 station_states: Dict[str, StationState] = {
@@ -138,6 +245,8 @@ ORDER_QUEUE = 'order_processing'
 
 logger.info(f"Frame selector configuration: stations={STATION_IDS}, top_k={TOP_K}, poll_interval={POLL_INTERVAL}s, min_frames={MIN_FRAMES_PER_ORDER}, min_before_finalize={MIN_FRAMES_BEFORE_FINALIZE}")
 logger.info(f"Skip labels: {SKIP_LABELS}")
+logger.info(f"Non-food labels (slip exclusion): {NON_FOOD_LABELS}")
+logger.info(f"Max bucket size: {MAX_BUCKET_SIZE}, min item frames: {MIN_ITEM_FRAMES}")
 logger.info(f"VLM endpoint: {VLM_ENDPOINT}")
 logger.info(f"RabbitMQ enabled: {USE_RABBITMQ}")
 
@@ -259,7 +368,7 @@ def get_producer():
 # VLM Caller (with RabbitMQ support)
 # =====================================================
 
-def call_vlm(order_id, station_id=None, timeout=120):
+def call_vlm(order_id, station_id=None, timeout=400):
     """
     Submit order for VLM processing.
     Uses RabbitMQ queue if available, falls back to direct HTTP call.
@@ -378,6 +487,31 @@ client = Minio(
 
 logger.info(f"MinIO client initialized: endpoint={MINIO_ENDPOINT}")
 
+# Initialize debug directory
+if DEBUG_FRAMES_ENABLED:
+    Path(DEBUG_FRAME_DIR).mkdir(parents=True, exist_ok=True)
+    logger.info(f"Debug frames enabled: saving to {DEBUG_FRAME_DIR}")
+
+
+def save_debug_frame(station_id: str, order_id: str, key: str, img: np.ndarray):
+    """Save frame to debug directory for debugging frame flow."""
+    if not DEBUG_FRAMES_ENABLED:
+        return
+    
+    try:
+        # Create folder: /app/debug/frame-selector-in/{station_id}/{order_id}/
+        debug_folder = Path(DEBUG_FRAME_DIR) / station_id / order_id
+        debug_folder.mkdir(parents=True, exist_ok=True)
+        
+        # Extract frame name from key
+        frame_name = key.split('/')[-1]  # e.g., frame_1.jpg
+        debug_path = debug_folder / frame_name
+        
+        cv2.imwrite(str(debug_path), img)
+        logger.debug(f"[DEBUG] Saved frame to: {debug_path}")
+    except Exception as e:
+        logger.warning(f"[DEBUG] Failed to save debug frame: {e}")
+
 
 # =====================================================
 # Helpers
@@ -396,6 +530,37 @@ def wait_for_bucket(bucket):
         time.sleep(1)
 
 
+def cleanup_buckets_on_startup():
+    """Clean up stale frames from previous runs to ensure fresh start."""
+    cleanup_enabled = os.environ.get('CLEANUP_ON_STARTUP', 'true').lower() == 'true'
+    if not cleanup_enabled:
+        logger.info("CLEANUP_ON_STARTUP disabled, skipping bucket cleanup")
+        return
+    
+    logger.info("Cleaning up stale frames from previous runs...")
+    
+    for bucket in [FRAMES_BUCKET, SELECTED_BUCKET]:
+        if not client.bucket_exists(bucket):
+            continue
+        
+        count = 0
+        objects_to_delete = []
+        for obj in client.list_objects(bucket, recursive=True):
+            objects_to_delete.append(obj.object_name)
+            count += 1
+        
+        for obj_name in objects_to_delete:
+            try:
+                client.remove_object(bucket, obj_name)
+            except Exception as e:
+                logger.warning(f"Failed to delete {bucket}/{obj_name}: {e}")
+        
+        if count > 0:
+            logger.info(f"Cleaned {count} stale objects from bucket '{bucket}'")
+    
+    logger.info("Bucket cleanup complete")
+
+
 def ensure_buckets():
     logger.info("Ensuring MinIO buckets exist")
     wait_for_bucket(FRAMES_BUCKET)
@@ -404,28 +569,48 @@ def ensure_buckets():
         client.make_bucket(SELECTED_BUCKET)
     else:
         logger.info(f"Bucket already exists: {SELECTED_BUCKET}")
+    
+    # Clean up stale data from previous runs
+    cleanup_buckets_on_startup()
 
 
 def list_frames_sorted(station_id: str):
-    """List frames for a specific station, sorted by name"""
+    """List frames for a specific station, sorted by name.
+
+    Returns:
+        frames              : list of (order_id, object_name) sorted by name
+        eos_seen            : True if the station-level __EOS__ marker exists
+        finalized_order_ids : set of order_ids that have a per-order __EOS__ marker
+                              (written by frame_pipeline on each order transition)
+    """
     logger.debug(f"Listing frames from bucket: {FRAMES_BUCKET} (station: {station_id})")
     frames = []
     eos_seen = False
+    finalized_order_ids = set()  # orders whose upload is complete
 
     for obj in client.list_objects(FRAMES_BUCKET, recursive=True):
-        # Check for EOS marker for this station
+        # Station-level EOS — full end-of-video cleanup signal
         if obj.object_name == f"{station_id}/__EOS__":
             eos_seen = True
             logger.info(f"EOS marker detected for station {station_id}")
             continue
 
-        # Only process frames for this station
+        # Only process objects for this station
         if not obj.object_name.startswith(f"{station_id}/"):
+            continue
+
+        parts = obj.object_name.split("/")
+
+        # Per-order EOS written by frame_pipeline: station_id/order_id/__EOS__
+        if len(parts) == 3 and parts[2] == "__EOS__":
+            order_id = parts[1]
+            if order_id.lower() != "pending":
+                finalized_order_ids.add(order_id)
+                logger.info(f"[{station_id}] Per-order EOS detected: order_id={order_id}")
             continue
 
         if obj.object_name.lower().endswith(".jpg"):
             # Extract: station_id/order_id/frame_X.jpg -> order_id
-            parts = obj.object_name.split("/")
             if len(parts) >= 3 and parts[0] == station_id:
                 order_id = parts[1]
                 # Skip "pending" folder - these are frames awaiting OCR, not real orders
@@ -434,38 +619,89 @@ def list_frames_sorted(station_id: str):
                 frames.append((order_id, obj.object_name))
 
     frames.sort(key=lambda x: x[1])
-    logger.debug(f"Found {len(frames)} frames for station {station_id}, eos_seen={eos_seen}")
-    return frames, eos_seen
+    logger.debug(f"Found {len(frames)} frames for station {station_id}, eos_seen={eos_seen}, "
+                 f"finalized_orders={finalized_order_ids}")
+    return frames, eos_seen, finalized_order_ids
 
 
 def load_image(key):
-    resp = client.get_object(FRAMES_BUCKET, key)
-    data = resp.read()
-    resp.close()
-    resp.release_conn()
-    return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    resp = None
+    try:
+        resp = client.get_object(FRAMES_BUCKET, key)
+        data = resp.read()
+        return cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
+    except Exception as e:
+        # Key may have been overwritten or deleted between scan and load (race condition).
+        # Log a warning and return None so the caller skips this frame gracefully.
+        logger.warning(f"[load_image] Could not fetch {key}: {e}")
+        return None
+    finally:
+        if resp is not None:
+            resp.close()
+            resp.release_conn()
 
 
-def count_items(frame):
-    logger.debug("Running YOLO detection on frame")
-    result = model(frame, conf=0.1, verbose=False)[0]
+def count_items(frame, frame_key="?"):
+    """Score a frame by YOLO detection.
 
-    # If ANY skip-label (like person/hand) is present → discard frame
+    Returns:
+        (count, detected_label_set)
+            count              : number of high-confidence items (>= ITEM_COUNT_CONF),
+                                 or -1 if a skip-label was detected.
+            detected_label_set : set of ALL YOLO class names seen at >= SKIP_LABEL_CONF
+                                 (used for diversity scoring even at lower confidence).
+    """
+    # Run YOLO at the skip-label threshold.  Skip-labels default to ["hand"] only;
+    # 'person' is intentionally excluded because the packing worker is always
+    # visible in food-placement frames and must not cause them to be dropped.
+    result = model(frame, conf=SKIP_LABEL_CONF, verbose=False)[0]
+
+    # Collect ALL detected labels (including low-conf) for diversity scoring.
+    detected_label_set = set()
+
+    # Log every raw detection for diagnosis
+    all_detections = []
+    for box in result.boxes:
+        cls_name = result.names.get(int(box.cls), "unknown").lower()
+        conf_val  = float(box.conf)
+        all_detections.append(f"{cls_name}({conf_val:.2f})")
+        detected_label_set.add(cls_name)
+    logger.info(f"[YOLO][{frame_key}] Detections (conf>={SKIP_LABEL_CONF}): "
+                f"{all_detections if all_detections else 'none'}")
+
+    # If ANY skip-label is present → discard frame
     for box in result.boxes:
         cls_name = result.names.get(int(box.cls), "").lower()
         if cls_name in SKIP_LABELS:
-            logger.debug(f"Frame contains skip label: {cls_name}")
-            return -1   # mark frame as invalid
+            logger.info(f"[YOLO][{frame_key}] DROPPED — skip label '{cls_name}' "
+                        f"detected at conf={float(box.conf):.2f}")
+            return -1, set()   # mark frame as invalid
 
-    # Otherwise count valid objects
+    # Count valid objects only above the higher item-count threshold.
+    # This suppresses false-positive classes (clock, remote, dining table etc.)
+    # that YOLO hallucinates on food items at low confidence.
     count = 0
+    valid_items = []
+    low_conf_ignored = []
     for box in result.boxes:
         cls_name = result.names.get(int(box.cls), "").lower()
-        if cls_name not in SKIP_LABELS:
+        conf_val  = float(box.conf)
+        if cls_name in SKIP_LABELS:
+            continue   # already checked above
+        if cls_name in NON_FOOD_LABELS:
+            low_conf_ignored.append(f"{cls_name}(slip/{conf_val:.2f})")
+            continue   # order-slip misdetection — ignore silently
+        if conf_val >= ITEM_COUNT_CONF:
             count += 1
+            valid_items.append(f"{cls_name}({conf_val:.2f})")
+        else:
+            low_conf_ignored.append(f"{cls_name}({conf_val:.2f})")
 
-    logger.debug(f"Frame contains {count} valid objects")
-    return count
+    if low_conf_ignored:
+        logger.info(f"[YOLO][{frame_key}] Ignored low-conf items "
+                    f"(conf<{ITEM_COUNT_CONF}): {low_conf_ignored}")
+    logger.info(f"[YOLO][{frame_key}] ACCEPTED — {count} valid item(s): {valid_items}")
+    return count, detected_label_set
 
 
 
@@ -479,10 +715,19 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
         logger.debug(f"[{station_id}] Skipping empty order: order_id={order_id}")
         return
 
-    # Prevent duplicate VLM calls (check per-station state)
-    if order_id in state.processed_orders:
-        logger.warning(f"[{station_id}] Order already processed, skipping: order_id={order_id}")
+    # Prevent duplicate VLM calls within the same video loop using a cooldown.
+    # If the order was processed less than REPROCESS_COOLDOWN_SEC ago, skip it.
+    # Once the cooldown expires (next video loop), it will be re-processed.
+    last_processed = state.processed_order_times.get(order_id, 0)
+    elapsed_since = time.time() - last_processed
+    if last_processed > 0 and elapsed_since < REPROCESS_COOLDOWN_SEC:
+        logger.warning(
+            f"[{station_id}] Order {order_id} processed {elapsed_since:.0f}s ago "
+            f"(cooldown={REPROCESS_COOLDOWN_SEC}s) — skipping duplicate call"
+        )
         return
+    run_number = state.processed_order_counts.get(order_id, 0) + 1
+    logger.info(f"[{station_id}] Processing order_id={order_id} — run #{run_number}")
 
     # Ignore tiny OCR-noise orders
     if len(keys) < MIN_FRAMES_PER_ORDER:
@@ -508,41 +753,169 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
         logger.warning(f"[{station_id}][ORDER-FINALIZE] Failed to cleanup stale frames for order_id={order_id}: {e}")
 
     scored = []
-    fallback_frames = []  # Keep frames with hands/persons as fallback
+
+    logger.info(f"[{station_id}][ORDER-FINALIZE] Processing {len(keys)} frames for order_id={order_id}")
+    logger.info(f"[{station_id}][ORDER-FINALIZE] Frame keys: {keys}")
     
+    dropped_keys  = []
+    accepted_keys = []
+
     for key in keys:
-        logger.debug(f"[{station_id}][ORDER-FINALIZE] Loading and scoring frame: {key}")
         img = load_image(key)
         if img is None:
             logger.warning(f"[{station_id}][ORDER-FINALIZE] Failed to load image: {key}")
             continue
-        items = count_items(img)
 
-        # Skip frames containing person/hand etc. (but keep as fallback)
+        # Save debug frame
+        save_debug_frame(station_id, order_id, key, img)
+
+        frame_label = key.split('/')[-1]   # e.g. frame_12.jpg
+        items, detected_labels = count_items(img, frame_key=f"{order_id}/{frame_label}")
+
+        # Skip frames containing a detected skip-label (e.g. dedicated hand model).
+        # (Option D: never use skip-label frames as fallback — always drop them
+        #  to keep VLM input clean, matching the original design's accuracy guarantee.)
         if items < 0:
-            logger.debug(f"[{station_id}][ORDER-FINALIZE] Frame has skip-labels (kept as fallback): {key}")
-            fallback_frames.append((0, key, img))  # Score 0 for frames with hands
+            dropped_keys.append(key)
             continue
 
-        scored.append((items, key, img))
+        # detected_labels is used below for order-aware diversity scoring.
+        scored.append((items, detected_labels, key, img))
+        accepted_keys.append((items, key))
 
-    # If no clean frames, use fallback frames (frames with hands/persons)
-    # This ensures no orders are missed due to filtering
-    if not scored and fallback_frames:
-        logger.warning(f"[{station_id}][ORDER-FINALIZE] No clean frames for order_id={order_id}, using {len(fallback_frames)} fallback frames (with hands/persons)")
-        scored = fallback_frames
-    
+    logger.info(f"[{station_id}][SCORE-SUMMARY] order={order_id} | "
+                f"total={len(keys)} | accepted={len(accepted_keys)} | dropped={len(dropped_keys)}")
+    logger.info(f"[{station_id}][SCORE-SUMMARY] Accepted scores: "
+                f"{[(k.split('/')[-1], s) for s, k in accepted_keys]}")
+    if dropped_keys:
+        logger.info(f"[{station_id}][SCORE-SUMMARY] Dropped (hand/person): "
+                    f"{[k.split('/')[-1] for k in dropped_keys]}")
+
     if not scored:
         logger.warning(f"[{station_id}][ORDER-FINALIZE] No valid frames after filtering for order_id={order_id}")
+        # Signal that this was a black frame period - enter warmup mode
+        state.in_warmup_mode = True
+        state.consecutive_no_item_frames = len(keys)
+        logger.info(f"[{station_id}][BLACK-FRAME] Detected {len(keys)} frames with no items — entering warmup mode")
         return
 
-    # Pick TOP_K best frames
-    scored.sort(key=lambda x: (x[0], x[1]), reverse=True)
-    topk = scored[:min(TOP_K, len(scored))]
+    item_bearing = sum(1 for s, _, _, _ in scored if s > 0)
+    item_ratio = item_bearing / len(scored) if scored else 0
     
-    logger.info(f"[{station_id}][ORDER-FINALIZE] Selected {len(topk)} top frames for order_id={order_id}")
+    if item_bearing < MIN_ITEM_FRAMES:
+        logger.warning(
+            f"[{station_id}][ORDER-FINALIZE] Skipping VLM for order_id={order_id} — "
+            f"only {item_bearing}/{len(scored)} frames have item detections "
+            f"(need {MIN_ITEM_FRAMES}). Likely a partial cycle; next full loop will have more frames."
+        )
+        # Signal warmup mode when item ratio is very low (< 20%) - likely black frames contaminated
+        if item_ratio < 0.2:
+            state.in_warmup_mode = True
+            state.consecutive_no_item_frames = len(keys)
+            logger.info(f"[{station_id}][BLACK-FRAME] Only {item_bearing}/{len(scored)} frames ({item_ratio:.0%}) have items — entering warmup mode")
+        return
+    
+    # Exiting warmup mode - we have real frames with items
+    if state.in_warmup_mode:
+        logger.info(f"[{station_id}][WARMUP-EXIT] Exiting warmup mode — found {item_bearing} item-bearing frames for order_id={order_id}")
+        state.in_warmup_mode = False
+        state.consecutive_no_item_frames = 0
+        # Continue to process this order (don't return)
 
-    for rank, (items, key, frame) in enumerate(topk, 1):
+    # ── Order-aware temporal-spread frame selection ───────────────────────────
+    # Primary goal: ensure the selected TOP_K frames collectively cover as many
+    # expected order items as possible — even items YOLO detects at low confidence
+    # (below ITEM_COUNT_CONF) such as bananas at 0.13–0.24 conf.
+    #
+    # Algorithm:
+    #   1. Within each temporal bucket pick the frame with the highest
+    #      (expected_item_coverage, high_conf_item_count) composite score.
+    #   2. After temporal selection, if any expected items are still uncovered,
+    #      swap the lowest-value selected frame for the best uncovered-item frame
+    #      (forced coverage pass).
+    #
+    # Fallback: if fewer accepted frames than buckets, fall back to score-only
+    # sort (avoids wasting slots on empty buckets).
+    # ─────────────────────────────────────────────────────────────────────────
+
+    # YOLO class synonyms for expected order items (used for diversity scoring).
+    expected_yolo = _get_expected_yolo_synonyms(order_id)
+    if expected_yolo:
+        logger.info(f"[{station_id}][DIVERSITY] order={order_id} — expected YOLO synonyms: {expected_yolo}")
+
+    def _diversity(detected_labels: set) -> int:
+        """Number of expected YOLO synonyms visible in this frame."""
+        return len(expected_yolo & detected_labels) if expected_yolo else 0
+
+    # scored is currently in insertion order (same as keys order = frame number order)
+    # Keep temporal order for bucket splitting.
+    n = len(scored)
+    topk = []
+
+    if n >= TOP_K:
+        # Split into TOP_K equal buckets and pick best from each
+        bucket_size = n / TOP_K
+        for b in range(TOP_K):
+            start = int(b * bucket_size)
+            end   = int((b + 1) * bucket_size)
+            bucket = scored[start:end]
+            if not bucket:
+                continue
+            # Best frame: primary = expected item coverage (diversity),
+            # secondary = total high-conf item count, tertiary = latest key.
+            best = max(bucket, key=lambda x: (_diversity(x[1]), x[0], x[2]))
+            topk.append(best)
+            logger.info(f"[{station_id}][TOP-K] bucket_{b+1} "
+                        f"[frames {start}–{end-1} of {n}]: "
+                        f"chose {best[2].split('/')[-1]} "
+                        f"(yolo_items={best[0]}, diversity={_diversity(best[1])})")
+    else:
+        # Fewer frames than buckets — fall back to diversity+score sort
+        logger.info(f"[{station_id}][TOP-K] only {n} accepted frame(s) < TOP_K={TOP_K}, "
+                    f"using diversity+score fallback")
+        scored_sorted = sorted(scored, key=lambda x: (_diversity(x[1]), x[0], x[2]), reverse=True)
+        topk = scored_sorted[:n]
+
+    # ── Forced coverage pass ─────────────────────────────────────────────────
+    # After temporal selection, check if any expected items are still uncovered.
+    # If so, replace the lowest-value selected frame with the best alternative
+    # frame that covers the missing item.
+    if expected_yolo:
+        covered = set()
+        for items_cnt, det_labels, _key, _frame in topk:
+            covered |= (expected_yolo & det_labels)
+        missing = expected_yolo - covered
+        if missing:
+            logger.info(f"[{station_id}][DIVERSITY] order={order_id} — uncovered synonyms after bucket selection: {missing}")
+            # Find the best alternative frame for each missing synonym
+            for missing_label in missing:
+                best_alt = None
+                for entry in scored:
+                    if entry in topk:
+                        continue
+                    if missing_label in entry[1]:   # entry[1] = detected_labels
+                        if best_alt is None or entry[0] > best_alt[0]:
+                            best_alt = entry
+                if best_alt is not None:
+                    # Replace the lowest-score topk entry that doesn't cover this label
+                    replaceable = [
+                        (i, e) for i, e in enumerate(topk)
+                        if missing_label not in e[1]   # e[1] = detected_labels
+                    ]
+                    if replaceable:
+                        worst_idx = min(replaceable, key=lambda x: (x[1][0], x[1][2]))[0]
+                        old_key = topk[worst_idx][2].split('/')[-1]
+                        new_key = best_alt[2].split('/')[-1]
+                        topk[worst_idx] = best_alt
+                        logger.info(f"[{station_id}][DIVERSITY] Swapped {old_key} → {new_key} "
+                                    f"to cover '{missing_label}'")
+
+    logger.info(f"[{station_id}][TOP-K] order={order_id} — selected {len(topk)} frame(s):")
+    for rank, (items, _labels, key, _) in enumerate(topk, 1):
+        logger.info(f"[{station_id}][TOP-K]   rank_{rank} → {key.split('/')[-1]}  "
+                    f"(yolo_items={items}, diversity={_diversity(_labels)})")
+
+    for rank, (items, _labels, key, frame) in enumerate(topk, 1):
         # Save to: {station_id}/{order_id}/rank_{rank}.jpg
         out_key = f"{station_id}/{order_id}/rank_{rank}.jpg"
         ok, buf = cv2.imencode(".jpg", frame)
@@ -569,12 +942,55 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
 
     try:
         response = call_vlm(order_id, station_id=station_id)
-        logger.info(f"[{station_id}][ORDER-FINALIZE] VLM call successful for order_id={order_id}")
+        logger.info(f"[{station_id}][ORDER-FINALIZE] VLM call successful for order_id={order_id} (run #{run_number})")
         logger.debug(f"[{station_id}][ORDER-FINALIZE] VLM response: {response}")
-        state.processed_orders.add(order_id)
-        logger.info(f"[{station_id}][ORDER-FINALIZE] Processed orders so far: {state.processed_orders}")
+        state.processed_order_times[order_id] = time.time()
+        state.processed_order_counts[order_id] = run_number
+        logger.info(
+            f"[{station_id}][ORDER-FINALIZE] Order {order_id} processed {run_number} time(s). "
+            f"All processed: { {k: v for k, v in state.processed_order_counts.items()} }"
+        )
     except Exception as e:
         logger.error(f"[{station_id}][ORDER-FINALIZE] VLM call failed for order_id={order_id}: {e}", exc_info=True)
+
+
+def _cleanup_order(station_id: str, order_id: str, state: StationState) -> None:
+    """Delete all frames and the per-order EOS marker for a completed order from
+    FRAMES_BUCKET.  This prevents second-loop (video looping) frames from the
+    same order_id accumulating in the same MinIO prefix and inflating counts.
+    """
+    deleted = 0
+    # Remove frames already tracked in processed_keys
+    keys_to_remove = [k for k in list(state.processed_keys)
+                      if k.startswith(f"{station_id}/{order_id}/")]
+    for key in keys_to_remove:
+        try:
+            client.remove_object(FRAMES_BUCKET, key)
+            state.processed_keys.discard(key)
+            deleted += 1
+        except Exception as e:
+            logger.debug(f"[{station_id}] Failed to delete tracked frame {key}: {e}")
+    # Sweep MinIO for any frames that weren't yet in processed_keys
+    try:
+        for obj in client.list_objects(FRAMES_BUCKET,
+                                        prefix=f"{station_id}/{order_id}/",
+                                        recursive=True):
+            if obj.object_name in state.processed_keys:
+                continue
+            try:
+                client.remove_object(FRAMES_BUCKET, obj.object_name)
+                deleted += 1
+            except Exception:
+                pass
+    except Exception as e:
+        logger.debug(f"[{station_id}] Error sweeping MinIO for order {order_id}: {e}")
+    # Delete the per-order EOS marker itself
+    try:
+        client.remove_object(FRAMES_BUCKET, f"{station_id}/{order_id}/__EOS__")
+    except Exception:
+        pass
+    logger.info(f"[{station_id}][CLEANUP] Removed {deleted} frames + EOS for order_id={order_id} "
+                f"— next video loop will start with a clean bucket")
 
 
 def process_station(station_id: str, state: StationState) -> bool:
@@ -583,7 +999,7 @@ def process_station(station_id: str, state: StationState) -> bool:
     Returns True if EOS was detected for this station.
     """
     try:
-        frames, eos_seen = list_frames_sorted(station_id)
+        frames, eos_seen, finalized_order_ids = list_frames_sorted(station_id)
     except S3Error as e:
         logger.error(f"[{station_id}] MinIO list error: {e}")
         return False
@@ -592,10 +1008,15 @@ def process_station(station_id: str, state: StationState) -> bool:
         if key in state.processed_keys:
             continue
 
-        # First frame ever for this station
+        # First frame ever for this station (or after state reset)
         if state.current_order is None:
             logger.info(f"[{station_id}][MAIN-LOOP] First order detected: order_id={order_id}")
             state.current_order = order_id
+            # Exit warmup mode if we're starting fresh with a real order
+            if state.in_warmup_mode:
+                logger.info(f"[{station_id}][WARMUP-EXIT] Exiting warmup on first order {order_id}")
+                state.in_warmup_mode = False
+                state.consecutive_no_item_frames = 0
 
         # Same order → normal collection
         if order_id == state.current_order:
@@ -610,36 +1031,93 @@ def process_station(station_id: str, state: StationState) -> bool:
                 logger.debug(f"[{station_id}][MAIN-LOOP] New order candidate: {order_id}")
                 state.pending_order = order_id
                 state.pending_count = 1
+                state.pending_keys = []  # reset buffer when candidate changes
 
-            # New order not stable yet → ignore this frame
+            # New order not stable yet → buffer in pending_keys (NOT current_keys)
             if state.pending_count < MIN_FRAMES_PER_ORDER:
                 logger.debug(f"[{station_id}][MAIN-LOOP] Pending new order: {order_id} ({state.pending_count}/{MIN_FRAMES_PER_ORDER})")
+                state.pending_keys.append(key)  # hold for new order, never mix into current
                 state.processed_keys.add(key)
                 continue
 
-            # New order confirmed stable → close current (if we have enough frames)
+            # New order confirmed stable → always close current order regardless of frame count.
+            # (Option C fix: never silently discard an order just because it has few frames —
+            #  min-frame filtering inside process_completed_order is sufficient.)
             current_frame_count = len(state.current_keys)
-            if current_frame_count >= MIN_FRAMES_BEFORE_FINALIZE:
-                logger.info(f"[{station_id}][MAIN-LOOP] New order confirmed: {order_id}. Closing current order: {state.current_order} ({current_frame_count} frames)")
-                process_completed_order(station_id, state.current_order, state.current_keys, state)
-                state.current_order = order_id
-                state.current_keys = []
-            else:
-                # Not enough frames yet - keep collecting for current order
-                logger.info(f"[{station_id}][MAIN-LOOP] New order {order_id} detected but waiting for more frames on {state.current_order} ({current_frame_count}/{MIN_FRAMES_BEFORE_FINALIZE})")
-                # Add pending frames to current order instead of discarding
-                state.current_keys.append(key)
-                state.processed_keys.add(key)
-                continue
+            logger.info(f"[{station_id}][MAIN-LOOP] New order confirmed: {order_id}. Closing current order: {state.current_order} ({current_frame_count} frames)")
+            _prev_order = state.current_order
+            process_completed_order(station_id, state.current_order, state.current_keys, state)
+            _cleanup_order(station_id, _prev_order, state)
+            
+            # Clean up any stale frames from the NEW order (from previous video loops)
+            # This ensures a fresh start for orders that re-appear across loops
+            _cleanup_order(station_id, order_id, state)
+            logger.info(f"[{station_id}][NEW-ORDER-CLEANUP] Cleared any stale frames for incoming order {order_id}")
+            
+            state.current_order = order_id
+            state.current_keys = list(state.pending_keys)  # seed new order with already-seen frames
+            state.pending_keys = []
             state.pending_order = None
             state.pending_count = 0
 
-        # Collect frame into current order
-        state.current_keys.append(key)
-        state.processed_keys.add(key)
+        # Skip frame collection during warmup mode (black frames between video loops)
+        # Exit warmup mode when we see a genuinely new order (order change after black frames)
+        if state.in_warmup_mode:
+            if order_id != state.current_order:
+                # New order during warmup - this is the real next loop starting
+                logger.info(f"[{station_id}][WARMUP-EXIT] New order {order_id} detected during warmup — exiting warmup mode")
+                state.in_warmup_mode = False
+                state.consecutive_no_item_frames = 0
+                # Clear current state to ensure clean start for the new order
+                if state.current_order:
+                    logger.info(f"[{station_id}][WARMUP-CLEANUP] Clearing stale order {state.current_order} before new order {order_id}")
+                    _cleanup_order(station_id, state.current_order, state)
+                state.current_order = order_id
+                state.current_keys = []
+                state.pending_order = None
+                state.pending_count = 0
+                state.pending_keys = []
+            else:
+                # Same order during warmup - still black frames, skip
+                logger.debug(f"[{station_id}][WARMUP-SKIP] Skipping frame {key} - still in warmup mode (order={order_id})")
+                state.processed_keys.add(key)
+                continue
+
+        # Collect frame into current order (capped to avoid runaway accumulation
+        # if VLM/OVMS hangs and the video loops for minutes)
+        if len(state.current_keys) >= MAX_BUCKET_SIZE:
+            logger.warning(f"[{station_id}][BUCKET-CAP] order={order_id} bucket full ({MAX_BUCKET_SIZE} frames) — dropping {key}")
+        else:
+            state.current_keys.append(key)
+            state.processed_keys.add(key)
         state.last_frame_time = time.time()  # Update last frame time
 
         logger.debug(f"[{station_id}][MAIN-LOOP] Collected frame: {key} (order_id={order_id}, total_frames={len(state.current_keys)})")
+
+    # ---- Per-order EOS: finalize as soon as frame_pipeline signals upload complete ----
+    # frame_pipeline writes station_id/order_id/__EOS__ on every order transition.
+    # Finalizing here (rather than waiting for frame-count transitions) means:
+    #  • Each order is processed with only its own frames (no cross-loop contamination).
+    #  • The bucket is cleaned before the next video loop writes to the same prefix.
+    if state.current_order and state.current_order in finalized_order_ids:
+        logger.info(f"[{station_id}][PER-ORDER-EOS] Order {state.current_order} upload complete — "
+                    f"finalizing ({len(state.current_keys)} frames)")
+        if state.current_keys:
+            process_completed_order(station_id, state.current_order, state.current_keys, state)
+        _cleanup_order(station_id, state.current_order, state)
+        # Promote pending order if one is already confirmed, otherwise go idle
+        if state.pending_order and state.pending_count >= MIN_FRAMES_PER_ORDER:
+            logger.info(f"[{station_id}][PER-ORDER-EOS] Promoting pending order "
+                        f"{state.pending_order} ({len(state.pending_keys)} buffered frames)")
+            state.current_order = state.pending_order
+            state.current_keys  = list(state.pending_keys)
+        else:
+            state.current_order = None
+            state.current_keys  = []
+        state.pending_order = None
+        state.pending_count = 0
+        state.pending_keys  = []
+        state.last_frame_time = time.time()
 
     # Inactivity timeout handling - finalize current order if no new frames for a while
     # This handles the case where the video ends (last order has no subsequent order)
@@ -647,7 +1125,9 @@ def process_station(station_id: str, state: StationState) -> bool:
         time_since_last_frame = time.time() - state.last_frame_time
         if time_since_last_frame >= INACTIVITY_TIMEOUT:
             logger.info(f"[{station_id}][INACTIVITY] No new frames for {time_since_last_frame:.1f}s. Finalizing current order: {state.current_order}")
+            _timeout_order = state.current_order
             process_completed_order(station_id, state.current_order, state.current_keys, state)
+            _cleanup_order(station_id, _timeout_order, state)
             state.current_order = None
             state.current_keys = []
             state.last_frame_time = time.time()  # Reset timer
@@ -723,7 +1203,10 @@ if __name__ == "__main__":
         # Process each station
         for station_id in STATION_IDS:
             state = station_states[station_id]
-            process_station(station_id, state)
+            try:
+                process_station(station_id, state)
+            except Exception as exc:
+                logger.error(f"[{station_id}] Unhandled error in process_station, continuing: {exc}", exc_info=True)
         
         # Log status every 10 polls
         if poll_count % 10 == 0:

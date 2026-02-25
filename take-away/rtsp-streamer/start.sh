@@ -9,9 +9,17 @@ MEDIAMTX_BIN=${MEDIAMTX_BIN:-/opt/rtsp-streamer/mediamtx}
 # Number of streams to create (one per worker/station)
 NUM_STREAMS=${WORKERS:-2}
 
-# Stream loop configuration
-# -1 = loop infinitely, 0 = no loop (stream ends when video ends), N = loop N times
-STREAM_LOOP=${STREAM_LOOP:-0}
+# Loop configuration
+# LOOP_COUNT: number of times to play the video
+#   -1 = infinite loop
+#    1 = play once
+#    2 = play twice, etc.
+LOOP_COUNT=${LOOP_COUNT:--1}
+
+# LOOP_WARMUP: seconds of black frames BEFORE each loop iteration (except first)
+# This gives the pipeline time to "reset" and ensures the first order in each loop
+# gets proper frames instead of transition frames at the loop boundary.
+LOOP_WARMUP=${LOOP_WARMUP:-5}
 
 # Source video file (use first .mp4 found, or specified by RTSP_STREAM_NAME)
 SOURCE_VIDEO=${RTSP_STREAM_NAME:-}
@@ -70,6 +78,212 @@ if [ "$STARTUP_DELAY" -gt 0 ]; then
   echo "Delay complete, starting streams"
 fi
 
+# Get video properties for black frame generation
+get_video_props() {
+  video_file="$1"
+  
+  # Default values
+  VIDEO_WIDTH=1920
+  VIDEO_HEIGHT=1080
+  VIDEO_FPS=30
+  
+  # Try to extract actual values using ffprobe if available
+  if command -v ffprobe >/dev/null 2>&1; then
+    width=$(ffprobe -v error -select_streams v:0 -show_entries stream=width -of csv=p=0 "$video_file" 2>/dev/null)
+    height=$(ffprobe -v error -select_streams v:0 -show_entries stream=height -of csv=p=0 "$video_file" 2>/dev/null)
+    fps=$(ffprobe -v error -select_streams v:0 -show_entries stream=r_frame_rate -of csv=p=0 "$video_file" 2>/dev/null)
+    
+    if [ -n "$width" ] && [ "$width" -gt 0 ] 2>/dev/null; then
+      VIDEO_WIDTH="$width"
+    fi
+    if [ -n "$height" ] && [ "$height" -gt 0 ] 2>/dev/null; then
+      VIDEO_HEIGHT="$height"
+    fi
+    if [ -n "$fps" ]; then
+      # fps might be a fraction like "30/1", extract numerator
+      VIDEO_FPS=$(echo "$fps" | cut -d'/' -f1)
+    fi
+  else
+    # Fallback to parsing ffmpeg output
+    props=$("$FFMPEG_BIN" -i "$video_file" 2>&1 | grep -E "Video:" | head -1)
+    
+    # Extract resolution (looking for pattern like "1920x1080" or "640x480")
+    if echo "$props" | grep -qoE ", [0-9]+x[0-9]+"; then
+      res=$(echo "$props" | sed -n 's/.*[^0-9]\([0-9]\{3,4\}x[0-9]\{3,4\}\).*/\1/p')
+      if [ -n "$res" ]; then
+        w=$(echo "$res" | cut -dx -f1)
+        h=$(echo "$res" | cut -dx -f2)
+        if [ "$w" -gt 100 ] 2>/dev/null && [ "$h" -gt 100 ] 2>/dev/null; then
+          VIDEO_WIDTH="$w"
+          VIDEO_HEIGHT="$h"
+        fi
+      fi
+    fi
+  fi
+  
+  echo "Video properties: ${VIDEO_WIDTH}x${VIDEO_HEIGHT} @ ${VIDEO_FPS}fps"
+}
+
+# Create a looped video file with black warmup segments between loops
+# This keeps the stream continuous (no disconnects) while adding warmup periods
+create_looped_video() {
+  video_file="$1"
+  loop_count="$2"
+  warmup_sec="$3"
+  output_file="$4"
+  
+  echo "Creating looped video with ${warmup_sec}s warmup between ${loop_count} loops..."
+  
+  # Get video properties
+  get_video_props "$video_file"
+  
+  # Create concat list file
+  concat_list="/tmp/concat_list_$$.txt"
+  
+  i=1
+  while [ $i -le $loop_count ]; do
+    # Add black warmup BEFORE each loop (except the first one)
+    if [ $i -gt 1 ] && [ "$warmup_sec" -gt 0 ]; then
+      echo "file '/tmp/black_warmup.mp4'" >> "$concat_list"
+    fi
+    echo "file '$video_file'" >> "$concat_list"
+    i=$((i + 1))
+  done
+  
+  # Generate black warmup video if needed
+  if [ "$warmup_sec" -gt 0 ] && [ "$loop_count" -gt 1 ]; then
+    echo "Generating ${warmup_sec}s black warmup segment..."
+    
+    # Get codec info from source video for better compatibility
+    video_codec=$("$FFMPEG_BIN" -i "$video_file" 2>&1 | grep -E "Stream.*Video" | grep -oE "h264|hevc|h265|mpeg4" | head -1)
+    video_codec=${video_codec:-h264}
+    
+    "$FFMPEG_BIN" -y \
+      -f lavfi \
+      -i "color=c=black:s=${VIDEO_WIDTH}x${VIDEO_HEIGHT}:r=${VIDEO_FPS}:d=${warmup_sec}" \
+      -f lavfi \
+      -i "anullsrc=r=48000:cl=stereo" \
+      -t "$warmup_sec" \
+      -c:v libx264 -preset ultrafast -tune zerolatency \
+      -profile:v baseline -level 3.0 \
+      -c:a aac -b:a 128k \
+      -pix_fmt yuv420p \
+      /tmp/black_warmup.mp4 2>/dev/null || \
+    "$FFMPEG_BIN" -y \
+      -f lavfi \
+      -i "color=c=black:s=${VIDEO_WIDTH}x${VIDEO_HEIGHT}:r=${VIDEO_FPS}:d=${warmup_sec}" \
+      -t "$warmup_sec" \
+      -c:v libx264 -preset ultrafast -tune zerolatency \
+      -pix_fmt yuv420p \
+      /tmp/black_warmup.mp4 2>/dev/null
+    
+    if [ ! -f /tmp/black_warmup.mp4 ]; then
+      echo "WARNING: Failed to create black warmup segment, will proceed without warmup"
+      rm -f "$concat_list"
+      return 1
+    fi
+    echo "Black warmup segment created"
+  fi
+  
+  # Concatenate using concat demuxer
+  # Try -c copy first (fast), fall back to re-encoding if it fails
+  echo "Concatenating videos..."
+  if ! "$FFMPEG_BIN" -y \
+    -f concat \
+    -safe 0 \
+    -i "$concat_list" \
+    -c copy \
+    "$output_file" 2>/dev/null; then
+    echo "Fast concat failed, trying with re-encoding..."
+    if ! "$FFMPEG_BIN" -y \
+      -f concat \
+      -safe 0 \
+      -i "$concat_list" \
+      -c:v libx264 -preset fast -crf 18 \
+      -c:a aac -b:a 128k \
+      "$output_file" 2>/dev/null; then
+      echo "WARNING: concat failed, will proceed without warmup"
+      rm -f "$concat_list"
+      return 1
+    fi
+  fi
+  
+  rm -f "$concat_list"
+  
+  if [ ! -f "$output_file" ]; then
+    echo "WARNING: Failed to create looped video, will proceed without warmup"
+    return 1
+  fi
+  
+  echo "Looped video created: $output_file"
+  return 0
+}
+
+# Function to stream video with loop warmup support
+stream_video() {
+  stream_name="$1"
+  
+  echo "Starting RTSP stream: $stream_name (LOOP_COUNT=$LOOP_COUNT, LOOP_WARMUP=${LOOP_WARMUP}s)"
+  
+  if [ "$LOOP_COUNT" = "-1" ]; then
+    # Infinite loop mode - use simple -stream_loop
+    # Note: No warmup in infinite mode (would require complex filter)
+    echo "Using infinite loop mode (no warmup)"
+    "$FFMPEG_BIN" \
+      -hide_banner \
+      -loglevel warning \
+      -re \
+      -stream_loop -1 \
+      -i "$source_file" \
+      -c copy \
+      -rtsp_transport tcp \
+      -f rtsp \
+      "rtsp://127.0.0.1:${RTSP_PORT}/${stream_name}" &
+  elif [ "$LOOP_COUNT" = "1" ]; then
+    # Single play - no loop, no warmup needed
+    echo "Using single play mode"
+    "$FFMPEG_BIN" \
+      -hide_banner \
+      -loglevel warning \
+      -re \
+      -i "$source_file" \
+      -c copy \
+      -rtsp_transport tcp \
+      -f rtsp \
+      "rtsp://127.0.0.1:${RTSP_PORT}/${stream_name}" &
+  else
+    # Finite loop with warmup - try to create pre-concatenated video
+    looped_file="/tmp/looped_video_${stream_name}.mp4"
+    
+    if create_looped_video "$source_file" "$LOOP_COUNT" "$LOOP_WARMUP" "$looped_file" && [ -f "$looped_file" ]; then
+      echo "Streaming pre-looped video with warmup"
+      "$FFMPEG_BIN" \
+        -hide_banner \
+        -loglevel warning \
+        -re \
+        -i "$looped_file" \
+        -c copy \
+        -rtsp_transport tcp \
+        -f rtsp \
+        "rtsp://127.0.0.1:${RTSP_PORT}/${stream_name}" &
+    else
+      # Fallback to simple -stream_loop without warmup
+      echo "Falling back to simple loop mode (no warmup)"
+      stream_loop_val=$((LOOP_COUNT - 1))
+      "$FFMPEG_BIN" \
+        -hide_banner \
+        -loglevel warning \
+        -re \
+        -stream_loop $stream_loop_val \
+        -i "$source_file" \
+        -c copy \
+        -rtsp_transport tcp \
+        -f rtsp \
+        "rtsp://127.0.0.1:${RTSP_PORT}/${stream_name}" &
+    fi
+  fi
+}
+
 # Create streams for each station
 # If RTSP_STREAMS is set (comma-separated), use those names
 # Otherwise create station_1, station_2, etc.
@@ -82,20 +296,10 @@ if [ -n "${RTSP_STREAMS:-}" ]; then
     if [ $i -gt $NUM_STREAMS ]; then
       break
     fi
-    echo "Starting RTSP stream: $stream_name (from $source_file)"
-    "$FFMPEG_BIN" \
-      -hide_banner \
-      -loglevel warning \
-      -re \
-      -stream_loop $STREAM_LOOP \
-      -i "$source_file" \
-      -c copy \
-      -rtsp_transport tcp \
-      -f rtsp \
-      "rtsp://127.0.0.1:${RTSP_PORT}/${stream_name}" &
+    stream_video "$stream_name"
     pid=$!
     pids="$pids $pid"
-    # Minimal delay between stream starts (was 0.5s, caused timing desync)
+    # Minimal delay between stream starts
     sleep 0.1
   done
 else
@@ -103,21 +307,11 @@ else
   i=1
   while [ $i -le $NUM_STREAMS ]; do
     stream_name="station_${i}"
-    echo "Starting RTSP stream: $stream_name (from $source_file)"
-    "$FFMPEG_BIN" \
-      -hide_banner \
-      -loglevel warning \
-      -re \
-      -stream_loop $STREAM_LOOP \
-      -i "$source_file" \
-      -c copy \
-      -rtsp_transport tcp \
-      -f rtsp \
-      "rtsp://127.0.0.1:${RTSP_PORT}/${stream_name}" &
+    stream_video "$stream_name"
     pid=$!
     pids="$pids $pid"
     i=$((i + 1))
-    # Minimal delay between stream starts (was 0.5s, caused timing desync)
+    # Minimal delay between stream starts
     sleep 0.1
   done
 fi

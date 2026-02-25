@@ -29,6 +29,8 @@ logger = logging.getLogger(__name__)
 
 cfg = load_config()
 
+SERVICE_MODE = os.getenv('SERVICE_MODE', 'single')
+
 
 def create_app() -> FastAPI:
     """Create and configure FastAPI application"""
@@ -85,10 +87,13 @@ def create_app() -> FastAPI:
 
     @app.post("/run-video")
     def run_video(payload: Dict[str, Any] = Body(...)):
-        """Run processing pipeline on video source"""
-        source_type = payload.get("source_type")  # file | rtsp | webcam | http
+        """Run processing pipeline on any video source (file | rtsp | webcam | http).
+        Always starts a new GStreamer pipeline for the given source.
+        This is independent of any StationManager-managed workers.
+        """
+        source_type = payload.get("source_type")
         source = payload.get("source")
-        
+
         logger.info(f"Received run-video request: source_type={source_type}, source={source}")
 
         if not source_type or not source:
@@ -98,15 +103,19 @@ def create_app() -> FastAPI:
                 "reason": "source_type_or_source_missing"
             }
 
-        # Trigger pipeline
-        logger.info(f"Triggering pipeline: source_type={source_type}, source={source}")
-        run_pipeline_async(
-            source_type=source_type,
-            source=source
-        )
+        # Register in video history so the Detected Orders tab can track it
+        video_id = str(uuid.uuid4())
+        display_name = source if source_type == "rtsp" else source.split("/")[-1]
+        start_video(video_id, filename=display_name, path=source)
+        logger.info(f"Registered source in history: video_id={video_id}")
+
+        # Launch GStreamer pipeline in background thread
+        run_pipeline_async(source_type=source_type, source=source)
+        logger.info(f"Pipeline started: source_type={source_type}, source={source}")
 
         return {
             "status": "started",
+            "video_id": video_id,
             "source_type": source_type,
             "source": source
         }
@@ -157,6 +166,15 @@ def create_app() -> FastAPI:
         result = await run_vlm(order_id, station_id=station_id)
         logger.info(f"[API] VLM processing completed for order_id={order_id}, status={result.get('status')}")
         return result
+
+    @app.get("/mode")
+    def get_service_mode():
+        """Return current service mode (single | parallel) and worker count"""
+        return {
+            "service_mode": SERVICE_MODE,
+            "workers": int(os.getenv('WORKERS', '1')),
+            "station_id": os.getenv('STATION_ID', 'station_1')
+        }
 
     @app.get("/statistics")
     def get_station_statistics():
