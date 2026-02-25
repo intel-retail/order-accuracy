@@ -41,13 +41,16 @@ and writes to MinIO with a per-upload hard timeout.
 Tuneable env-vars
 -----------------
   PRE_BUFFER_FRAMES      int  30    rolling frame window
-  OCR_SAMPLE_INTERVAL    int   2    submit 1 frame every N to OCR
+  OCR_SAMPLE_INTERVAL    int   2    submit 1 frame every N to OCR (async mode only)
   OCR_CONFIRM_COUNT      int   3    consecutive same-id hits to confirm
   ORDER_IDLE_TIMEOUT_SEC int   8    seconds with no OCR → finalise
   MINIO_UPLOAD_TIMEOUT   int  10    per-upload wall-clock timeout (s)
   UPLOAD_QUEUE_MAXSIZE   int 500    queue depth (oldest dropped on overflow)
   FRAME_TS_MAP_MAXSIZE   int 200    max entries kept in frame→timestamp map
   STATION_ID             str        injected by docker-compose
+  
+  OCR_SEQUENTIAL_MODE    bool true  when true, frame waits for OCR result before proceeding
+  OCR_SEQUENTIAL_TIMEOUT float 5.0  max seconds to wait per frame in sequential mode
 """
 
 import os
@@ -110,11 +113,20 @@ PIPELINE_ID = os.environ.get("PIPELINE_ID", f"{STATION_ID}_{uuid.uuid4().hex[:8]
 # Tuneable parameters
 PRE_BUFFER_FRAMES      = int(os.environ.get("PRE_BUFFER_FRAMES",      "30"))
 OCR_SAMPLE_INTERVAL    = int(os.environ.get("OCR_SAMPLE_INTERVAL",     "1"))
-OCR_CONFIRM_COUNT      = int(os.environ.get("OCR_CONFIRM_COUNT",        "3"))
 ORDER_IDLE_TIMEOUT_SEC = int(os.environ.get("ORDER_IDLE_TIMEOUT_SEC",   "8"))
 MINIO_UPLOAD_TIMEOUT   = int(os.environ.get("MINIO_UPLOAD_TIMEOUT",    "10"))
 UPLOAD_QUEUE_MAXSIZE   = int(os.environ.get("UPLOAD_QUEUE_MAXSIZE",   "500"))
 FRAME_TS_MAP_MAXSIZE   = int(os.environ.get("FRAME_TS_MAP_MAXSIZE",   "200"))
+
+# Sequential OCR mode: when enabled, frame processing BLOCKS until OCR returns
+# Default: True (sequential mode) for accuracy. Set to false for high-throughput async mode.
+OCR_SEQUENTIAL_MODE    = os.environ.get("OCR_SEQUENTIAL_MODE", "true").lower() in ("true", "1", "yes")
+OCR_SEQUENTIAL_TIMEOUT = float(os.environ.get("OCR_SEQUENTIAL_TIMEOUT", "5.0"))  # max wait per frame (seconds)
+
+# In sequential mode, reduce voting to 1 for immediate response (like old simple version)
+# In async mode, keep default of 3 for noise rejection
+_default_confirm = "1" if OCR_SEQUENTIAL_MODE else "3"
+OCR_CONFIRM_COUNT      = int(os.environ.get("OCR_CONFIRM_COUNT", _default_confirm))
 
 import logging
 logging.basicConfig(
@@ -134,6 +146,8 @@ def ts() -> str:
 log(f"[CONFIG] station={STATION_ID} pipeline={PIPELINE_ID}")
 log(f"[CONFIG] pre_buffer={PRE_BUFFER_FRAMES} ocr_interval={OCR_SAMPLE_INTERVAL} "
     f"confirm={OCR_CONFIRM_COUNT} idle_timeout={ORDER_IDLE_TIMEOUT_SEC}s")
+log(f"[CONFIG] ocr_sequential_mode={OCR_SEQUENTIAL_MODE} "
+    f"sequential_timeout={OCR_SEQUENTIAL_TIMEOUT}s")
 
 # ==========================================================
 # OCR SUBPROCESS  (lazy — NOT initialised at module load time)
@@ -214,6 +228,72 @@ def _ocr_submit_frame(frame_id: int, image: np.ndarray) -> None:
         _ocr_last_submitted = frame_id
     except Exception:
         pass  # queue full — skip this frame
+
+
+def _ocr_submit_frame_blocking(frame_id: int, image: np.ndarray) -> tuple:
+    """
+    SEQUENTIAL MODE: Send frame to OCR and BLOCK until result arrives.
+    Returns (frame_id, order_id_or_None) or (frame_id, None) on timeout.
+    """
+    global _ocr_last_submitted, _ocr_proc_ready
+    if _ocr_input_q is None:
+        return (frame_id, None)
+    
+    try:
+        small = cv2.resize(image, (640, 360))
+        h, w  = small.shape[:2]
+        # Blocking put with timeout
+        _ocr_input_q.put((frame_id, h, w, small.tobytes()), timeout=OCR_SEQUENTIAL_TIMEOUT)
+        _ocr_last_submitted = frame_id
+        log(f"[OCR-SEQ] [{ts()}] submitted frame={frame_id}, waiting for result...")
+    except Exception as e:
+        log(f"[OCR-SEQ] [{ts()}] failed to submit frame={frame_id}: {e}")
+        return (frame_id, None)
+    
+    # Now BLOCK waiting for the result
+    start_wait = time.time()
+    while True:
+        elapsed = time.time() - start_wait
+        if elapsed >= OCR_SEQUENTIAL_TIMEOUT:
+            log(f"[OCR-SEQ] [{ts()}] TIMEOUT waiting for frame={frame_id} after {elapsed:.2f}s")
+            return (frame_id, None)
+        
+        try:
+            remaining = max(0.1, OCR_SEQUENTIAL_TIMEOUT - elapsed)
+            item = _ocr_output_q.get(timeout=remaining)
+            
+            if not isinstance(item, tuple) or len(item) != 2:
+                continue
+            
+            fid, oid = item
+            
+            # Handle 'ready' sentinel
+            if fid == 'ready':
+                if not _ocr_proc_ready:
+                    log(f"[OCR-SEQ] [{ts()}] subprocess ready (models loaded)")
+                    _ocr_proc_ready = True
+                continue
+            
+            # Check if this is our result
+            if fid == frame_id:
+                if oid:
+                    captured_at = _frame_ts_map.get(fid, 0)
+                    cap_str = time.strftime("%H:%M:%S", time.gmtime(captured_at / 1000)) \
+                              + f".{captured_at % 1000:03d}" if captured_at else "unknown"
+                    log(f"[OCR-SEQ] [{ts()}] frame={fid} captured_at={cap_str} detected order_id={oid}")
+                else:
+                    log(f"[OCR-SEQ] [{ts()}] frame={fid} no order detected")
+                return (fid, oid)
+            else:
+                # Result for a different frame (shouldn't happen in sequential mode)
+                log(f"[OCR-SEQ] [{ts()}] got result for frame={fid} but expected frame={frame_id}")
+                # Still return it - might be useful
+                if fid > frame_id:
+                    return (fid, oid)
+                    
+        except Exception:
+            # Timeout on get - loop will check elapsed time
+            pass
 
 
 def _ocr_drain_results() -> list:
@@ -565,6 +645,57 @@ def safe_get_image(frame) -> Optional[np.ndarray]:
     return None
 
 
+def _process_ocr_result(ocr_fid: int, ocr_oid: Optional[str]) -> None:
+    """
+    Process a single OCR result through the voting state machine.
+    Shared by both async and sequential modes.
+    """
+    global _ocr_candidate, _ocr_vote_count, _ocr_first_vote_fid, _last_ocr_hit_ts
+
+    if not ocr_oid:
+        # OCR returned nothing (no slip visible / blur / transition zone).
+        # Do NOT reset the vote streak — a single blank frame must not
+        # undo accumulated votes and re-enable uploading to the old order.
+        return
+
+    _last_ocr_hit_ts = time.time()
+
+    if ocr_oid == _ocr_candidate:
+        _ocr_vote_count += 1
+    elif ocr_oid == _active_order_id:
+        # OCR confirmed the CURRENT active order — clear any pending
+        # candidate so the hold-back guard is released and frames flow
+        # normally into the active bucket again.
+        if _ocr_candidate is not None:
+            log(f"[OCR-VOTE] [{ts()}] candidate={_ocr_candidate} overridden by "
+                f"active order re-confirm fid={ocr_fid} — clearing candidate")
+        _ocr_candidate      = None
+        _ocr_vote_count     = 0
+        _ocr_first_vote_fid = -1
+    else:
+        # New candidate — record the frame_id of the FIRST detection.
+        # We use this as the pre-buffer boundary so all frames from the
+        # moment the new slip was first seen go into the new order's bucket.
+        _ocr_candidate      = ocr_oid
+        _ocr_vote_count     = 1
+        _ocr_first_vote_fid = ocr_fid
+        log(f"[OCR-VOTE] [{ts()}] new candidate={ocr_oid} "
+            f"(first_fid={ocr_fid} capture_ts={_frame_ts_map.get(ocr_fid, '?')})")
+
+    log(f"[OCR-VOTE] [{ts()}] candidate={_ocr_candidate} "
+        f"votes={_ocr_vote_count}/{OCR_CONFIRM_COUNT}")
+
+    if _ocr_vote_count >= OCR_CONFIRM_COUNT:
+        if ocr_oid != _active_order_id:
+            # Pass first-vote fid so the boundary is at the earliest frame
+            # that detected the new order, not the last confirming frame.
+            _on_ocr_confirmed(ocr_oid, _ocr_first_vote_fid)
+        # Reset votes to avoid repeated transitions
+        _ocr_candidate      = None
+        _ocr_vote_count     = 0
+        _ocr_first_vote_fid = -1
+
+
 # ==========================================================
 # MAIN ENTRYPOINT  (called by gvapython on every frame)
 # ==========================================================
@@ -576,16 +707,17 @@ def process_frame(frame: "VideoFrame") -> bool:
     """
     GStreamer gvapython entrypoint. Returns True to pass frame downstream.
 
-    Per-frame work (all non-blocking):
+    Per-frame work (all non-blocking in async mode):
       1. Capture wall-clock timestamp (capture_ts_ms)
       2. Extract image from VideoFrame
       3. JPEG-encode → build FrameMeta(frame_id, capture_ts_ms, jpeg_bytes)
       4. Record frame_id → capture_ts_ms in _frame_ts_map
       5. Add FrameMeta to rolling pre-buffer
-      6. Drain OCR results → vote → state machine  (BEFORE upload decision!)
+      6. OCR processing (mode-dependent):
+         - ASYNC:  Drain pending results, submit every N frames
+         - SEQUENTIAL: Submit and BLOCK until result arrives
       7. If COLLECTING: enqueue FrameMeta for MinIO upload
-      8. Every OCR_SAMPLE_INTERVAL frames: submit to OCR subprocess
-      9. Every 10 frames: check ORDER_IDLE_TIMEOUT
+      8. Every 10 frames: check ORDER_IDLE_TIMEOUT
     """
     global _frame_counter
     global _ocr_candidate, _ocr_vote_count, _ocr_first_vote_fid, _last_ocr_hit_ts
@@ -600,7 +732,8 @@ def process_frame(frame: "VideoFrame") -> bool:
 
     # Periodic status log
     if _frame_counter <= 3 or _frame_counter % 50 == 0:
-        log(f"[PIPELINE] [{ts()}] frame={_frame_counter} "
+        mode_str = "SEQUENTIAL" if OCR_SEQUENTIAL_MODE else "ASYNC"
+        log(f"[PIPELINE] [{ts()}] frame={_frame_counter} mode={mode_str} "
             f"active_order={_active_order_id} queue_size={_upload_queue.qsize()}")
 
     # 1. Extract image
@@ -629,56 +762,27 @@ def process_frame(frame: "VideoFrame") -> bool:
     # 5. Always feed the rolling pre-buffer
     _pre_buffer.append(meta)
 
-    # 6. Drain OCR results FIRST so that the upload decision below (step 7)
-    #    always uses the freshest candidate/vote state.  Previously this drain
-    #    ran AFTER the upload decision, creating a 1-frame lag where the frame
-    #    that first triggered a new-order OCR result still got uploaded to the
-    #    old order's bucket before the hold-back guard could fire.
-    for ocr_fid, ocr_oid in _ocr_drain_results():
-        if not ocr_oid:
-            # OCR returned nothing (no slip visible / blur / transition zone).
-            # Do NOT reset the vote streak — a single blank frame must not
-            # undo accumulated votes and re-enable uploading to the old order.
-            # The idle-timeout will handle the case where the slip genuinely
-            # disappears: _last_ocr_hit_ts stops updating → timeout fires.
-            continue
+    # 6. OCR processing — mode-dependent
+    if OCR_SEQUENTIAL_MODE:
+        # ═══════════════════════════════════════════════════════════════
+        # SEQUENTIAL MODE: Submit EVERY frame and BLOCK until OCR returns
+        # Frame processing halts until we get the OCR result
+        # ═══════════════════════════════════════════════════════════════
+        ocr_fid, ocr_oid = _ocr_submit_frame_blocking(_frame_counter, image)
+        _process_ocr_result(ocr_fid, ocr_oid)
+    else:
+        # ═══════════════════════════════════════════════════════════════
+        # ASYNC MODE: Non-blocking drain + periodic submission
+        # Frames flow continuously; OCR runs in parallel
+        # ═══════════════════════════════════════════════════════════════
+        # Drain OCR results FIRST so that the upload decision below (step 7)
+        # always uses the freshest candidate/vote state.
+        for ocr_fid, ocr_oid in _ocr_drain_results():
+            _process_ocr_result(ocr_fid, ocr_oid)
 
-        _last_ocr_hit_ts = time.time()
-
-        if ocr_oid == _ocr_candidate:
-            _ocr_vote_count += 1
-        elif ocr_oid == _active_order_id:
-            # OCR confirmed the CURRENT active order — clear any pending
-            # candidate so the hold-back guard is released and frames flow
-            # normally into the active bucket again.
-            if _ocr_candidate is not None:
-                log(f"[OCR-VOTE] [{ts()}] candidate={_ocr_candidate} overridden by "
-                    f"active order re-confirm fid={ocr_fid} — clearing candidate")
-            _ocr_candidate      = None
-            _ocr_vote_count     = 0
-            _ocr_first_vote_fid = -1
-        else:
-            # New candidate — record the frame_id of the FIRST detection.
-            # We use this as the pre-buffer boundary so all frames from the
-            # moment the new slip was first seen go into the new order's bucket.
-            _ocr_candidate      = ocr_oid
-            _ocr_vote_count     = 1
-            _ocr_first_vote_fid = ocr_fid
-            log(f"[OCR-VOTE] [{ts()}] new candidate={ocr_oid} "
-                f"(first_fid={ocr_fid} capture_ts={_frame_ts_map.get(ocr_fid, '?')})")
-
-        log(f"[OCR-VOTE] [{ts()}] candidate={_ocr_candidate} "
-            f"votes={_ocr_vote_count}/{OCR_CONFIRM_COUNT}")
-
-        if _ocr_vote_count >= OCR_CONFIRM_COUNT:
-            if ocr_oid != _active_order_id:
-                # Pass first-vote fid so the boundary is at the earliest frame
-                # that detected the new order, not the last confirming frame.
-                _on_ocr_confirmed(ocr_oid, _ocr_first_vote_fid)
-            # Reset votes to avoid repeated transitions
-            _ocr_candidate      = None
-            _ocr_vote_count     = 0
-            _ocr_first_vote_fid = -1
+        # Submit current frame to OCR subprocess every N frames
+        if _frame_counter % OCR_SAMPLE_INTERVAL == 0:
+            _ocr_submit_frame(_frame_counter, image)
 
     # 7. If collecting, route frame directly to upload queue.
     # IMPORTANT: stop live-uploading to the current order once a competing
@@ -699,11 +803,7 @@ def process_frame(frame: "VideoFrame") -> bool:
                 f"order_id={_active_order_id} (candidate={_ocr_candidate} "
                 f"votes={_ocr_vote_count}/{OCR_CONFIRM_COUNT})")
 
-    # 8. Submit current frame to OCR subprocess every N frames
-    if _frame_counter % OCR_SAMPLE_INTERVAL == 0:
-        _ocr_submit_frame(_frame_counter, image)
-
-    # 9. Idle-timeout check every 10 frames
+    # 8. Idle-timeout check every 10 frames
     if _frame_counter % 10 == 0:
         _check_order_idle_timeout()
 

@@ -183,6 +183,8 @@ services:
       WORKERS: ${WORKERS:-1}
       # Debug frame saving
       DEBUG_FRAMES_ENABLED: ${DEBUG_FRAMES_ENABLED:-true}
+      # Clean up stale frames from MinIO on startup (ensures fresh start for benchmarking)
+      CLEANUP_ON_STARTUP: ${CLEANUP_ON_STARTUP:-true}
       # Legacy single-station config (ignored when MULTI_STATION_MODE=true)
       STATION_ID: ${STATION_ID:-station_1}
       APP_CONFIG: /config/application.yaml
@@ -302,9 +304,12 @@ services:
       - WORKERS=${WORKERS:-1}
       - RTSP_STREAM_NAME=${RTSP_STREAM_NAME:-test}
       - RTSP_STREAMS=${RTSP_STREAMS:-}
-      # Use -1 for infinite loop (ensures all orders captured in benchmark)
-      - STREAM_LOOP=-1
-      - STARTUP_DELAY=${STARTUP_DELAY:-5}  # Seconds to wait for pipelines before streaming
+      # Loop configuration: -1=infinite, 1=once, 2=twice, etc.
+      - LOOP_COUNT=${LOOP_COUNT:-1}
+      # Seconds of black frames BEFORE each loop (except first) - gives pipeline reset time
+      # Needs to be longer than VLM inference time (~15s) to ensure clean state reset
+      - LOOP_WARMUP=${LOOP_WARMUP:-2}
+      - STARTUP_DELAY=${STARTUP_DELAY:-10}  # Seconds to wait for pipelines before streaming (increased for multi-worker sync)
     ports:
       - "8554:8554"  # RTSP port
     restart: unless-stopped
@@ -313,7 +318,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-      start_period: 5s
+      start_period: 0s
     networks:
       - order-accuracy-net
 

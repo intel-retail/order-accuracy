@@ -97,7 +97,7 @@ SKIP_LABELS = set(FS_CFG.get("skip_labels", ["hand"]))
 # (a frame can contain both a slip and a real food item).
 # YOLO commonly misidentifies order slips as 'remote' or 'cell phone'.
 NON_FOOD_LABELS = set(FS_CFG.get("non_food_labels", ["remote", "cell phone", "book", "laptop"]))
-MAX_BUCKET_SIZE = int(FS_CFG.get("max_bucket_size", 100))
+MAX_BUCKET_SIZE = int(FS_CFG.get("max_bucket_size", 200))
 # Minimum frames that must have YOLO item detections before invoking VLM.
 # Buckets collected at a video-loop boundary (e.g. only 4-6 frames) often
 # lack enough item-bearing frames for reliable detection — skip and wait
@@ -128,6 +128,12 @@ INACTIVITY_TIMEOUT = FS_CFG.get("inactivity_timeout_sec", 15)
 # Prevents duplicate VLM calls within the same video loop while allowing
 # the order to be re-processed on the next loop iteration.
 REPROCESS_COOLDOWN_SEC = int(os.environ.get('REPROCESS_COOLDOWN_SEC', '30'))
+
+# Number of consecutive frames with no YOLO item detections to trigger
+# a "black frame" reset. This handles the warmup period between video loops
+# where black frames are streamed to keep the RTSP connection alive.
+# When detected, we clean up the current order state to prepare for the next loop.
+BLACK_FRAME_RESET_COUNT = int(os.environ.get('BLACK_FRAME_RESET_COUNT', '10'))
 
 VLM_ENDPOINT = VLM_CFG["endpoint"]
 
@@ -195,6 +201,10 @@ class StationState:
     # Maps order_id → how many times it has been processed this session.
     processed_order_counts: Dict[str, int] = field(default_factory=dict)
     last_frame_time: float = field(default_factory=time.time)
+    # Counter for consecutive frames with no YOLO item detections (black frame detection)
+    consecutive_no_item_frames: int = 0
+    # Flag to track if we're in "loop warmup" mode (waiting for real video to start)
+    in_warmup_mode: bool = False
 
     @property
     def processed_orders(self) -> set:
@@ -212,6 +222,8 @@ class StationState:
         self.processed_order_times.clear()
         self.processed_order_counts.clear()
         self.last_frame_time = time.time()
+        self.consecutive_no_item_frames = 0
+        self.in_warmup_mode = False
 
 # Initialize per-station state
 station_states: Dict[str, StationState] = {
@@ -518,6 +530,37 @@ def wait_for_bucket(bucket):
         time.sleep(1)
 
 
+def cleanup_buckets_on_startup():
+    """Clean up stale frames from previous runs to ensure fresh start."""
+    cleanup_enabled = os.environ.get('CLEANUP_ON_STARTUP', 'true').lower() == 'true'
+    if not cleanup_enabled:
+        logger.info("CLEANUP_ON_STARTUP disabled, skipping bucket cleanup")
+        return
+    
+    logger.info("Cleaning up stale frames from previous runs...")
+    
+    for bucket in [FRAMES_BUCKET, SELECTED_BUCKET]:
+        if not client.bucket_exists(bucket):
+            continue
+        
+        count = 0
+        objects_to_delete = []
+        for obj in client.list_objects(bucket, recursive=True):
+            objects_to_delete.append(obj.object_name)
+            count += 1
+        
+        for obj_name in objects_to_delete:
+            try:
+                client.remove_object(bucket, obj_name)
+            except Exception as e:
+                logger.warning(f"Failed to delete {bucket}/{obj_name}: {e}")
+        
+        if count > 0:
+            logger.info(f"Cleaned {count} stale objects from bucket '{bucket}'")
+    
+    logger.info("Bucket cleanup complete")
+
+
 def ensure_buckets():
     logger.info("Ensuring MinIO buckets exist")
     wait_for_bucket(FRAMES_BUCKET)
@@ -526,6 +569,9 @@ def ensure_buckets():
         client.make_bucket(SELECTED_BUCKET)
     else:
         logger.info(f"Bucket already exists: {SELECTED_BUCKET}")
+    
+    # Clean up stale data from previous runs
+    cleanup_buckets_on_startup()
 
 
 def list_frames_sorted(station_id: str):
@@ -747,16 +793,34 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
 
     if not scored:
         logger.warning(f"[{station_id}][ORDER-FINALIZE] No valid frames after filtering for order_id={order_id}")
+        # Signal that this was a black frame period - enter warmup mode
+        state.in_warmup_mode = True
+        state.consecutive_no_item_frames = len(keys)
+        logger.info(f"[{station_id}][BLACK-FRAME] Detected {len(keys)} frames with no items — entering warmup mode")
         return
 
     item_bearing = sum(1 for s, _, _, _ in scored if s > 0)
+    item_ratio = item_bearing / len(scored) if scored else 0
+    
     if item_bearing < MIN_ITEM_FRAMES:
         logger.warning(
             f"[{station_id}][ORDER-FINALIZE] Skipping VLM for order_id={order_id} — "
             f"only {item_bearing}/{len(scored)} frames have item detections "
             f"(need {MIN_ITEM_FRAMES}). Likely a partial cycle; next full loop will have more frames."
         )
+        # Signal warmup mode when item ratio is very low (< 20%) - likely black frames contaminated
+        if item_ratio < 0.2:
+            state.in_warmup_mode = True
+            state.consecutive_no_item_frames = len(keys)
+            logger.info(f"[{station_id}][BLACK-FRAME] Only {item_bearing}/{len(scored)} frames ({item_ratio:.0%}) have items — entering warmup mode")
         return
+    
+    # Exiting warmup mode - we have real frames with items
+    if state.in_warmup_mode:
+        logger.info(f"[{station_id}][WARMUP-EXIT] Exiting warmup mode — found {item_bearing} item-bearing frames for order_id={order_id}")
+        state.in_warmup_mode = False
+        state.consecutive_no_item_frames = 0
+        # Continue to process this order (don't return)
 
     # ── Order-aware temporal-spread frame selection ───────────────────────────
     # Primary goal: ensure the selected TOP_K frames collectively cover as many
@@ -944,10 +1008,15 @@ def process_station(station_id: str, state: StationState) -> bool:
         if key in state.processed_keys:
             continue
 
-        # First frame ever for this station
+        # First frame ever for this station (or after state reset)
         if state.current_order is None:
             logger.info(f"[{station_id}][MAIN-LOOP] First order detected: order_id={order_id}")
             state.current_order = order_id
+            # Exit warmup mode if we're starting fresh with a real order
+            if state.in_warmup_mode:
+                logger.info(f"[{station_id}][WARMUP-EXIT] Exiting warmup on first order {order_id}")
+                state.in_warmup_mode = False
+                state.consecutive_no_item_frames = 0
 
         # Same order → normal collection
         if order_id == state.current_order:
@@ -979,11 +1048,40 @@ def process_station(station_id: str, state: StationState) -> bool:
             _prev_order = state.current_order
             process_completed_order(station_id, state.current_order, state.current_keys, state)
             _cleanup_order(station_id, _prev_order, state)
+            
+            # Clean up any stale frames from the NEW order (from previous video loops)
+            # This ensures a fresh start for orders that re-appear across loops
+            _cleanup_order(station_id, order_id, state)
+            logger.info(f"[{station_id}][NEW-ORDER-CLEANUP] Cleared any stale frames for incoming order {order_id}")
+            
             state.current_order = order_id
             state.current_keys = list(state.pending_keys)  # seed new order with already-seen frames
             state.pending_keys = []
             state.pending_order = None
             state.pending_count = 0
+
+        # Skip frame collection during warmup mode (black frames between video loops)
+        # Exit warmup mode when we see a genuinely new order (order change after black frames)
+        if state.in_warmup_mode:
+            if order_id != state.current_order:
+                # New order during warmup - this is the real next loop starting
+                logger.info(f"[{station_id}][WARMUP-EXIT] New order {order_id} detected during warmup — exiting warmup mode")
+                state.in_warmup_mode = False
+                state.consecutive_no_item_frames = 0
+                # Clear current state to ensure clean start for the new order
+                if state.current_order:
+                    logger.info(f"[{station_id}][WARMUP-CLEANUP] Clearing stale order {state.current_order} before new order {order_id}")
+                    _cleanup_order(station_id, state.current_order, state)
+                state.current_order = order_id
+                state.current_keys = []
+                state.pending_order = None
+                state.pending_count = 0
+                state.pending_keys = []
+            else:
+                # Same order during warmup - still black frames, skip
+                logger.debug(f"[{station_id}][WARMUP-SKIP] Skipping frame {key} - still in warmup mode (order={order_id})")
+                state.processed_keys.add(key)
+                continue
 
         # Collect frame into current order (capped to avoid runaway accumulation
         # if VLM/OVMS hangs and the video loops for minutes)
