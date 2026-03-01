@@ -449,7 +449,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
     global is_processing
     
     if file is None:
-        return "❌ No file selected", gr.update(interactive=True)
+        return "❌ No file selected", gr.update(interactive=True, value="🚀 Upload & Start Processing")
     
     video_name = file.name.split("/")[-1] if "/" in file.name else file.name
     upload_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -472,7 +472,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
 
         if resp.status_code != 200:
             is_processing = False
-            return f"❌ Upload failed: {resp.text}", gr.update(interactive=True)
+            return f"❌ Upload failed: {resp.text}", gr.update(interactive=True, value="🚀 Upload & Start Processing")
 
         data = resp.json()
         video_id = data.get('video_id', 'unknown')
@@ -546,7 +546,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
             f"Time: {upload_time}\n"
             f"Orders detected: {len(session_results)}\n"
             f"Validated: {validated} | Mismatch: {mismatch}",
-            gr.update(interactive=True)
+            gr.update(interactive=True, value="🚀 Upload & Start Processing")
         )
 
     except Exception as e:
@@ -557,7 +557,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
                 _api.post(f"{API_BASE}/videos/{video_id}/fail?error={str(e)}", timeout=5)
             except:
                 pass
-        return f"❌ Upload error: {e}", gr.update(interactive=True)
+        return f"❌ Upload error: {e}", gr.update(interactive=True, value="🚀 Upload & Start Processing")
 
 def generate_validation_summary(results):
     """Generate validation summary from results"""
@@ -980,7 +980,7 @@ with gr.Blocks(
                         variant="primary",
                         elem_classes=["primary-btn"],
                         size="lg",
-                        interactive=True
+                        interactive=False  # Greyed out until file is loaded
                     )
                     upload_status = gr.Textbox(
                         label="Processing Status",
@@ -988,9 +988,16 @@ with gr.Blocks(
                         interactive=False
                     )
             
+            # Enable button only when a file is selected/loaded
+            upload_file.change(
+                fn=lambda f: gr.update(interactive=f is not None),
+                inputs=upload_file,
+                outputs=upload_btn
+            )
+
             # Connect upload function with button state management
             upload_btn.click(
-                fn=lambda: gr.update(interactive=False),
+                fn=lambda: gr.update(interactive=False, value="⏳ Processing..."),
                 outputs=upload_btn
             ).then(
                 fn=upload_video_with_progress,

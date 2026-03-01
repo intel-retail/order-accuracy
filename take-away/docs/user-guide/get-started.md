@@ -62,7 +62,7 @@ clinfo | head -20
 ### Step 1: Clone the Repository
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/intel-retail/order-accuracy.git
 cd order-accuracy/take-away
 ```
 
@@ -80,50 +80,42 @@ git submodule update --init --recursive
 cd take-away
 ```
 
-### Step 3: Download VLM Model
+### Step 3: Setup OVMS Models (First Time Only)
 
-The system uses Qwen2.5-VL-7B-Instruct optimized for OpenVINO.
+The VLM model and EasyOCR models must be downloaded before running the application:
 
 ```bash
-# Using the model download script
-./scripts/model-downloader.sh
-
-# Or manually download
-mkdir -p models/vlm
-# Download from Hugging Face or Intel Model Zoo
+cd ../ovms-service
+./setup_models.sh
 ```
+
+This script:
+- Downloads Qwen2.5-VL-7B-Instruct-ov-int8 from HuggingFace
+- Downloads EasyOCR detection and recognition models
+- Generates `graph.pbtxt` from `config.json` graph_options
+
+> **Note**: This only needs to be done once. The model files are shared across applications.
 
 ### Step 4: Create Environment File
 
 ```bash
-# Copy the example environment file
-cp .env.example .env
-
-# Or use make target
+# Create .env from template (backs up existing .env if present)
 make init-env
-
-# Edit configuration
-nano .env
 ```
 
-### Step 5: Initialize MinIO Storage
+### Step 5: Build and Start
 
 ```bash
-# Create storage directories
-mkdir -p storage/videos storage/results minio-data
+# Pull images from registry (default)
+make build
+make up
+
+# OR build locally from source
+make build REGISTRY=false
+make up
 ```
 
-### Step 6: Build Benchmark Tools (Optional)
-
-If you plan to run performance benchmarks:
-
-```bash
-# Build the benchmark Docker image locally
-make build-benchmark
-
-# Or fetch from registry (if available)
-make fetch-benchmark
-```
+> **Note**: `make build` pulls pre-built images from Docker Hub by default. Use `REGISTRY=false` to build from source.
 
 ---
 
@@ -132,13 +124,6 @@ make fetch-benchmark
 ### Basic Configuration (.env)
 
 ```bash
-# =============================================================================
-# Service Mode
-# =============================================================================
-SERVICE_MODE=single          # 'single' for development, 'parallel' for production
-WORKERS=0                    # Number of station workers (0 for single mode)
-SCALING_MODE=fixed           # 'fixed' or 'auto'
-
 # =============================================================================
 # VLM Backend
 # =============================================================================
@@ -171,10 +156,10 @@ For stream density and performance testing, configure these variables:
 # =============================================================================
 # Benchmarking (Stream Density Testing)
 # =============================================================================
-TARGET_LATENCY_MS=15000      # Target latency threshold (ms)
+TARGET_LATENCY_MS=25000      # Target latency threshold (ms)
 LATENCY_METRIC=avg           # 'avg' or 'p95'
 WORKER_INCREMENT=1           # Workers added per iteration
-INIT_DURATION=120            # Init wait time (seconds)
+INIT_DURATION=10             # Init wait time (seconds)
 MIN_TRANSACTIONS=3           # Min transactions before measuring
 MAX_ITERATIONS=50            # Max scaling iterations
 MAX_WAIT_SEC=600             # Max wait per iteration (seconds)
@@ -197,31 +182,37 @@ make show-config
 
 ## Starting the Services
 
-### Single Worker Mode (Recommended for First Run)
+### Parallel Worker Mode (Production)
+
+For multi-station processing, use parallel mode:
 
 ```bash
-# Build Docker images
-make build
-
-# Start all services
-make up
-
-# View logs
-make logs
-```
-
-### Parallel Worker Mode
-
-```bash
-# Build Docker images
-make build
-
-# Start with 4 station workers
 make up-parallel WORKERS=4
+```
 
 # View logs
 make logs
 ```
+
+### Stream Density Benchmark
+
+To measure the maximum number of parallel workers the system can sustain under a latency target:
+
+```bash
+make benchmark-stream-density
+```
+
+This automatically scales workers up, measuring end-to-end latency at each level, and stops when the target latency (default 25s) is exceeded. Results are saved to `./results/`.
+
+Override defaults via environment or CLI:
+
+```bash
+make benchmark-stream-density \
+  BENCHMARK_TARGET_LATENCY_MS=30000 \
+  BENCHMARK_INIT_DURATION=15
+```
+
+See [Benchmarking Guide](benchmarking-guide.md) for full options.
 
 ### Service Status
 
@@ -434,7 +425,7 @@ make clean
 
 # Run benchmark
 make benchmark
-make benchmark-oa-density
+make benchmark-stream-density
 
 # Development
 make shell                  # Shell into container

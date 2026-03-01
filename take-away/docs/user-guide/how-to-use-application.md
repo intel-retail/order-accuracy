@@ -24,8 +24,8 @@ This guide covers daily operational use of the Take-Away Order Accuracy system, 
 Best for development, testing, and demonstrations.
 
 ```bash
-# Start single worker mode
-SERVICE_MODE=single make up
+# Start single worker mode (default)
+make up
 ```
 
 Features:
@@ -40,7 +40,7 @@ Best for production deployments with multiple camera stations.
 
 ```bash
 # Start with 4 workers
-SERVICE_MODE=parallel WORKERS=4 make up-parallel
+make up-parallel WORKERS=4
 ```
 
 Features:
@@ -125,77 +125,78 @@ Response:
 ```json
 {
   "status": "healthy",
-  "service": "order-accuracy",
-  "version": "1.0.0",
-  "mode": "single"
+  "mode": "single",
+  "version": "1.0.0"
 }
 ```
 
 #### Upload Video
 
+Uploads a video file and automatically starts the GStreamer processing pipeline:
+
 ```bash
 curl -X POST http://localhost:8000/upload-video \
-  -F "file=@video.mp4" \
-  -F "video_id=order_001"
+  -F "file=@video.mp4"
 ```
 
 Response:
 ```json
 {
-  "status": "success",
-  "video_id": "order_001",
-  "message": "Video uploaded successfully",
-  "frames_extracted": 150
+  "status": "started",
+  "video_id": "<uuid>",
+  "path": "/uploads/<uuid>_video.mp4",
+  "filename": "video.mp4"
 }
 ```
 
-#### Run VLM Processing
+#### Run Video from Source
+
+Start processing from any video source (file, RTSP, webcam, HTTP):
 
 ```bash
 curl -X POST http://localhost:8000/run-video \
   -H "Content-Type: application/json" \
   -d '{
-    "video_id": "order_001",
-    "expected_items": [
-      {"name": "burger", "quantity": 2},
-      {"name": "fries", "quantity": 1}
-    ]
+    "source_type": "rtsp",
+    "source": "rtsp://camera:554/stream"
   }'
 ```
 
 Response:
 ```json
 {
-  "status": "processing",
-  "video_id": "order_001",
-  "task_id": "task_abc123"
+  "status": "started",
+  "video_id": "<uuid>",
+  "source_type": "rtsp",
+  "source": "rtsp://camera:554/stream"
 }
 ```
 
 #### Get Results
 
 ```bash
-curl http://localhost:8000/results/order_001
+curl http://localhost:8000/results/<order_id>
 ```
 
-Response:
-```json
-{
-  "video_id": "order_001",
-  "status": "completed",
-  "validation": {
-    "matched": [
-      {"name": "burger", "expected": 2, "detected": 2}
-    ],
-    "missing": [],
-    "extra": [
-      {"name": "drink", "quantity": 1}
-    ],
-    "accuracy": 0.67
-  },
-  "processing_time_ms": 3450
-}
+#### Get All VLM Results
+
+```bash
+curl http://localhost:8000/vlm/results
 ```
+
+#### Additional Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/mode` | GET | Current service mode |
+| `/statistics` | GET | Processing statistics |
+| `/videos/history` | GET | All processed videos |
+| `/videos/summary` | GET | Video processing summary |
+| `/videos/current` | GET | Currently processing video |
+| `/videos/{video_id}` | GET | Specific video details |
+| `/videos/{video_id}/complete` | POST | Mark video complete |
+| `/videos/{video_id}/fail` | POST | Mark video failed |
+| `/videos/history` | DELETE | Clear video history |
 
 ---
 
@@ -324,14 +325,14 @@ Where:
 
 ### Station Configuration
 
-Each station worker processes one RTSP stream:
+RTSP streams are configured via the `RTSP_STREAMS` environment variable (comma-separated):
 
-```python
-# Environment configuration
-STATION_1_RTSP=rtsp://camera1:554/stream
-STATION_2_RTSP=rtsp://camera2:554/stream
-STATION_3_RTSP=rtsp://camera3:554/stream
+```bash
+# In .env
+RTSP_STREAMS=rtsp://camera1:554/stream,rtsp://camera2:554/stream,rtsp://camera3:554/stream
 ```
+
+The rtsp-streamer service can also loop local video files as RTSP streams for testing.
 
 ### Multi-Station Monitoring
 
@@ -342,8 +343,8 @@ make logs
 # View specific station
 docker logs oa_service 2>&1 | grep "station_1"
 
-# Check station health
-curl http://localhost:8000/health/stations
+# Check service health
+curl http://localhost:8000/health
 ```
 
 ### Load Balancing
@@ -399,25 +400,24 @@ SIMILARITY_THRESHOLD=0.85
 
 ### VLM Temperature
 
-```bash
-# Lower = more deterministic (0.1)
-VLM_TEMPERATURE=0.1
+Configured in `config/application.yaml` under `vlm.temperature`:
 
-# Higher = more creative (0.7) - not recommended
-VLM_TEMPERATURE=0.7
+```yaml
+vlm:
+  temperature: 0.2   # Lower = more deterministic (recommended)
 ```
 
 ### Frame Selection
 
-```bash
-# Frames selected per order
-FRAME_SELECTOR_TOP_K=3
+Configured in `config/application.yaml` under `frame_selector`:
 
-# Minimum frames required
-FRAME_SELECTOR_MIN_FRAMES=1
-
-# Selection poll interval
-FRAME_SELECTOR_POLL_INTERVAL=2
+```yaml
+frame_selector:
+  top_k: 3                    # Frames selected per order
+  min_frames_per_order: 1     # Minimum frames required
+  poll_interval_sec: 1.5      # MinIO polling interval (seconds)
+  min_frames_before_finalize: 5  # Wait for N frames before finalizing
+  inactivity_timeout_sec: 8   # Seconds of inactivity before order ends
 ```
 
 ---

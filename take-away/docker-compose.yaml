@@ -16,6 +16,12 @@ services:
     volumes:
       - minio_data:/data
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
     networks:
       - order-accuracy-net
 
@@ -54,6 +60,7 @@ services:
   # SINGLE Station (per-container): docker compose up -d --scale order-accuracy=4
   # MULTI Station (multi-process in one container): Set SERVICE_MODE=parallel
   order-accuracy:
+    image: intel/order-accuracy-take-away:2026.0-rc1
     build:
       context: .
       args:
@@ -77,12 +84,15 @@ services:
       - ./config:/config:ro
       - ./datasets:/datasets:ro
       - ./src:/app:ro  # Mount src for live code changes (read-only)
+      - pipeline_sync:/sync  # Shared sync volume for pipeline readiness signals
     environment:
       # Service mode configuration
       SERVICE_MODE: ${SERVICE_MODE:-single}
       WORKERS: ${WORKERS:-0}
       VLM_WORKERS: ${VLM_WORKERS:-2}
       SCALING_MODE: ${SCALING_MODE:-fixed}
+      # Pipeline synchronization directory
+      PIPELINE_SYNC_DIR: /sync/ready
       # When the external oa_frame_selector service is running it owns frame
       # selection and VLM calls. Station worker skips its own duplicate path.
       EXTERNAL_FRAME_SELECTOR: ${EXTERNAL_FRAME_SELECTOR:-true}
@@ -113,7 +123,12 @@ services:
 
       
       # GStreamer capture settings
-      CAPTURE_FPS: ${CAPTURE_FPS:-2}  # Frames per second for pipeline (increase for short orders)
+      CAPTURE_FPS: ${CAPTURE_FPS:-1}  # Frames per second for pipeline (1fps for multi-station)
+      
+      # Frame pipeline tuning (order 384 fix: OCR models take ~30s to load)
+      # Pre-buffer must hold frames until OCR is ready to detect orders
+      PRE_BUFFER_FRAMES: ${PRE_BUFFER_FRAMES:-100}  # Frames to hold in buffer (100 @ 1fps = 100s)
+      OCR_WARMUP_FRAMES: ${OCR_WARMUP_FRAMES:-2}    # Frames to wait before OCR ready signal (reduced for faster startup)
       
       # Performance tuning
       OMP_NUM_THREADS: ${OMP_NUM_THREADS:-4}
@@ -140,7 +155,7 @@ services:
       - "8000:8000"  # Exposed for monitoring/API access
     depends_on:
       minio:
-        condition: service_started
+        condition: service_healthy
       ovms-vlm:
         condition: service_healthy
       semantic-service:
@@ -159,6 +174,7 @@ services:
       - order-accuracy-net
 
   frame-selector:
+    image: intel/order-accuracy-frame-selector:2026.0-rc1
     build:
       context: ./frame-selector-service
       args:
@@ -200,12 +216,15 @@ services:
       NO_PROXY: "localhost,127.0.0.1,order-accuracy,oa_service,minio,ovms-vlm,host.docker.internal"
       no_proxy: "localhost,127.0.0.1,order-accuracy,oa_service,minio,ovms-vlm,host.docker.internal"
     depends_on:
+      minio:
+        condition: service_healthy
       order-accuracy:
         condition: service_healthy
     networks:
       - order-accuracy-net
 
   gradio-ui:
+    image: intel/order-accuracy-take-away-ui:2026.0-rc1
     build:
       context: ./gradio-ui
       args:
@@ -279,6 +298,7 @@ services:
   # RTSP Streamer - Converts video files to RTSP streams
   # Starts AFTER order-accuracy and frame-selector are healthy to ensure pipelines are ready
   rtsp-streamer:
+    image: intel/order-accuracy-take-away-rtsp:2026.0-rc1
     build:
       context: ./rtsp-streamer
       args:
@@ -298,6 +318,7 @@ services:
         condition: service_healthy
     volumes:
       - ./storage/videos:/media:ro  # Mount videos as read-only
+      - pipeline_sync:/sync  # Shared sync volume for pipeline readiness signals
     environment:
       - MEDIA_DIR=/media
       - RTSP_PORT=8554
@@ -312,7 +333,11 @@ services:
       # Seconds of black frames BEFORE each loop (except first) - gives pipeline reset time
       # Needs to be longer than VLM inference time (~15s) to ensure clean state reset
       - LOOP_WARMUP=${LOOP_WARMUP:-2}
-      - STARTUP_DELAY=${STARTUP_DELAY:-10}  # Seconds to wait for pipelines before streaming (increased for multi-worker sync)
+      # Pipeline synchronization: signal=wait for ready files, delay=legacy timer, none=immediate
+      - SYNC_MODE=${SYNC_MODE:-signal}
+      - SYNC_DIR=/sync/ready
+      - SYNC_TIMEOUT=${SYNC_TIMEOUT:-120}
+      - STARTUP_DELAY=${STARTUP_DELAY:-10}  # Fallback delay if SYNC_MODE=delay
     ports:
       - "8554:8554"  # RTSP port
     restart: unless-stopped
@@ -331,3 +356,4 @@ networks:
 
 volumes:
   minio_data:
+  pipeline_sync:  # Shared volume for RTSP/GStreamer pipeline synchronization

@@ -113,13 +113,13 @@ cp .env.example .env
 ### 3. Build and Start
 
 ```bash
-# Single worker mode (development)
+# Pull images from registry (default)
 make build
 make up
 
-# Parallel mode (production)
-make build
-make up-parallel WORKERS=4
+# OR build locally from source
+make build REGISTRY=false
+make up REGISTRY=false
 ```
 
 ### 4. Access Services
@@ -156,6 +156,7 @@ make up-parallel WORKERS=4
 ```bash
 # Setup
 make update-submodules        # Initialize git submodules
+make build                    # Pull images (or build locally with REGISTRY=false)
 make build-benchmark          # Build benchmark Docker image
 
 # Service Management
@@ -172,7 +173,7 @@ make logs-all                 # All service logs
 # Benchmarking
 make benchmark                # Single video benchmark
 make benchmark-oa             # Fixed workers benchmark
-make benchmark-oa-density     # Stream density test
+make benchmark-stream-density  # Stream density test
 make benchmark-oa-metrics     # View VLM metrics
 make benchmark-oa-results     # View all results
 
@@ -212,7 +213,7 @@ make show-config              # Show current configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `BENCHMARK_TARGET_LATENCY_MS` | `15000` | Target latency threshold (ms) |
+| `BENCHMARK_TARGET_LATENCY_MS` | `25000` | Target latency threshold (ms) |
 | `BENCHMARK_MIN_TRANSACTIONS` | `3` | Minimum transactions per level |
 | `BENCHMARK_WORKER_INCREMENT` | `1` | Workers added per iteration |
 | `BENCHMARK_LATENCY_METRIC` | `avg` | Latency metric (`avg` or `p95`) |

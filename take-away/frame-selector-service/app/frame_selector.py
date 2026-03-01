@@ -6,6 +6,8 @@ import logging
 import socket
 import cv2
 import numpy as np
+import threading
+import queue
 from minio import Minio
 from minio.error import S3Error
 from ultralytics import YOLO
@@ -14,7 +16,7 @@ from config_loader import load_config
 from pathlib import Path
 import shutil
 from dataclasses import dataclass, field, asdict
-from typing import Dict, List, Set, Optional
+from typing import Dict, List, Set, Optional, Callable
 
 # RabbitMQ imports
 try:
@@ -96,7 +98,7 @@ SKIP_LABELS = set(FS_CFG.get("skip_labels", ["hand"]))
 # falsely rich — but unlike SKIP_LABELS they don't DROP the whole frame
 # (a frame can contain both a slip and a real food item).
 # YOLO commonly misidentifies order slips as 'remote' or 'cell phone'.
-NON_FOOD_LABELS = set(FS_CFG.get("non_food_labels", ["remote", "cell phone", "book", "laptop"]))
+NON_FOOD_LABELS = set(FS_CFG.get("non_food_labels", ["remote", "cell phone", "book", "laptop", "person"]))
 MAX_BUCKET_SIZE = int(FS_CFG.get("max_bucket_size", 200))
 # Minimum frames that must have YOLO item detections before invoking VLM.
 # Buckets collected at a video-loop boundary (e.g. only 4-6 frames) often
@@ -112,7 +114,7 @@ SKIP_LABEL_CONF = float(os.environ.get("SKIP_LABEL_CONF",
 # Higher than SKIP_LABEL_CONF to suppress YOLO false-positives
 # (e.g. 'clock', 'dining table', 'remote') that inflate frame scores.
 ITEM_COUNT_CONF = float(os.environ.get("ITEM_COUNT_CONF",
-                        str(FS_CFG.get("item_count_conf", 0.35))))
+                        str(FS_CFG.get("item_count_conf", 0.25))))
 
 # How many consecutive frames required to confirm a new order
 MIN_FRAMES_PER_ORDER = FS_CFG.get("min_frames_per_order", 2)
@@ -122,7 +124,8 @@ MIN_FRAMES_BEFORE_FINALIZE = FS_CFG.get("min_frames_before_finalize", 5)
 
 # Inactivity timeout - finalize current order if no new frames after this many seconds
 # This handles the case where the video ends (last order has no subsequent order)
-INACTIVITY_TIMEOUT = FS_CFG.get("inactivity_timeout_sec", 15)
+# Reduced from 15s to 8s to match GStreamer ORDER_IDLE_TIMEOUT_SEC
+INACTIVITY_TIMEOUT = FS_CFG.get("inactivity_timeout_sec", 8)
 
 # Cooldown between re-processing the same order_id (seconds).
 # Prevents duplicate VLM calls within the same video loop while allowing
@@ -365,26 +368,280 @@ def get_producer():
 
 
 # =====================================================
-# VLM Caller (with RabbitMQ support)
+# Per-Station VLM Queue (Parallel across stations, Sequential within)
+# =====================================================
+# Each station has its own queue and worker thread:
+# - Orders within one station wait in queue (processed one at a time)
+# - Different stations can send VLM requests in parallel
+
+# Enable per-station queuing (disable to fall back to direct/RabbitMQ calls)
+USE_STATION_QUEUE = os.environ.get('USE_STATION_QUEUE', 'true').lower() == 'true'
+
+# Fire-and-forget mode: submit VLM requests without waiting for response
+# This enables true parallel VLM calls to OVMS which can batch up to max_num_seqs
+VLM_FIRE_AND_FORGET = os.environ.get('VLM_FIRE_AND_FORGET', 'true').lower() == 'true'
+
+# Thread pool for fire-and-forget HTTP calls
+from concurrent.futures import ThreadPoolExecutor
+_vlm_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="VLM-Fire")
+
+
+def _fire_vlm_request(order_id: str, station_id: str, endpoint: str):
+    """
+    Fire VLM request in background thread (fire-and-forget).
+    The vlm_service handles validation, semantic service, and result writing.
+    """
+    payload = {"order_id": order_id, "station_id": station_id}
+    try:
+        logger.info(f"[VLM-FIRE] Firing request: order_id={order_id}, station_id={station_id}")
+        # Short timeout for connection, but don't wait for full response
+        resp = requests.post(endpoint, json=payload, timeout=300)
+        if resp.status_code == 200:
+            result = resp.json()
+            status = result.get('status', 'unknown')
+            logger.info(f"[VLM-FIRE] Completed: order_id={order_id}, status={status}")
+        else:
+            logger.warning(f"[VLM-FIRE] Non-200 response for order_id={order_id}: {resp.status_code}")
+    except requests.exceptions.Timeout:
+        logger.error(f"[VLM-FIRE] Timeout for order_id={order_id}")
+    except Exception as e:
+        logger.error(f"[VLM-FIRE] Error for order_id={order_id}: {e}")
+
+
+def fire_and_forget_vlm(order_id: str, station_id: str):
+    """
+    Submit VLM request without blocking. Returns immediately.
+    The request is processed by vlm_service which writes results.
+    """
+    _vlm_executor.submit(_fire_vlm_request, order_id, station_id, VLM_ENDPOINT)
+    logger.info(f"[VLM-FIRE] Submitted: order_id={order_id}, station_id={station_id}")
+    return {"status": "fired", "order_id": order_id, "station_id": station_id}
+class StationVLMQueue:
+    """
+    Per-station VLM queue with dedicated worker thread.
+    
+    Ensures orders within a single station are processed sequentially
+    while allowing parallel processing across different stations.
+    
+    Example with 3 stations:
+    - Station 1: order_384 → VLM (others wait in queue)
+    - Station 2: order_512 → VLM (parallel with station 1)
+    - Station 3: order_789 → VLM (parallel with stations 1 & 2)
+    """
+    
+    def __init__(self, station_id: str, vlm_endpoint: str, timeout: int = 400):
+        self.station_id = station_id
+        self.vlm_endpoint = vlm_endpoint
+        self.timeout = timeout
+        self._queue: queue.Queue = queue.Queue()
+        self._worker_thread: Optional[threading.Thread] = None
+        self._running = False
+        self._lock = threading.Lock()
+        self._current_order: Optional[str] = None
+        self._processed_count = 0
+        
+        logger.info(f"[STATION-QUEUE][{station_id}] Queue initialized")
+    
+    def start(self):
+        """Start the worker thread for this station."""
+        with self._lock:
+            if self._running:
+                return
+            self._running = True
+            self._worker_thread = threading.Thread(
+                target=self._worker_loop,
+                name=f"VLM-Worker-{self.station_id}",
+                daemon=True
+            )
+            self._worker_thread.start()
+            logger.info(f"[STATION-QUEUE][{self.station_id}] Worker thread started")
+    
+    def stop(self):
+        """Stop the worker thread (graceful shutdown)."""
+        with self._lock:
+            if not self._running:
+                return
+            self._running = False
+        
+        # Signal worker to exit
+        self._queue.put(None)
+        
+        if self._worker_thread and self._worker_thread.is_alive():
+            self._worker_thread.join(timeout=5)
+            logger.info(f"[STATION-QUEUE][{self.station_id}] Worker thread stopped")
+    
+    def submit(self, order_id: str) -> dict:
+        """
+        Add order to queue for VLM processing.
+        Returns immediately (non-blocking).
+        """
+        if not self._running:
+            self.start()
+        
+        queue_size = self._queue.qsize()
+        self._queue.put(order_id)
+        
+        logger.info(f"[STATION-QUEUE][{self.station_id}] Order {order_id} queued "
+                    f"(queue_depth={queue_size + 1}, current={self._current_order})")
+        
+        return {
+            "status": "queued",
+            "order_id": order_id,
+            "station_id": self.station_id,
+            "queue_depth": queue_size + 1
+        }
+    
+    def _worker_loop(self):
+        """Worker thread: process orders from queue sequentially."""
+        logger.info(f"[STATION-QUEUE][{self.station_id}] Worker loop started")
+        
+        while self._running:
+            try:
+                # Block waiting for next order (with timeout to check _running)
+                try:
+                    order_id = self._queue.get(timeout=1.0)
+                except queue.Empty:
+                    continue
+                
+                # None signals shutdown
+                if order_id is None:
+                    break
+                
+                self._current_order = order_id
+                queue_remaining = self._queue.qsize()
+                
+                logger.info(f"[STATION-QUEUE][{self.station_id}] Processing order {order_id} "
+                            f"(remaining_in_queue={queue_remaining})")
+                
+                # Make the actual VLM HTTP call (blocking for this station)
+                try:
+                    result = self._call_vlm_http(order_id)
+                    self._processed_count += 1
+                    logger.info(f"[STATION-QUEUE][{self.station_id}] Order {order_id} completed "
+                                f"(processed_count={self._processed_count})")
+                except Exception as e:
+                    logger.error(f"[STATION-QUEUE][{self.station_id}] Order {order_id} failed: {e}")
+                finally:
+                    self._current_order = None
+                    self._queue.task_done()
+                    
+            except Exception as e:
+                logger.error(f"[STATION-QUEUE][{self.station_id}] Worker loop error: {e}", exc_info=True)
+        
+        logger.info(f"[STATION-QUEUE][{self.station_id}] Worker loop exited")
+    
+    def _call_vlm_http(self, order_id: str) -> dict:
+        """Make the actual HTTP call to VLM service."""
+        payload = {
+            "order_id": order_id,
+            "station_id": self.station_id
+        }
+        
+        logger.info(f"[STATION-QUEUE][{self.station_id}] Calling VLM for order {order_id}")
+        
+        try:
+            resp = requests.post(self.vlm_endpoint, json=payload, timeout=self.timeout)
+            resp.raise_for_status()
+            result = resp.json()
+            logger.info(f"[STATION-QUEUE][{self.station_id}] VLM responded for order {order_id}")
+            logger.debug(f"[STATION-QUEUE][{self.station_id}] Response: {result}")
+            return result
+        except requests.exceptions.Timeout:
+            logger.error(f"[STATION-QUEUE][{self.station_id}] VLM timeout after {self.timeout}s "
+                         f"for order {order_id}")
+            raise
+        except requests.exceptions.RequestException as e:
+            logger.error(f"[STATION-QUEUE][{self.station_id}] VLM request failed for order {order_id}: {e}")
+            raise
+    
+    @property
+    def queue_depth(self) -> int:
+        """Current number of orders waiting in queue."""
+        return self._queue.qsize()
+    
+    @property
+    def current_processing(self) -> Optional[str]:
+        """Order currently being processed (or None)."""
+        return self._current_order
+
+
+# Global per-station queue instances (initialized lazily)
+_station_vlm_queues: Dict[str, StationVLMQueue] = {}
+_station_queues_lock = threading.Lock()
+
+
+def get_station_vlm_queue(station_id: str) -> StationVLMQueue:
+    """Get or create the VLM queue for a specific station."""
+    global _station_vlm_queues
+    
+    with _station_queues_lock:
+        if station_id not in _station_vlm_queues:
+            _station_vlm_queues[station_id] = StationVLMQueue(
+                station_id=station_id,
+                vlm_endpoint=VLM_ENDPOINT
+            )
+            _station_vlm_queues[station_id].start()
+            logger.info(f"[STATION-QUEUE] Created queue for {station_id} "
+                        f"(total_queues={len(_station_vlm_queues)})")
+        return _station_vlm_queues[station_id]
+
+
+def shutdown_all_station_queues():
+    """Gracefully shutdown all station queues (call on exit)."""
+    global _station_vlm_queues
+    
+    with _station_queues_lock:
+        for station_id, q in _station_vlm_queues.items():
+            logger.info(f"[STATION-QUEUE] Shutting down queue for {station_id}")
+            q.stop()
+        _station_vlm_queues.clear()
+
+
+# =====================================================
+# VLM Caller (with Per-Station Queue / RabbitMQ support)
 # =====================================================
 
 def call_vlm(order_id, station_id=None, timeout=400):
     """
     Submit order for VLM processing.
-    Uses RabbitMQ queue if available, falls back to direct HTTP call.
-    """
-    logger.info(f"[VLM-CALL] Submitting order for processing: order_id={order_id}, station_id={station_id}")
     
-    # Try RabbitMQ first (non-blocking, guaranteed delivery)
+    Processing priority:
+    1. Fire-and-forget (if VLM_FIRE_AND_FORGET=true) - true parallel, returns immediately
+    2. Per-station queue (if USE_STATION_QUEUE=true) - parallel across stations
+    3. RabbitMQ (if USE_RABBITMQ=true) - single global queue
+    4. Direct HTTP call (blocking fallback)
+    """
+    effective_station = station_id or 'station_1'
+    logger.info(f"[VLM-CALL] Submitting order for processing: order_id={order_id}, station_id={effective_station}")
+    
+    # Option 0: Fire-and-forget (TRUE parallel - returns immediately)
+    # Enables OVMS to batch multiple concurrent requests (max_num_seqs=8)
+    if VLM_FIRE_AND_FORGET:
+        result = fire_and_forget_vlm(order_id, effective_station)
+        logger.info(f"[VLM-CALL] Order {order_id} fired (fire-and-forget mode)")
+        return result
+    
+    # Option 1: Per-station queue (parallel across stations, sequential within)
+    if USE_STATION_QUEUE:
+        try:
+            station_queue = get_station_vlm_queue(effective_station)
+            result = station_queue.submit(order_id)
+            logger.info(f"[VLM-CALL] Order {order_id} submitted to station queue "
+                        f"(station={effective_station}, depth={result['queue_depth']})")
+            return result
+        except Exception as e:
+            logger.warning(f"[VLM-CALL] Station queue submit failed: {e}, falling back")
+    
+    # Option 2: RabbitMQ (non-blocking, guaranteed delivery)
     if USE_RABBITMQ:
         producer = get_producer()
-        if producer and producer.publish(order_id, station_id or 'station_1'):
-            logger.info(f"[VLM-CALL] Order queued successfully: order_id={order_id}")
+        if producer and producer.publish(order_id, effective_station):
+            logger.info(f"[VLM-CALL] Order queued via RabbitMQ: order_id={order_id}")
             return {"status": "queued", "order_id": order_id}
         else:
-            logger.warning(f"[VLM-CALL] Queue publish failed, falling back to HTTP")
+            logger.warning(f"[VLM-CALL] RabbitMQ publish failed, falling back to HTTP")
     
-    # Fallback to direct HTTP call (blocking)
+    # Option 3: Direct HTTP call (blocking)
     logger.info(f"[VLM-CALL] Using direct HTTP call for order_id={order_id}")
     payload = {"order_id": order_id}
     if station_id:
@@ -1049,10 +1306,11 @@ def process_station(station_id: str, state: StationState) -> bool:
             process_completed_order(station_id, state.current_order, state.current_keys, state)
             _cleanup_order(station_id, _prev_order, state)
             
-            # Clean up any stale frames from the NEW order (from previous video loops)
-            # This ensures a fresh start for orders that re-appear across loops
-            _cleanup_order(station_id, order_id, state)
-            logger.info(f"[{station_id}][NEW-ORDER-CLEANUP] Cleared any stale frames for incoming order {order_id}")
+            # NOTE: Removed cleanup of NEW order frames here.
+            # The previous logic deleted frames for the new order (from pending_keys)
+            # before we could process them, causing orders 651/925 to be lost.
+            # Stale frame cleanup should only be done for previous orders, not incoming ones.
+            # If multi-loop support is needed, implement it based on LOOP_COUNT > 1.
             
             state.current_order = order_id
             state.current_keys = list(state.pending_keys)  # seed new order with already-seen frames
@@ -1188,16 +1446,42 @@ def process_station(station_id: str, state: StationState) -> bool:
 # =====================================================
 
 if __name__ == "__main__":
+    import signal
+    import atexit
+    
+    # Flag for graceful shutdown
+    _shutdown_requested = False
+    
+    def handle_shutdown(signum, frame):
+        global _shutdown_requested
+        sig_name = signal.Signals(signum).name if hasattr(signal, 'Signals') else str(signum)
+        logger.info(f"Received {sig_name}, initiating graceful shutdown...")
+        _shutdown_requested = True
+    
+    def cleanup():
+        """Cleanup function called on exit."""
+        logger.info("Cleaning up resources...")
+        shutdown_all_station_queues()
+        if USE_RABBITMQ and _producer:
+            _producer.close()
+        logger.info("Cleanup complete")
+    
+    # Register signal handlers and cleanup
+    signal.signal(signal.SIGTERM, handle_shutdown)
+    signal.signal(signal.SIGINT, handle_shutdown)
+    atexit.register(cleanup)
+    
     ensure_buckets()
     logger.info("=" * 60)
     logger.info("Frame selector service started")
     logger.info(f"Mode: {'Multi-station' if MULTI_STATION_MODE else 'Single-station'}")
     logger.info(f"Monitoring stations: {STATION_IDS}")
+    logger.info(f"Per-station VLM queue: {'ENABLED' if USE_STATION_QUEUE else 'DISABLED'}")
     logger.info("Watching for frames in MinIO...")
     logger.info("=" * 60)
 
     poll_count = 0
-    while True:
+    while not _shutdown_requested:
         poll_count += 1
         
         # Process each station
@@ -1208,10 +1492,19 @@ if __name__ == "__main__":
             except Exception as exc:
                 logger.error(f"[{station_id}] Unhandled error in process_station, continuing: {exc}", exc_info=True)
         
-        # Log status every 10 polls
+        # Log status every 10 polls (include queue depths)
         if poll_count % 10 == 0:
             active_stations = [sid for sid, s in station_states.items() if s.current_order or s.processed_keys]
             if active_stations:
                 logger.debug(f"Polling iteration {poll_count}: Active stations: {active_stations}")
+            
+            # Log queue status if per-station queuing is enabled
+            if USE_STATION_QUEUE and _station_vlm_queues:
+                queue_status = {sid: f"depth={q.queue_depth}, processing={q.current_processing}" 
+                                for sid, q in _station_vlm_queues.items()}
+                logger.debug(f"VLM queue status: {queue_status}")
 
         time.sleep(POLL_INTERVAL)
+    
+    logger.info("Main loop exited, performing cleanup...")
+    cleanup()

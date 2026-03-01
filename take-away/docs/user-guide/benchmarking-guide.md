@@ -84,7 +84,7 @@ make benchmark-oa BENCHMARK_WORKERS=4
 Finds maximum sustainable stream count under latency constraints.
 
 ```bash
-make benchmark-oa-density
+make benchmark-stream-density
 ```
 
 **Metrics Collected:**
@@ -188,8 +188,8 @@ GPU Utilization:  72%
 
 ```bash
 # Run stream density test
-make benchmark-oa-density \
-  BENCHMARK_TARGET_LATENCY_MS=3000 \
+make benchmark-stream-density \
+  BENCHMARK_TARGET_LATENCY_MS=25000 \
   BENCHMARK_MIN_TRANSACTIONS=3 \
   BENCHMARK_WORKER_INCREMENT=1
 ```
@@ -200,10 +200,10 @@ All benchmark parameters can be configured via **environment variables** or **CL
 
 | Environment Variable | CLI Argument | Default | Description |
 |---------------------|--------------|---------|-------------|
-| `TARGET_LATENCY_MS` | `--target_latency_ms` | 15000 | Target latency threshold (ms) |
+| `TARGET_LATENCY_MS` | `--target_latency_ms` | 25000 | Target latency threshold (ms) |
 | `LATENCY_METRIC` | `--latency_metric` | avg | Metric to use: `avg` or `p95` |
 | `WORKER_INCREMENT` | `--worker_increment` | 1 | Workers added per iteration |
-| `INIT_DURATION` | `--init_duration` | 120 | Warmup time per iteration (s) |
+| `INIT_DURATION` | `--init_duration` | 10 | Warmup time per iteration (s) |
 | `MIN_TRANSACTIONS` | `--min_transactions` | 3 | Min orders before measuring |
 | `MAX_ITERATIONS` | - | 50 | Max scaling iterations |
 | `MAX_WAIT_SEC` | - | 600 | Max wait per iteration (s) |
@@ -214,12 +214,12 @@ All benchmark parameters can be configured via **environment variables** or **CL
 
 ```bash
 # Set in .env file or export directly
-export TARGET_LATENCY_MS=20000
+export TARGET_LATENCY_MS=25000
 export WORKER_INCREMENT=2
 export LATENCY_METRIC=p95
 
 # Run benchmark (uses env vars)
-make benchmark-oa-density
+make benchmark-stream-density
 ```
 
 **Using CLI Arguments (override env vars):**
@@ -300,10 +300,10 @@ Configure benchmarks in your `.env` file:
 
 ```bash
 # .env file
-TARGET_LATENCY_MS=5000
+TARGET_LATENCY_MS=25000
 LATENCY_METRIC=p95
 WORKER_INCREMENT=1
-INIT_DURATION=120
+INIT_DURATION=10
 MIN_TRANSACTIONS=3
 MAX_ITERATIONS=50
 RESULTS_DIR=./results
@@ -312,7 +312,7 @@ RESULTS_DIR=./results
 Then run:
 
 ```bash
-make benchmark-oa-density
+make benchmark-stream-density
 ```
 
 **Option 2: Using Export Commands**
@@ -324,7 +324,7 @@ export WORKER_INCREMENT=1
 export LATENCY_METRIC=p95
 
 # Run benchmark
-make benchmark-oa-density
+make benchmark-stream-density
 ```
 
 **Option 3: Inline Environment Variables**
@@ -332,11 +332,11 @@ make benchmark-oa-density
 ```bash
 # Conservative test (safe for production hardware)
 TARGET_LATENCY_MS=5000 WORKER_INCREMENT=1 OOM_PROTECTION=1 \
-  make benchmark-oa-density
+  make benchmark-stream-density
 
 # Aggressive test (may stress hardware)
 TARGET_LATENCY_MS=3000 WORKER_INCREMENT=2 OOM_PROTECTION=0 \
-  make benchmark-oa-density  # WARNING: Risk of OOM
+  make benchmark-stream-density  # WARNING: Risk of OOM
 ```
 
 **Option 4: Direct Script Invocation with CLI**
@@ -357,7 +357,7 @@ python3 benchmark-scripts/stream_density_latency_oa.py \
 
 ```bash
 # Enable OOM protection (recommended)
-OOM_PROTECTION=1 make benchmark-oa-density
+OOM_PROTECTION=1 make benchmark-stream-density
 
 # Warning displayed if disabled
 ╔════════════════════════════════════════════════════════════╗
@@ -590,7 +590,7 @@ make benchmark
 make benchmark-oa BENCHMARK_WORKERS=4
 
 # Stream density test
-make benchmark-oa-density
+make benchmark-stream-density
 
 # View metrics
 make benchmark-oa-metrics
