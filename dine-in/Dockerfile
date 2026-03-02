@@ -8,12 +8,12 @@ ARG HTTPS_PROXY
 ARG no_proxy
 ARG NO_PROXY
 
-ENV http_proxy=${http_proxy} \
-    https_proxy=${https_proxy} \
-    HTTP_PROXY=${HTTP_PROXY} \
-    HTTPS_PROXY=${HTTPS_PROXY} \
-    no_proxy=${no_proxy} \
-    NO_PROXY=${NO_PROXY}
+#ENV http_proxy=${http_proxy} \
+#    https_proxy=${https_proxy} \
+#    HTTP_PROXY=${HTTP_PROXY} \
+#    HTTPS_PROXY=${HTTPS_PROXY} \
+#    no_proxy=${no_proxy} \
+#    NO_PROXY=${NO_PROXY}
 
 # Set working directory
 WORKDIR /app
