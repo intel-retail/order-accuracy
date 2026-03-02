@@ -62,10 +62,21 @@ cp .env.example .env
 
 ### 3. Build and Start
 
+**Option A: Using Registry Images (default)**
 ```bash
-make build
-make up
+make build      # Pull image from registry
+make up         # Start services
 ```
+
+**Option B: Build Locally from Source**
+```bash
+make build REGISTRY=false   # Build and tag as intel/order-accuracy-dine-in:2026.0-rc1
+make up REGISTRY=false      # Start using locally built image
+```
+
+| Image | Tag |
+|-------|-----|
+| `intel/order-accuracy-dine-in` | `2026.0-rc1` |
 
 ### 4. Access Services
 

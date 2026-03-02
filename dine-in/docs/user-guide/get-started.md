@@ -1,61 +1,335 @@
-# Get Started
+# Getting Started with Dine-In Order Accuracy
 
-Quick start guide for the Dine-In Order Accuracy application.
+This guide walks you through the installation, configuration, and first-run of the Dine-In Order Accuracy system for image-based plate validation.
+
+---
+
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Installation](#installation)
+3. [Configuration](#configuration)
+4. [Starting the Services](#starting-the-services)
+5. [Verifying Installation](#verifying-installation)
+6. [First Order Validation](#first-order-validation)
+7. [Troubleshooting](#troubleshooting)
+
+---
 
 ## Prerequisites
 
-- Docker Engine 24.0+
-- Docker Compose 2.20+
-- 16GB+ RAM
-- Intel GPU (Arc/Flex recommended)
+### Hardware Requirements
 
-## Quick Start
+| Component | Minimum | Recommended |
+|-----------|---------|-------------|
+| CPU | Intel Xeon 8 cores | Intel Xeon 16+ cores |
+| RAM | 16GB | 32GB+ |
+| GPU | Intel Arc A770 (8GB) | Intel Arc / NVIDIA RTX 3080+ |
+| Storage | 50GB SSD | 200GB NVMe |
+| Network | 1 Gbps | 10 Gbps |
 
-### 1. Clone and Navigate
+### Software Requirements
+
+| Software | Version | Purpose |
+|----------|---------|---------|
+| Docker | 24.0+ | Container runtime |
+| Docker Compose | V2+ | Service orchestration |
+| NVIDIA Driver | 535+ | GPU support (if NVIDIA) |
+| Intel GPU Driver | Latest | GPU support (if Intel) |
+| Python | 3.10+ | Local development (optional) |
+
+### Verify Prerequisites
 
 ```bash
+# Docker version
+docker --version
+# Expected: Docker version 24.0.x or higher
+
+# Docker Compose version
+docker compose version
+# Expected: Docker Compose version v2.x.x
+
+# GPU availability (NVIDIA)
+nvidia-smi
+# OR for Intel
+clinfo | head -20
+```
+
+---
+
+## Installation
+
+### Step 1: Clone the Repository
+
+```bash
+git clone https://github.com/intel-retail/order-accuracy.git
+cd order-accuracy/dine-in
+```
+
+### Step 2: Initialize Git Submodules
+
+The performance-tools repository is included as a git submodule for benchmarking:
+
+```bash
+# Initialize and update submodules
+make update-submodules
+
+# Or manually
+cd ..
+git submodule update --init --recursive
 cd dine-in
 ```
 
-### 2. Build Images
+### Step 3: Setup OVMS Models (First Time Only)
+
+The VLM model must be downloaded before running the application:
 
 ```bash
-make build
+cd ../ovms-service
+./setup_models.sh
 ```
 
-### 3. Start Services
+This script:
+- Downloads Qwen2.5-VL-7B-Instruct from HuggingFace (~7GB)
+- Converts to OpenVINO format with INT8 quantization
+- Creates model files in `ovms-service/models/`
+
+> **Note**: This only needs to be done once. The model files are shared between dine-in and take-away applications.
+
+### Step 4: Prepare Test Data
+
+Before running the application, prepare your test data:
+
+1. **Add Images**: Place your food tray/plate images in the `images/` folder
+   - Supported formats: `.jpg`, `.jpeg`, `.png`
+   - Images should clearly show the food items on the plate
+
+2. **Update Orders**: Edit `configs/orders.json` with your test orders
+   - Each order should have an `image_id` and list of `items_ordered`
+   - Image IDs should match your image filenames (without extension)
+
+3. **Update Inventory**: Edit `configs/inventory.json` to match your menu items
+   - Define all possible food items that can appear in orders
+   - Include item names, categories, and any relevant metadata
+
+> **Note**: The `images/` folder does not contain sample images by default. You must add your own images before testing.
+
+### Step 5: Create Environment File
 
 ```bash
+# Copy .env template
+cp .env.example .env
+# Edit if needed (defaults work for most setups)
+```
+
+### Step 6: Build and Start
+
+```bash
+# Pull images from registry (default)
+make build
 make up
+
+# OR build locally from source
+make build REGISTRY=false
+make up REGISTRY=false
+```
+
+> **Note**: `make build` pulls pre-built images from Docker Hub by default. Use `REGISTRY=false` to build from source.
+
+---
+
+## Configuration
+
+### Basic Configuration (.env)
+
+```bash
+# =============================================================================
+# Logging
+# =============================================================================
+LOG_LEVEL=INFO
+
+# =============================================================================
+# Service Endpoints
+# =============================================================================
+OVMS_ENDPOINT=http://ovms-vlm:8000
+OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
+SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
+API_TIMEOUT=60
+```
+
+### Benchmarking Configuration (.env)
+
+For stream density and performance testing, configure these variables:
+
+```bash
+# =============================================================================
+# Stream Density Benchmarking
+# =============================================================================
+TARGET_LATENCY_MS=15000      # Target latency threshold (ms)
+LATENCY_METRIC=avg           # 'avg', 'p95', or 'max'
+DENSITY_INCREMENT=1          # Concurrent images per iteration
+INIT_DURATION=60             # Warmup time (seconds)
+MIN_REQUESTS=3               # Min requests before measuring
+REQUEST_TIMEOUT=300          # Individual request timeout (seconds)
+API_ENDPOINT=http://localhost:8083
+RESULTS_DIR=./results
+```
+
+> **Note:** CLI arguments override environment variables. See [Benchmark Configuration](#stream-density-configuration) for detailed usage.
+
+---
+
+## Starting the Services
+
+### Standard Mode (Production)
+
+```bash
+# Start all services
+make up
+
+# View logs
+make logs
+```
+
+### Using Local Build
+
+```bash
+# Build and run from local source
+make build REGISTRY=false
+make up REGISTRY=false
 ```
 
 This starts 4 containers:
-- `dinein_app` - Main application (Gradio UI + API)
-- `dinein_ovms_vlm` - Vision-Language Model server
+- `dinein_app` - Main application (Gradio UI + FastAPI)
+- `dinein_ovms_vlm` - Vision-Language Model server (OVMS)
 - `dinein_semantic_service` - Semantic matching service
-- `metrics-collector` - System metrics
+- `metrics-collector` - System metrics collector
 
-### 4. Access the Application
+### Stream Density Benchmark
 
-| Interface | URL |
-|-----------|-----|
-| Gradio UI | http://localhost:7861 |
-| REST API | http://localhost:8083 |
-| API Docs | http://localhost:8083/docs |
+To measure the maximum number of concurrent image validations the system can sustain under a latency target:
 
-### 5. Run Validation
-
-**Via UI:**
-1. Open http://localhost:7861
-2. Select a scenario from dropdown
-3. Click "Validate Plate"
-
-**Via API:**
 ```bash
-curl -X POST "http://localhost:8083/api/validate" \
-  -F "image=@images/DD-6993.jpg" \
-  -F 'order={"order_id":"DD-6993","items":[{"name":"Maharaja Mac Chicken","quantity":1}]}'
+make benchmark-density
 ```
+
+This automatically scales concurrent requests up, measuring end-to-end latency at each level, and stops when the target latency (default 15s) is exceeded. Results are saved to `./results/`.
+
+Override defaults via environment or CLI:
+
+```bash
+make benchmark-density \
+  BENCHMARK_TARGET_LATENCY_MS=20000 \
+  BENCHMARK_INIT_DURATION=30
+```
+
+### Metrics Processing
+
+After running benchmarks, consolidate and visualize metrics:
+
+```bash
+# Consolidate metrics from multiple runs
+make consolidate-metrics
+
+# Generate plots from benchmark metrics
+make plot-metrics
+```
+
+### Service Status
+
+```bash
+# Check running containers
+docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+# Expected output:
+# dinein_app               Up 2 minutes   0.0.0.0:7861->7860/tcp, 0.0.0.0:8083->8080/tcp
+# dinein_ovms_vlm          Up 2 minutes   0.0.0.0:8002->8000/tcp
+# dinein_semantic_service  Up 2 minutes   0.0.0.0:8081->8080/tcp, 0.0.0.0:9091->9090/tcp
+# metrics-collector        Up 2 minutes   0.0.0.0:8084->8084/tcp
+```
+
+---
+
+## Verifying Installation
+
+### Step 1: Health Check
+
+```bash
+# Test API health
+make test-api
+
+# Or directly
+curl http://localhost:8083/health
+# Expected: {"status": "healthy", ...}
+```
+
+### Step 2: Verify OVMS Model
+
+```bash
+# Check OVMS configuration
+curl http://localhost:8002/v1/config | jq .
+
+# Expected: Model configuration with Qwen2.5-VL model details
+```
+
+### Step 3: Access Gradio UI
+
+Open http://localhost:7861 in your browser.
+
+You should see the Order Accuracy web interface with:
+- Scenario selection dropdown
+- Order manifest display
+- Validation results panel
+- One-click "Validate Plate" button
+
+### Step 4: Access API Documentation
+
+Open http://localhost:8083/docs to view OpenAPI/Swagger documentation for all REST API endpoints.
+
+---
+
+## First Order Validation
+
+### Option 1: Via Gradio UI
+
+1. Open http://localhost:7861
+2. Select a scenario from the dropdown (must have matching image in `images/` folder)
+3. Review the order manifest displayed
+4. Click "Validate Plate"
+5. View results showing:
+   - Order completion status
+   - Accuracy score
+   - Matched, missing, and extra items
+   - Performance metrics
+
+### Option 2: Via REST API
+
+```bash
+# Upload image and validate with order
+curl -X POST "http://localhost:8083/api/validate" \
+  -F "image=@images/MCD-1001.png" \
+  -F 'order={"items":[{"name":"Cheeseburger","quantity":1},{"name":"French Fries","quantity":1}]}'
+
+# Response
+{
+  "validation_id": "...",
+  "order_complete": true,
+  "accuracy_score": 100.0,
+  "matched_items": [...],
+  "missing_items": [],
+  "extra_items": [],
+  "metrics": {...}
+}
+```
+
+### Option 3: Using Make Target
+
+```bash
+# Quick single image test (IMAGE_ID from configs/orders.json)
+make benchmark-single IMAGE_ID=MCD-1001
+```
+
+---
 
 ## Running Benchmarks
 
@@ -72,7 +346,9 @@ make update-submodules
 For a quick validation test with a single image:
 
 ```bash
-make benchmark-single
+# IMAGE_ID must match an entry in configs/orders.json and a file in images/
+# Format: <PREFIX>-<NUMBER> (e.g., MCD-1001, MCD-1002)
+make benchmark-single IMAGE_ID=MCD-1001
 ```
 
 ### Full Benchmark
@@ -88,7 +364,7 @@ Configuration options:
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `BENCHMARK_WORKERS` | 1 | Number of concurrent workers |
-| `BENCHMARK_DURATION` | 300 | Benchmark duration (seconds) |
+| `BENCHMARK_DURATION` | 180 | Benchmark duration (seconds) |
 | `BENCHMARK_TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
 | `RESULTS_DIR` | results | Output directory |
 
@@ -102,18 +378,6 @@ make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600
 
 ```bash
 make benchmark-density
-```
-
-### Metrics Processing
-
-After running benchmarks, consolidate and visualize metrics:
-
-```bash
-# Consolidate metrics from multiple runs
-make consolidate-metrics
-
-# Generate plots from benchmark metrics
-make plot-metrics
 ```
 
 ### Stream Density Configuration
@@ -155,36 +419,164 @@ python3 stream_density_oa_dine_in.py \
 
 > **Note:** In dine-in context, "density" = concurrent image validation requests through VLM.
 
-## Stopping Services
-
-```bash
-make down
-```
+---
 
 ## Troubleshooting
 
-### Services not starting
+### OVMS Not Starting
 
+**Symptom**: `dinein_ovms_vlm` container exits immediately or shows errors
+
+**Solution**:
+```bash
+# Check logs
+docker logs dinein_ovms_vlm
+
+# Verify model path exists
+ls -la ../ovms-service/models/
+
+# Check GPU availability
+clinfo | head -20  # Intel
+nvidia-smi         # NVIDIA
+```
+
+### Connection Refused to OVMS
+
+**Symptom**: `Connection refused` errors to port 8002
+
+**Solution**:
+```bash
+# Wait for OVMS to fully load model (can take 2-5 minutes)
+docker logs -f dinein_ovms_vlm | grep -i "serving\|ready\|loaded"
+
+# Check network
+docker network inspect dine-in_dinein-net
+```
+
+### Services Not Starting
+
+**Symptom**: Containers fail to start or exit immediately
+
+**Solution**:
 ```bash
 # Check container logs
 make logs
 
 # Restart services
 make down && make up
+
+# Check for port conflicts
+netstat -tulpn | grep -E "7861|8083|8002|8081"
 ```
 
-### VLM inference slow
+### VLM Inference Slow
 
+**Symptom**: Validations take longer than expected (>30s)
+
+**Solution**:
 - Ensure GPU drivers are installed
-- Check GPU utilization: `intel_gpu_top`
-- Verify OVMS is using GPU in logs
+- Check GPU utilization: `intel_gpu_top` or `nvidia-smi`
+- Verify OVMS is using GPU in logs: `docker logs dinein_ovms_vlm | grep -i gpu`
+- Consider reducing image resolution in preprocessing
 
-### Out of memory
+### Out of Memory
 
-- Increase Docker memory limit
-- Reduce cache size in `api.py`
+**Symptom**: Services crash with OOM errors
+
+**Solution**:
+```bash
+# Check Docker memory limits
+docker stats
+
+# Increase Docker memory limit in Docker Desktop or daemon config
+
+# Use CPU instead of GPU (slower but less memory)
+# Edit docker-compose.yml to remove GPU device mapping temporarily
+
+# Restart services
+make down && make up
+```
+
+### GPU Not Detected
+
+**Symptom**: `No GPU devices found` or model running on CPU
+
+**Solution**:
+```bash
+# For Intel GPU
+sudo usermod -aG render $USER
+sudo usermod -aG video $USER
+# Logout and login again
+
+# Verify GPU access
+ls -la /dev/dri/
+
+# For NVIDIA
+nvidia-smi
+sudo systemctl restart docker
+```
+
+### No Scenarios Available in UI
+
+**Symptom**: Dropdown is empty in Gradio UI
+
+**Solution**:
+1. Ensure images are placed in `images/` folder
+2. Ensure `configs/orders.json` has entries with matching `image_id` values
+3. Image ID must match filename (e.g., `image_id: "MCD-1001"` matches `MCD-1001.png`)
+
+---
+
+## Stopping Services
+
+```bash
+make down
+```
+
+---
 
 ## Next Steps
+
+After successful installation and first validation:
+
+1. **Configure for Production**: See [System Requirements](system-requirements.md)
+2. **Learn the API**: See [API Reference](api-reference.md)
+3. **Run Benchmarks**: See [How to Use Application](how-to-use-application.md)
+4. **Customize Settings**: Edit `.env` and `configs/` files
+
+---
+
+## Quick Reference Commands
+
+```bash
+# Start services
+make up                        # Standard mode (registry image)
+make up REGISTRY=false         # Using locally built image
+
+# Build
+make build                     # Pull from registry
+make build REGISTRY=false      # Build locally
+
+# Check status
+docker ps
+make logs
+
+# Stop services
+make down
+
+# Clean everything
+make clean
+
+# Run benchmarks
+make benchmark-single IMAGE_ID=MCD-1001  # Quick single image test
+make benchmark                        # Full benchmark
+make benchmark-density                # Stream density test
+
+# Development
+make shell                     # Shell into container
+make test-api                  # Test endpoints
+make help                      # Show all commands
+```
 
 - [How to Use the Application](how-to-use-application.md)
 - [API Reference](api-reference.md)

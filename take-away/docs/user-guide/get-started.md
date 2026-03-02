@@ -212,6 +212,20 @@ make benchmark-stream-density \
   BENCHMARK_INIT_DURATION=15
 ```
 
+
+### Metrics Processing
+
+After running benchmarks, consolidate and visualize metrics:
+
+```bash
+# Consolidate metrics from multiple runs
+make consolidate-metrics
+
+# Generate plots from benchmark metrics
+make plot-metrics
+```
+
+
 See [Benchmarking Guide](benchmarking-guide.md) for full options.
 
 ### Service Status

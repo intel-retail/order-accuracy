@@ -1,5 +1,35 @@
 # Release Notes
 
+## Version 2026.0-rc1 (March 2026)
+
+### New Features
+
+- **Flexible Image Deployment**: New `REGISTRY` flag for build and deployment control
+  - `make build REGISTRY=false` - Build image locally from source
+  - `make build` - Pull pre-built image from registry (default)
+  - `make up REGISTRY=false` - Run with locally built image
+  - `make up` - Run with registry image (default)
+
+- **Docker Image Tagging**: Standardized image naming
+  - Image: `intel/order-accuracy-dine-in:2026.0-rc1`
+  - Configurable via `TAG` and `DINEIN_IMAGE_NAME` variables
+
+### Configuration Changes
+
+| Variable | Old Default | New Default |
+|----------|-------------|-------------|
+| `TAG` | 1.0.0 | 2026.0-rc1 |
+| `REGISTRY` | false | true |
+| `DINEIN_IMAGE` | - | intel/order-accuracy-dine-in:2026.0-rc1 |
+
+### Migration Notes
+
+- Update deployment scripts to use new `REGISTRY` flag
+- Image name changed from `dine-in-dine-in` to `intel/order-accuracy-dine-in`
+- Use `REGISTRY=false` for local development workflows
+
+---
+
 ## Version 2.0.0 (February 2026)
 
 ### New Features

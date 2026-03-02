@@ -137,35 +137,35 @@ In a full-service restaurant:
 
 | Container | Image | Ports | Description |
 |-----------|-------|-------|-------------|
-| `dinein_app` | `dine-in-dine-in` | 7861, 8083 | Main application (Gradio + FastAPI) |
-| `dinein_ovms_vlm` | `openvino/model_server` | 8000 | Vision-Language Model server |
-| `dinein_semantic_service` | `semantic-comparison-service` | 8080 | Semantic text matching |
-| `metrics-collector` | `metrics-collector` | 9000 | System metrics aggregation |
+| `dinein_app` | `intel/order-accuracy-dine-in:2026.0-rc1` | 7861, 8083 | Main application (Gradio + FastAPI) |
+| `dinein_ovms_vlm` | `openvino/model_server:latest-gpu` | 8002 | Vision-Language Model server |
+| `dinein_semantic_service` | `intel/semantic-search-agent:1.0.0` | 8081, 9091 | Semantic text matching |
+| `metrics-collector` | `intel/hl-ai-metrics-collector:1.0.0` | 8084 | System metrics aggregation |
 
 ### Network Topology
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                     Docker Network: dinein_network              │
+│                     Docker Network: dinein-net               │
 │                                                                 │
 │  ┌─────────────────┐    ┌─────────────────┐                    │
 │  │   dinein_app    │    │ dinein_ovms_vlm │                    │
 │  │                 │    │                 │                    │
-│  │  - Gradio:7861  │───▶│  - gRPC: 8000   │                    │
-│  │  - API:8083     │    │  - REST: 8000   │                    │
+│  │  - Gradio:7861  │───▶│  - REST: 8000   │  (internal)        │
+│  │  - API:8083     │    │  - Host: 8002   │  (external)        │
 │  │                 │    │                 │                    │
 │  └────────┬────────┘    └─────────────────┘                    │
 │           │                                                     │
 │           │             ┌─────────────────┐                    │
 │           │             │ semantic_service│                    │
 │           └────────────▶│                 │                    │
-│                         │  - REST: 8080   │                    │
-│                         │                 │                    │
+│                         │  - REST: 8080   │  (internal)        │
+│                         │  - Host: 8081   │  (external)        │
 │                         └─────────────────┘                    │
 │                                                                 │
 │  ┌─────────────────┐                                           │
 │  │metrics-collector│                                           │
-│  │  - REST: 9000   │◀────── Prometheus-style metrics           │
+│  │  - REST: 8084   │◀────── Prometheus-style metrics           │
 │  └─────────────────┘                                           │
 │                                                                 │
 └─────────────────────────────────────────────────────────────────┘
@@ -175,6 +175,8 @@ In a full-service restaurant:
         │   localhost:7861      │  ← Gradio UI
         │   localhost:8083      │  ← REST API
         │   localhost:8083/docs │  ← Swagger Docs
+        │   localhost:8002      │  ← OVMS VLM
+        │   localhost:8084      │  ← Metrics API
         └───────────────────────┘
 ```
 
