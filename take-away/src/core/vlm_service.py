@@ -286,25 +286,54 @@ vlm_instance = VLMComponent(
 )
 
 # ============================================================
-# QUEUE + WORKER
+# PER-STATION QUEUES + WORKERS (PARALLEL VLM CALLS)
 # ============================================================
+# Each station gets its own queue and worker, enabling parallel VLM calls
+# across stations instead of serializing through a single queue.
 
-vlm_queue: asyncio.Queue = asyncio.Queue()
-_worker_started = False
+from typing import Dict
+import threading
+from concurrent.futures import ThreadPoolExecutor
+import functools
 
-async def _vlm_worker():
-    logger.info("VLM worker started (sequential processing mode)")
+_station_queues: Dict[str, asyncio.Queue] = {}
+_station_workers_started: Dict[str, bool] = {}
+_queues_lock = threading.Lock()
+
+# ThreadPoolExecutor for running blocking VLM calls without blocking the asyncio event loop
+# This allows per-station workers to truly run in parallel
+_vlm_thread_pool = ThreadPoolExecutor(max_workers=8, thread_name_prefix="VLM-Pool")
+logger.info(f"[VLM-POOL] Created ThreadPoolExecutor with 8 workers for parallel VLM inference")
+
+
+def _get_or_create_station_queue(station_id: str) -> asyncio.Queue:
+    """Get existing queue or create new one for this station (thread-safe)"""
+    with _queues_lock:
+        if station_id not in _station_queues:
+            _station_queues[station_id] = asyncio.Queue()
+            logger.info(f"[QUEUE] Created VLM queue for {station_id}")
+        return _station_queues[station_id]
+
+
+async def _vlm_worker_for_station(station_id: str):
+    """
+    Dedicated VLM worker for a specific station.
+    Each station has its own worker → parallel VLM calls across stations.
+    """
+    queue = _station_queues[station_id]
+    logger.info(f"[WORKER-{station_id}] VLM worker started (parallel mode)")
 
     while True:
-        order_id, station_id, future = await vlm_queue.get()
+        order_id, future = await queue.get()
 
         try:
-            logger.info(f"[WORKER] Processing order_id={order_id}, station_id={station_id} (queue_remaining={vlm_queue.qsize()})")
+            queue_size = queue.qsize()
+            logger.info(f"[WORKER-{station_id}] Processing order_id={order_id} (queue_remaining={queue_size})")
             result = await _run_vlm_internal(order_id, station_id)
             future.set_result(result)
-            logger.info(f"[WORKER] Completed order_id={order_id}, status={result.get('status')}")
+            logger.info(f"[WORKER-{station_id}] Completed order_id={order_id}, status={result.get('status')}")
         except Exception as e:
-            logger.error(f"[WORKER] Failed processing order_id={order_id}: {e}", exc_info=True)
+            logger.error(f"[WORKER-{station_id}] Failed processing order_id={order_id}: {e}", exc_info=True)
             future.set_result({
                 "order_id": order_id,
                 "station_id": station_id,
@@ -312,7 +341,7 @@ async def _vlm_worker():
                 "reason": str(e)
             })
         finally:
-            vlm_queue.task_done()
+            queue.task_done()
 
 # ============================================================
 # INTERNAL EXECUTION
@@ -369,9 +398,14 @@ async def _run_vlm_internal(order_id: str, station_id: str):
         
         logger.info(f"[INTERNAL] Loaded {len(images)} images, starting VLM inference for order_id={order_id}")
 
-        # ---- Run VLM (order-aware: pass expected items so prompt includes them) ----
-        logger.info(f"[VLM-CALL] Transaction ID: {unique_id} - Calling VLM with {len(images)} frames")
-        vlm_result = vlm_instance.process(images, unique_id=unique_id, expected_items=expected_items)
+        # ---- Run VLM in thread pool (non-blocking for asyncio event loop) ----
+        # Using run_in_executor allows multiple station workers to truly run in parallel
+        logger.info(f"[VLM-CALL] Transaction ID: {unique_id} - Calling VLM with {len(images)} frames (via thread pool)")
+        loop = asyncio.get_event_loop()
+        vlm_result = await loop.run_in_executor(
+            _vlm_thread_pool,
+            functools.partial(vlm_instance.process, images, unique_id=unique_id, expected_items=expected_items)
+        )
         detected_items = vlm_result["items"]
         logger.info(f"[VLM-RESPONSE] Transaction ID: {unique_id} - VLM returned {len(detected_items)} items")
 
@@ -381,7 +415,10 @@ async def _run_vlm_internal(order_id: str, station_id: str):
         # (no expected-items hint) to maximize the chance of getting a valid response.
         if not detected_items:
             logger.warning(f"[VLM-RETRY] {unique_id} - VLM returned empty response, retrying with simplified prompt")
-            vlm_result = vlm_instance.process(images, unique_id=f"{unique_id}_retry", expected_items=None)
+            vlm_result = await loop.run_in_executor(
+                _vlm_thread_pool,
+                functools.partial(vlm_instance.process, images, unique_id=f"{unique_id}_retry", expected_items=None)
+            )
             detected_items = vlm_result["items"]
             logger.info(f"[VLM-RETRY] {unique_id} - Retry returned {len(detected_items)} items")
 
@@ -431,26 +468,35 @@ async def _run_vlm_internal(order_id: str, station_id: str):
 # ============================================================
 
 async def run_vlm(order_id: str, station_id: str = None):
-    global _worker_started
-
+    """
+    Queue VLM request to station-specific queue.
+    Each station has its own worker → parallel VLM calls across stations.
+    """
     # Use provided station_id or default
     if station_id is None:
         station_id = STATION_ID
 
     logger.info(f"[API] VLM request received for order_id={order_id}, station_id={station_id}")
+    
+    # Get or create queue for this station
+    station_queue = _get_or_create_station_queue(station_id)
+    
+    # Create future for this request
     loop = asyncio.get_running_loop()
     future = loop.create_future()
 
-    await vlm_queue.put((order_id, station_id, future))
-    queue_size = vlm_queue.qsize()
-    logger.info(f"[API] Order queued: order_id={order_id}, station_id={station_id}, queue_size={queue_size}")
+    # Queue the request (only order_id and future - station is implicit)
+    await station_queue.put((order_id, future))
+    queue_size = station_queue.qsize()
+    logger.info(f"[API] Order queued to {station_id}: order_id={order_id}, queue_size={queue_size}")
 
-    if not _worker_started:
-        logger.info("[API] Starting VLM worker task")
-        asyncio.create_task(_vlm_worker())
-        _worker_started = True
+    # Start worker for this station if not already running
+    if station_id not in _station_workers_started:
+        logger.info(f"[API] Starting VLM worker for {station_id}")
+        asyncio.create_task(_vlm_worker_for_station(station_id))
+        _station_workers_started[station_id] = True
 
-    logger.debug(f"[API] Waiting for VLM processing of order_id={order_id}")
+    logger.debug(f"[API] Waiting for VLM processing of order_id={order_id} on {station_id}")
     result = await future
     logger.info(f"[API] VLM processing completed for order_id={order_id}")
     return result

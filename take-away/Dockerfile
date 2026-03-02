@@ -67,12 +67,9 @@ COPY src/main.py src/frame_pipeline.py config_loader.py /app/
 # Make main.py executable
 RUN chmod +x /app/main.py
 
-# -------------------------------
-# Pre-download EasyOCR models to avoid race conditions
-# -------------------------------
-RUN mkdir -p /models/easyocr && \
-    python3 -c "import easyocr; easyocr.Reader(['en'], gpu=False, verbose=False, model_storage_directory='/models/easyocr')" && \
-    echo "EasyOCR models pre-downloaded to /models/easyocr"
+# NOTE: EasyOCR models are NOT downloaded here.
+# They are pre-downloaded by setup_models.sh into take-away/models/easyocr/
+# and mounted at runtime via docker-compose volume: ./models:/models
 
 # -------------------------------
 # GStreamer configuration

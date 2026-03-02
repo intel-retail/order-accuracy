@@ -72,7 +72,7 @@ This document provides a comprehensive technical overview of the system architec
 | Frame Selector | YOLO, OpenCV | Optimal frame detection |
 | OVMS VLM | OpenVINO Model Server | Vision Language Model inference |
 | Semantic Service | FastAPI, sentence-transformers | Text semantic matching |
-| Gradio UI | Gradio 4.x | Web interface |
+| Gradio UI | Gradio 3.x | Web interface |
 | MinIO | S3-compatible storage | Frame and result storage |
 
 ---
@@ -165,10 +165,10 @@ SERVICE_MODE = os.getenv("SERVICE_MODE", "single")
 
 if SERVICE_MODE == "single":
     # Start FastAPI with REST endpoints
-    run_single_worker_mode()
+    run_single_mode()
 elif SERVICE_MODE == "parallel":
     # Start multi-worker orchestration
-    run_parallel_worker_mode()
+    run_parallel_mode()
 ```
 
 **Responsibilities:**
@@ -207,22 +207,24 @@ Production-ready worker process for single camera stream processing.
 | Feature | Implementation |
 |---------|----------------|
 | GStreamer Pipeline | RTSP → H.264 decode → Frame capture |
-| Circuit Breaker | 5 failures in 60s → 30s cooldown |
-| Exponential Backoff | 1s → 2s → 4s → ... → 60s max |
-| Stall Detection | No frames for 30s triggers restart |
+| Circuit Breaker | 5 failures in 300s (5 min) → 30s cooldown |
+| Exponential Backoff | 2s → 4s → 8s → ... → 60s max |
+| Stall Detection | No EOS markers for 300s triggers restart |
 | Health Monitoring | Frame rate, pipeline state tracking |
 
 **Configuration:**
 ```python
 @dataclass
 class PipelineConfig:
-    rtsp_timeout: int = 10
-    reconnect_interval: float = 5.0
-    max_reconnect_attempts: int = 10
-    stall_detection_sec: float = 30.0
-    circuit_breaker_threshold: int = 5
-    circuit_breaker_window_sec: float = 60.0
+    rtsp_latency_ms: int = 0             # Zero buffering
+    rtsp_retry_count: int = 50
+    rtsp_timeout_us: int = 5000000       # 5 seconds
+    restart_base_delay_sec: float = 2.0
+    restart_max_delay_sec: float = 60.0
+    circuit_breaker_max_failures: int = 5
+    circuit_breaker_window_sec: float = 300.0   # 5 minutes
     circuit_breaker_cooldown_sec: float = 30.0
+    stall_detection_timeout_sec: float = 300.0  # 5 minutes
 ```
 
 ### 3. VLM Scheduler (`src/parallel/vlm_scheduler.py`)
@@ -253,16 +255,16 @@ Request batching scheduler optimizing OVMS throughput.
 
 **Batching Strategy:**
 - **Time Window**: 50-100ms collection period
-- **Max Batch Size**: Configurable (default: 4)
+- **Max Batch Size**: Configurable (default: 16)
 - **Fair Scheduling**: Round-robin request servicing
 - **Response Routing**: Match responses to original requesters
 
-### 4. VLM Service (`src/core/vlm_service.py`)
+### 4. VLM Component (`src/core/vlm_service.py`)
 
 Vision Language Model processing with inventory detection and order validation.
 
 ```python
-class VLMService:
+class VLMComponent:
     """
     Responsibilities:
     - Process selected frames through VLM
@@ -271,17 +273,15 @@ class VLMService:
     - Coordinate with validation agent
     """
     
-    def process_selected_frames(
+    def extract_items(
         self,
-        station_id: str,
-        order_id: str,
-        frames: List[np.ndarray]
-    ) -> ValidationResult:
+        image_paths: List[str]
+    ) -> dict:
         # 1. Encode frames for VLM
         # 2. Generate detection prompt
         # 3. Call OVMS VLM endpoint
         # 4. Parse JSON response
-        # 5. Run validation agent
+        # 5. Return detected items
         pass
 ```
 
@@ -298,7 +298,7 @@ Return JSON format:
 }
 ```
 
-### 5. OVMS Client (`src/core/ovms_client.py`)
+### 5. OVMS VLM Client (`src/core/ovms_client.py`)
 
 OpenVINO Model Server client with OpenAI-compatible API.
 
@@ -335,7 +335,7 @@ response = requests.post(
                 ]
             }
         ],
-        "max_tokens": 500
+        "max_completion_tokens": 100
     }
 )
 ```
@@ -497,8 +497,8 @@ def on_new_sample(appsink):
       ]
     }
   ],
-  "max_tokens": 500,
-  "temperature": 0.1
+  "max_completion_tokens": 100,
+  "temperature": 0.2
 }
 ```
 
@@ -541,14 +541,14 @@ def on_new_sample(appsink):
 │  │     - Frame quality (blur, brightness)                                  │    │
 │  │  4. Select TOP_K frames per order                                       │    │
 │  │  5. Store selected frames in 'selected' bucket                         │    │
-│  │  6. (Optional) Publish to RabbitMQ for downstream                      │    │
+│  │  6. Trigger VLM processing via HTTP callback                           │    │
 │  └────────────────────────────────────────────────────────────────────────┘    │
 │                                                                                  │
 │  Configuration:                                                                  │
 │  • TOP_K: 3 (frames per order)                                                  │
-│  • POLL_INTERVAL: 2s                                                            │
+│  • POLL_INTERVAL: 1.5s                                                          │
 │  • MIN_FRAMES_PER_ORDER: 1                                                      │
-│  • YOLO_MODEL: yolov8n.pt                                                       │
+│  • YOLO_MODEL: yolo11n (INT8 OpenVINO)                                          │
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -614,7 +614,7 @@ def select_best_frames(frames: List[Frame], top_k: int = 3) -> List[Frame]:
 │  └────────────────────────────────────────────────────────────────────────┘    │
 │                                                                                  │
 │  Semantic Service Integration:                                                   │
-│  • External microservice: http://oa_semantic_service:8080                       │
+│  • External microservice: http://semantic-service:8080                          │
 │  • Fallback: Local semantic matching (sentence-transformers)                    │
 │  • Similarity threshold: 0.85 (configurable)                                    │
 │                                                                                  │
@@ -652,10 +652,10 @@ def select_best_frames(frames: List[Frame], top_k: int = 3) -> List[Frame]:
 │  │  │  (internal)  │  │   :7860      │  │   :8080      │                  │   │
 │  │  └──────────────┘  └──────────────┘  └──────────────┘                  │   │
 │  │                                                                          │   │
-│  │  ┌──────────────┐  ┌──────────────┐                                    │   │
-│  │  │rtsp-streamer │  │  metrics     │  (parallel profile)                │   │
-│  │  │   :8554      │  │  collector   │                                    │   │
-│  │  └──────────────┘  └──────────────┘                                    │   │
+│  │  ┌──────────────┐                                                      │   │
+│  │  │rtsp-streamer │  (parallel profile)                                  │   │
+│  │  │   :8554      │                                                      │   │
+│  │  └──────────────┘                                                      │   │
 │  │                                                                          │   │
 │  └─────────────────────────────────────────────────────────────────────────┘   │
 │                                                                                  │
@@ -699,7 +699,7 @@ services:
 │                                                                                  │
 │  Configuration:                                                                  │
 │  • Failure threshold: 5 failures                                                │
-│  • Time window: 60 seconds                                                       │
+│  • Time window: 300 seconds (5 minutes)                                          │
 │  • Cooldown period: 30 seconds                                                   │
 │                                                                                  │
 │  States:                                                                         │
@@ -721,9 +721,9 @@ def calculate_backoff(attempt: int) -> float:
     """
     Exponential backoff with jitter.
     
-    Backoff sequence: 1s, 2s, 4s, 8s, 16s, 32s, 60s (max)
+    Backoff sequence: 2s, 4s, 8s, 16s, 32s, 60s (max)
     """
-    base_delay = 1.0
+    base_delay = 2.0
     max_delay = 60.0
     
     delay = min(base_delay * (2 ** attempt), max_delay)

@@ -111,17 +111,23 @@ STATION_ID  = os.environ.get("STATION_ID",  "station_unknown")
 PIPELINE_ID = os.environ.get("PIPELINE_ID", f"{STATION_ID}_{uuid.uuid4().hex[:8]}")
 
 # Tuneable parameters
-PRE_BUFFER_FRAMES      = int(os.environ.get("PRE_BUFFER_FRAMES",      "30"))
+PRE_BUFFER_FRAMES      = int(os.environ.get("PRE_BUFFER_FRAMES",      "100"))  # Increased to hold frames during OCR warmup
 OCR_SAMPLE_INTERVAL    = int(os.environ.get("OCR_SAMPLE_INTERVAL",     "1"))
 ORDER_IDLE_TIMEOUT_SEC = int(os.environ.get("ORDER_IDLE_TIMEOUT_SEC",   "8"))
 MINIO_UPLOAD_TIMEOUT   = int(os.environ.get("MINIO_UPLOAD_TIMEOUT",    "10"))
 UPLOAD_QUEUE_MAXSIZE   = int(os.environ.get("UPLOAD_QUEUE_MAXSIZE",   "500"))
 FRAME_TS_MAP_MAXSIZE   = int(os.environ.get("FRAME_TS_MAP_MAXSIZE",   "200"))
 
+# OCR warmup: number of frames to wait for OCR process to become ready
+# Before OCR is ready, frames are buffered but orders are not confirmed
+# This prevents losing the first order (e.g., 384) while OCR models load (~30s)
+OCR_WARMUP_FRAMES      = int(os.environ.get("OCR_WARMUP_FRAMES",       "5"))
+
 # Sequential OCR mode: when enabled, frame processing BLOCKS until OCR returns
 # Default: True (sequential mode) for accuracy. Set to false for high-throughput async mode.
 OCR_SEQUENTIAL_MODE    = os.environ.get("OCR_SEQUENTIAL_MODE", "true").lower() in ("true", "1", "yes")
-OCR_SEQUENTIAL_TIMEOUT = float(os.environ.get("OCR_SEQUENTIAL_TIMEOUT", "5.0"))  # max wait per frame (seconds)
+# Increased timeout to 30s to handle slow OCR when queue buffer holds many frames
+OCR_SEQUENTIAL_TIMEOUT = float(os.environ.get("OCR_SEQUENTIAL_TIMEOUT", "30.0"))  # max wait per frame (seconds)
 
 # In sequential mode, reduce voting to 1 for immediate response (like old simple version)
 # In async mode, keep default of 3 for noise rejection
@@ -145,7 +151,8 @@ def ts() -> str:
 
 log(f"[CONFIG] station={STATION_ID} pipeline={PIPELINE_ID}")
 log(f"[CONFIG] pre_buffer={PRE_BUFFER_FRAMES} ocr_interval={OCR_SAMPLE_INTERVAL} "
-    f"confirm={OCR_CONFIRM_COUNT} idle_timeout={ORDER_IDLE_TIMEOUT_SEC}s")
+    f"confirm={OCR_CONFIRM_COUNT} idle_timeout={ORDER_IDLE_TIMEOUT_SEC}s "
+    f"ocr_warmup={OCR_WARMUP_FRAMES}")
 log(f"[CONFIG] ocr_sequential_mode={OCR_SEQUENTIAL_MODE} "
     f"sequential_timeout={OCR_SEQUENTIAL_TIMEOUT}s")
 
@@ -172,6 +179,256 @@ _ocr_proc       = None
 _ocr_proc_ready = False
 _ocr_last_submitted: int = -1
 
+# OCR warmup tracking: count valid OCR responses after 'ready' signal
+# Order confirmation is blocked until we receive OCR_WARMUP_FRAMES valid responses
+# This ensures OCR is truly warmed up and ready to detect order 384 (the first order)
+_ocr_warmup_count: int = 0
+_ocr_warmed_up: bool = False
+
+# ==========================================================
+# TWO-PHASE COMMIT (2PC) SYNCHRONIZATION
+# ==========================================================
+# Phase 1 (PREPARE): Pipeline signals it's ready to consume frames
+# Phase 2 (COMMIT):  RTSP streamer signals stream is available
+#
+# This ensures all stations start processing at the same video timestamp.
+# Fault-tolerant: idempotent signals, timeout handling, retry on restart.
+# ==========================================================
+
+_commit_received: bool = False
+_prepare_signaled: bool = False
+
+# 2PC timeout configuration
+SYNC_PREPARE_TIMEOUT = float(os.environ.get("SYNC_PREPARE_TIMEOUT", "180"))  # Max wait for commit (seconds) - increased for multi-worker
+SYNC_CHECK_INTERVAL = float(os.environ.get("SYNC_CHECK_INTERVAL", "0.5"))    # Poll interval for commit signal
+
+
+def _get_sync_dirs():
+    """Get sync directory paths for 2PC."""
+    base_dir = os.environ.get('PIPELINE_SYNC_DIR', '/sync/ready')
+    base = os.path.dirname(base_dir) if base_dir.endswith('/ready') else base_dir.replace('/ready', '')
+    if not base:
+        base = '/sync'
+    return {
+        'prepare': os.path.join(base, 'prepare'),
+        'commit': os.path.join(base, 'commit'),
+        'ready': base_dir,
+        'ocr_ready': os.path.join(base, 'ocr_ready'),
+    }
+
+
+def _signal_prepare():
+    """
+    Phase 1 of 2PC: Signal that pipeline is PREPARED and ready to consume frames.
+    
+    Creates /sync/prepare/{STATION_ID} file. The RTSP streamer watches for
+    these files and starts streams only after ALL stations have signaled PREPARE.
+    
+    This signal indicates:
+    - GStreamer pipeline is initialized
+    - OCR subprocess is warmed up
+    - Pipeline is ready to process frames from video second 0
+    
+    Idempotent: Safe to call multiple times (e.g., on restart).
+    """
+    global _prepare_signaled
+    
+    dirs = _get_sync_dirs()
+    prepare_dir = dirs['prepare']
+    
+    try:
+        os.makedirs(prepare_dir, exist_ok=True)
+        prepare_file = os.path.join(prepare_dir, STATION_ID)
+        
+        with open(prepare_file, 'w') as f:
+            f.write(f"{time.time()}\n{PIPELINE_ID}\n")
+        
+        _prepare_signaled = True
+        log(f"[2PC-PREPARE] [{ts()}] Signaled PREPARE: {prepare_file}")
+        log(f"[2PC-PREPARE] [{ts()}] Waiting for COMMIT from RTSP streamer...")
+        
+    except Exception as e:
+        log(f"[2PC-PREPARE] [{ts()}] Failed to signal PREPARE: {e}")
+
+
+def _check_commit() -> bool:
+    """
+    Check if COMMIT signal has been received (non-blocking).
+    
+    Returns True if /sync/commit/{STATION_ID} file exists.
+    """
+    global _commit_received
+    
+    if _commit_received:
+        return True
+    
+    dirs = _get_sync_dirs()
+    commit_file = os.path.join(dirs['commit'], STATION_ID)
+    
+    if os.path.exists(commit_file):
+        _commit_received = True
+        log(f"[2PC-COMMIT] [{ts()}] COMMIT received: {commit_file}")
+        return True
+    
+    return False
+
+
+def _wait_for_commit(timeout: float = 0) -> bool:
+    """
+    Phase 2 of 2PC: Wait for COMMIT signal from RTSP streamer.
+    
+    Blocks until /sync/commit/{STATION_ID} file appears or timeout expires.
+    
+    Args:
+        timeout: Max seconds to wait (default: SYNC_PREPARE_TIMEOUT)
+    
+    Returns:
+        True if COMMIT received, False if timeout expired (ABORT)
+    
+    Fault Tolerance:
+        - Timeout prevents deadlock if RTSP streamer crashes
+        - Can be called multiple times (idempotent)
+    """
+    global _commit_received
+    
+    if _commit_received:
+        return True
+    
+    timeout = timeout or SYNC_PREPARE_TIMEOUT
+    dirs = _get_sync_dirs()
+    commit_file = os.path.join(dirs['commit'], STATION_ID)
+    
+    start_time = time.time()
+    elapsed = 0
+    
+    while elapsed < timeout:
+        if os.path.exists(commit_file):
+            _commit_received = True
+            log(f"[2PC-COMMIT] [{ts()}] COMMIT received after {elapsed:.1f}s: {commit_file}")
+            return True
+        
+        # Log progress every 5 seconds
+        if int(elapsed) % 5 == 0 and int(elapsed) > 0:
+            log(f"[2PC-WAIT] [{ts()}] Waiting for COMMIT... ({elapsed:.0f}s/{timeout:.0f}s)")
+        
+        time.sleep(SYNC_CHECK_INTERVAL)
+        elapsed = time.time() - start_time
+    
+    log(f"[2PC-ABORT] [{ts()}] COMMIT timeout after {timeout}s - ABORTING")
+    return False
+
+
+def _signal_ocr_ready():
+    """
+    Legacy function - now calls _signal_prepare() for backward compatibility.
+    
+    Creates /sync/ocr_ready/{STATION_ID} file. The RTSP streamer watches for
+    these files and starts streams AFTER all stations are OCR-ready.
+    This ensures order 384 (the first order) is captured from frame 1.
+    """
+    # Also signal via legacy ocr_ready path for backward compatibility
+    dirs = _get_sync_dirs()
+    ocr_ready_dir = dirs['ocr_ready']
+    
+    try:
+        os.makedirs(ocr_ready_dir, exist_ok=True)
+        ready_file = os.path.join(ocr_ready_dir, STATION_ID)
+        
+        with open(ready_file, 'w') as f:
+            f.write(f"{time.time()}\n")
+        
+        log(f"[OCR-READY] [{ts()}] Signaled OCR ready: {ready_file}")
+    except Exception as e:
+        log(f"[OCR-READY] [{ts()}] Failed to signal OCR ready: {e}")
+
+
+def _do_ocr_warmup():
+    """
+    Warm up OCR models using synthetic frames BEFORE video starts.
+    
+    This is called at pipeline startup to load EasyOCR models. We send
+    dummy black frames to the OCR subprocess, which forces model loading.
+    After warmup, we signal OCR ready so RTSP can start streaming video.
+    
+    This ensures order 384 is captured from the very first video frame.
+    """
+    global _ocr_warmup_count, _ocr_warmed_up, _ocr_proc_ready
+    
+    if _ocr_warmed_up:
+        return
+    
+    log(f"[OCR-WARMUP] [{ts()}] Starting synthetic warmup with {OCR_WARMUP_FRAMES} dummy frames...")
+    
+    # Ensure OCR process is started
+    if not _ensure_ocr_proc():
+        log(f"[OCR-WARMUP] [{ts()}] Failed to start OCR process")
+        return
+    
+    import numpy as np
+    
+    # Create a synthetic black frame (640x360 to match OCR resize)
+    dummy_frame = np.zeros((360, 640, 3), dtype=np.uint8)
+    
+    # Send warmup frames to OCR - use blocking put since we need all frames sent
+    for i in range(OCR_WARMUP_FRAMES):
+        warmup_fid = -(i + 1)  # Negative frame IDs for warmup
+        try:
+            _ocr_input_q.put((warmup_fid, 360, 640, dummy_frame.tobytes()), timeout=30)
+            log(f"[OCR-WARMUP] [{ts()}] Sent warmup frame {i+1}/{OCR_WARMUP_FRAMES}")
+        except Exception as e:
+            log(f"[OCR-WARMUP] [{ts()}] Failed to send warmup frame: {e}")
+            break
+    
+    # Wait for warmup responses (with timeout)
+    import time
+    warmup_responses = 0
+    warmup_start = time.time()
+    warmup_timeout = 180  # 3 minutes max for model loading (increased for multi-worker CPU contention)
+    
+    while warmup_responses < OCR_WARMUP_FRAMES:
+        elapsed = time.time() - warmup_start
+        if elapsed > warmup_timeout:
+            log(f"[OCR-WARMUP] [{ts()}] Timeout after {elapsed:.1f}s - proceeding anyway")
+            break
+        
+        try:
+            result = _ocr_output_q.get(timeout=10)
+            fid, oid = result
+            
+            if fid == 'ready':
+                _ocr_proc_ready = True
+                log(f"[OCR-WARMUP] [{ts()}] OCR subprocess models loaded")
+                continue
+            
+            warmup_responses += 1
+            log(f"[OCR-WARMUP] [{ts()}] Warmup response {warmup_responses}/{OCR_WARMUP_FRAMES}")
+            
+        except Exception:
+            # Queue timeout - keep waiting
+            log(f"[OCR-WARMUP] [{ts()}] Waiting for OCR response... ({elapsed:.1f}s)")
+    
+    # Mark as warmed up and signal ready
+    _ocr_proc_ready = True  # OCR is definitely ready after successful warmup
+    _ocr_warmed_up = True
+    _ocr_warmup_count = OCR_WARMUP_FRAMES
+    log(f"[OCR-WARMUP] [{ts()}] OCR warmup complete")
+    
+    # ========== TWO-PHASE COMMIT: PREPARE + WAIT FOR COMMIT ==========
+    # Phase 1: Signal PREPARE - we're ready to consume frames
+    _signal_prepare()
+    
+    # Also signal legacy ocr_ready for backward compatibility with RTSP streamer
+    _signal_ocr_ready()
+    
+    # Phase 2: Wait for COMMIT - RTSP streamer will signal when stream is ready
+    if _wait_for_commit():
+        log(f"[2PC-SUCCESS] [{ts()}] Synchronization complete - ready to process frames!")
+    else:
+        # Timeout - proceed anyway but log warning
+        log(f"[2PC-WARNING] [{ts()}] COMMIT not received - proceeding without sync")
+        log(f"[2PC-WARNING] [{ts()}] First order may be missed if RTSP not ready")
+    # ========== END TWO-PHASE COMMIT ==========
+
 
 def _ensure_ocr_proc() -> bool:
     """
@@ -196,7 +453,7 @@ def _ensure_ocr_proc() -> bool:
 
         # 'spawn' = brand-new Python interpreter with zero GStreamer state
         _ocr_ctx      = _mp.get_context('spawn')
-        _ocr_input_q  = _ocr_ctx.Queue(maxsize=2)   # drop frames when busy
+        _ocr_input_q  = _ocr_ctx.Queue(maxsize=10)  # increased for warmup + normal operation
         _ocr_output_q = _ocr_ctx.Queue(maxsize=20)
 
         from ocr_worker import run_worker
@@ -577,14 +834,13 @@ def _on_ocr_confirmed(confirmed_order_id: str, ocr_fid: int) -> None:
         _active_order_id          = confirmed_order_id
         _active_order_frame_count = 0
         _active_order_start_ts    = time.time()
-        # If a previous order existed (_last_order_end_ts_ms > 0), the pre-buffer
-        # may contain frames that OCR labelled as a DIFFERENT order that never
-        # reached confirm-count (e.g. 925 frames landing in 384's bucket).
-        # Guard against this by using the first-detection timestamp as the
-        # boundary — only flush frames captured from when the new slip was
-        # first seen.  For the very first order ever (_last_order_end_ts_ms==0)
-        # flush everything so we capture the pre-buffer look-back.
-        flush_since = ocr_frame_ts if _last_order_end_ts_ms > 0 else None
+        # FIX: ALWAYS use ocr_frame_ts as boundary to prevent cross-contamination.
+        # Previously, for the first order (_last_order_end_ts_ms==0), we flushed
+        # ALL pre-buffer frames. This caused order 384 frames to be flushed into
+        # order 651's bucket when OCR missed 384 during warmup.
+        # Now we always use the first-detection timestamp as boundary, so only
+        # frames from when this order was detected get flushed to its bucket.
+        flush_since = ocr_frame_ts  # Always use boundary, never flush everything
         _flush_pre_buffer(confirmed_order_id, since_ts_ms=flush_since)
 
     elif confirmed_order_id != _active_order_id:
@@ -649,8 +905,29 @@ def _process_ocr_result(ocr_fid: int, ocr_oid: Optional[str]) -> None:
     """
     Process a single OCR result through the voting state machine.
     Shared by both async and sequential modes.
+    
+    WARMUP LOGIC: Orders are NOT confirmed until OCR has been 'warmed up'
+    by receiving OCR_WARMUP_FRAMES valid responses. This prevents losing
+    order 384 (the first order) while OCR models are still loading.
     """
     global _ocr_candidate, _ocr_vote_count, _ocr_first_vote_fid, _last_ocr_hit_ts
+    global _ocr_warmup_count, _ocr_warmed_up
+
+    # Track OCR warmup - count valid responses until warmed up
+    if _ocr_proc_ready and not _ocr_warmed_up:
+        _ocr_warmup_count += 1
+        if _ocr_warmup_count >= OCR_WARMUP_FRAMES:
+            _ocr_warmed_up = True
+            log(f"[OCR-WARMUP] [{ts()}] OCR warmed up after {_ocr_warmup_count} responses — "
+                f"order detection ENABLED (pre-buffer has {len(_pre_buffer)} frames)")
+            # Signal RTSP streamer that OCR is ready - this triggers video restart
+            _signal_ocr_ready()
+        else:
+            log(f"[OCR-WARMUP] [{ts()}] warmup {_ocr_warmup_count}/{OCR_WARMUP_FRAMES} "
+                f"(buffering frames, order detection DISABLED)")
+            # During warmup, do NOT process OCR results for order confirmation
+            # This ensures all frames stay in pre-buffer until OCR is ready
+            return
 
     if not ocr_oid:
         # OCR returned nothing (no slip visible / blur / transition zone).
@@ -722,9 +999,23 @@ def process_frame(frame: "VideoFrame") -> bool:
     global _frame_counter
     global _ocr_candidate, _ocr_vote_count, _ocr_first_vote_fid, _last_ocr_hit_ts
     global _active_order_id, _active_order_frame_count
+    global _commit_received
 
     _frame_counter += 1
     capture_ts_ms = int(time.time() * 1000)  # capture wall-clock immediately
+
+    # ========== 2PC COMMIT GATE ==========
+    # Don't process frames for OCR until COMMIT is received
+    # This ensures we don't waste OCR cycles on black leader frames
+    # and that we're fully synchronized with RTSP streamer
+    if not _commit_received:
+        # Check if COMMIT has arrived (non-blocking)
+        if _check_commit():
+            log(f"[2PC-GATE] [{ts()}] COMMIT received - beginning frame processing")
+        elif _frame_counter % 30 == 0:
+            # Periodically log that we're waiting
+            log(f"[2PC-GATE] [{ts()}] Waiting for COMMIT signal - frame {_frame_counter} buffered only")
+    # ========== END 2PC COMMIT GATE ==========
 
     # Start OCR subprocess on very first frame
     if _frame_counter == 1:
@@ -763,6 +1054,12 @@ def process_frame(frame: "VideoFrame") -> bool:
     _pre_buffer.append(meta)
 
     # 6. OCR processing — mode-dependent
+    # NOTE: Skip OCR if COMMIT hasn't been received (still in leader/sync phase)
+    # This avoids wasting OCR cycles on black frames during synchronization
+    if not _commit_received:
+        # Still waiting for 2PC COMMIT - skip OCR, just buffer frames
+        return True
+    
     if OCR_SEQUENTIAL_MODE:
         # ═══════════════════════════════════════════════════════════════
         # SEQUENTIAL MODE: Submit EVERY frame and BLOCK until OCR returns
@@ -808,3 +1105,15 @@ def process_frame(frame: "VideoFrame") -> bool:
         _check_order_idle_timeout()
 
     return True
+
+
+# ==========================================================
+# MODULE INITIALIZATION - OCR WARMUP
+# ==========================================================
+# Run OCR warmup at module load time (BEFORE any frames arrive).
+# This loads EasyOCR models and signals RTSP streamer to start video.
+# Without this, order 384 would be missed during model loading.
+# ==========================================================
+log(f"[INIT] [{ts()}] Starting OCR warmup at module load...")
+_do_ocr_warmup()
+log(f"[INIT] [{ts()}] Module initialization complete - ready for frames")

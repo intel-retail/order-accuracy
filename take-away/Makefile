@@ -7,7 +7,7 @@
 
 .PHONY: help build up down logs restart status clean benchmark benchmark-quick benchmark-results \
         logs-vlm logs-gradio logs-frame-selector shell test-api ps exec dev-build \
-        check-env show-config init-env benchmark-oa benchmark-oa-density \
+        check-env show-config init-env benchmark-oa benchmark-stream-density \
         benchmark-oa-metrics benchmark-oa-results benchmark-oa-help \
         update-submodules fetch-benchmark build-benchmark \
         consolidate-metrics plot-metrics clean-images clean-containers clean-all \
@@ -54,18 +54,21 @@ OOM_PROTECTION ?= 1
 PERF_TOOLS_DIR ?= ../performance-tools/benchmark-scripts
 
 # Version tag for registry images
-TAG ?= 1.0.0
+TAG ?= 2026.0-rc1
 
-# Benchmark registry configuration
-REGISTRY ?= false
+# Registry configuration: true=pull from registry, false=build locally
+REGISTRY ?= true
 REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
 
 # Benchmark Order Accuracy settings
 BENCHMARK_WORKERS ?= 1
-BENCHMARK_TARGET_LATENCY_MS ?= 30000
+BENCHMARK_TARGET_LATENCY_MS ?= 25000
 BENCHMARK_LATENCY_METRIC ?= avg
-BENCHMARK_INIT_DURATION ?= 30
+BENCHMARK_INIT_DURATION ?= 10
 BENCHMARK_DURATION ?= 200
+
+# OCR warmup - reduced from 5 to 2 for faster startup (~10s vs ~25s)
+OCR_WARMUP_FRAMES ?= 2
 BENCHMARK_WORKER_INCREMENT ?= 1
 BENCHMARK_MIN_TRANSACTIONS ?= 3
 BENCHMARK_CONTAINER ?= oa_service
@@ -211,7 +214,7 @@ help:
 	@echo "  make check-env                - Validate environment variables"
 	@echo ""
 	@echo "$(YELLOW)Basic Commands:$(NC)"
-	@echo "  make build                    - Build Docker images"
+	@echo "  make build                    - Pull images (or build locally with REGISTRY=false)"
 	@echo "  make up                       - Start all services"
 	@echo "  make up-parallel              - Start with RTSP streamer (parallel mode)"
 	@echo "  make down                     - Stop all services"
@@ -230,7 +233,7 @@ help:
 	@echo "  make build-benchmark          - Build benchmark Docker image"
 	@echo "  make benchmark                - Run Order Accuracy benchmark (benchmark_order_accuracy.py)"
 	@echo "  make benchmark-quick          - Quick API test with curl (sanity check)"
-	@echo "  make benchmark-oa-density     - Run stream density test (latency-based)"
+	@echo "  make benchmark-stream-density  - Run stream density test (latency-based)"
 	@echo "  make benchmark-oa-metrics     - View VLM metrics logs"
 	@echo "  make benchmark-oa-results     - View all benchmark results"
 	@echo "  make benchmark-oa-help        - Show benchmark options"
@@ -265,12 +268,23 @@ help:
 
 build: check-env
 	@echo "$(BLUE)Building Take-Away Docker images...$(NC)"
-	docker compose -f $(COMPOSE_FILE) build
+	@if [ "$(REGISTRY)" = "false" ] || [ "$(REGISTRY)" = "FALSE" ]; then \
+		echo "$(YELLOW)REGISTRY=false → Building images locally...$(NC)"; \
+		docker compose -f $(COMPOSE_FILE) build; \
+	else \
+		echo "$(YELLOW)REGISTRY=true → Pulling images from registry...$(NC)"; \
+		docker compose -f $(COMPOSE_FILE) pull order-accuracy frame-selector gradio-ui rtsp-streamer; \
+	fi
 	@echo "$(GREEN)✓ Build complete$(NC)"
 
 up: check-env
 	@echo "$(BLUE)Starting Take-Away services...$(NC)"
-	docker compose -f $(COMPOSE_FILE) up -d
+	@if [ "$(REGISTRY)" = "false" ] || [ "$(REGISTRY)" = "FALSE" ]; then \
+		echo "$(YELLOW)REGISTRY=false → Building and starting services locally...$(NC)"; \
+		docker compose -f $(COMPOSE_FILE) up -d --build; \
+	else \
+		docker compose -f $(COMPOSE_FILE) up -d; \
+	fi
 	@echo ""
 	@echo "$(GREEN)✓ Services started$(NC)"
 	@echo "  - Order Accuracy API: http://localhost:8000"
@@ -283,7 +297,12 @@ up: check-env
 
 up-parallel: check-env
 	@echo "$(BLUE)Starting Take-Away services with RTSP streamer ($(WORKERS) stations)...$(NC)"
-	SERVICE_MODE=parallel WORKERS=$(WORKERS) docker compose -f $(COMPOSE_FILE) --profile parallel up -d
+	@if [ "$(REGISTRY)" = "false" ] || [ "$(REGISTRY)" = "FALSE" ]; then \
+		echo "$(YELLOW)REGISTRY=false → Building and starting services locally...$(NC)"; \
+		SERVICE_MODE=parallel WORKERS=$(WORKERS) docker compose -f $(COMPOSE_FILE) --profile parallel up -d --build; \
+	else \
+		SERVICE_MODE=parallel WORKERS=$(WORKERS) docker compose -f $(COMPOSE_FILE) --profile parallel up -d; \
+	fi
 	@echo ""
 	@echo "$(GREEN)✓ Services started (parallel mode with $(WORKERS) stations)$(NC)"
 	@echo "  - Order Accuracy API: http://localhost:8000"
@@ -410,39 +429,6 @@ benchmark-quick: ## Quick API test with curl (latency only)
 		echo "Results logged to results/benchmark_performance.log"; \
 	'
 
-benchmark-stream-density:
-	@if [ "$(OOM_PROTECTION)" = "0" ]; then \
-		echo "╔════════════════════════════════════════════════════════════╗"; \
-		echo "║ WARNING: OOM Protection DISABLED                           ║"; \
-		echo "║                                                            ║"; \
-		echo "║ This test may:                                             ║"; \
-		echo "║ • Exhaust system memory                                    ║"; \
-		echo "║ • Cause system instability                                 ║"; \
-		echo "║ • Require hard reboot                                      ║"; \
-		echo "║                                                            ║"; \
-		echo "║ Press Ctrl+C to cancel, or wait 5 seconds...               ║"; \
-		echo "╚════════════════════════════════════════════════════════════╝"; \
-		sleep 5; \
-	fi
-	@echo "Running stream density benchmark..."
-	@mkdir -p $(RESULTS_DIR)
-	@if [ -f benchmark_density.py ]; then \
-		python3 -m venv venv 2>/dev/null || true && \
-		. venv/bin/activate && \
-		pip3 install -q aiohttp psutil && \
-		python3 benchmark_density.py \
-			--concurrency_start $(CONCURRENCY_START) \
-			--concurrency_max $(CONCURRENCY_MAX) \
-			--concurrency_increment $(CONCURRENCY_INCREMENT) \
-			--requests_per_level $(REQUESTS_PER_LEVEL) \
-			--timeout $(REQUEST_TIMEOUT) \
-			--results_dir $(RESULTS_DIR) \
-			--oom_protection $(OOM_PROTECTION); \
-		deactivate; \
-	else \
-		echo "benchmark_density.py not found. Skipping stream density test."; \
-	fi
-
 benchmark-results:
 	@echo "=== Benchmark Results ==="
 	@if [ -f results/benchmark_performance.log ]; then \
@@ -460,7 +446,7 @@ benchmark-oa-help:
 	@echo "║         Order Accuracy Benchmark Commands                         ║"
 	@echo "╠═══════════════════════════════════════════════════════════════════╣"
 	@echo "║ make benchmark-oa           - Run fixed workers benchmark         ║"
-	@echo "║ make benchmark-oa-density   - Run stream density test (latency)   ║"
+	@echo "║ make benchmark-stream-density - Run stream density test (latency) ║"
 	@echo "║ make benchmark-oa-metrics   - View VLM metrics logs               ║"
 	@echo "║ make benchmark-oa-results   - View all benchmark results          ║"
 	@echo "╠═══════════════════════════════════════════════════════════════════╣"
@@ -498,7 +484,7 @@ benchmark-oa: ## Run Order Accuracy benchmark with fixed workers
 		deactivate \
 	)
 
-benchmark-oa-density: ## Run Order Accuracy stream density benchmark (latency-based)
+benchmark-stream-density: ## Run Order Accuracy stream density benchmark (latency-based)
 	@if [ "$(OOM_PROTECTION)" = "0" ]; then \
 		echo "╔════════════════════════════════════════════════════════════╗"; \
 		echo "║ WARNING: OOM Protection DISABLED                           ║"; \

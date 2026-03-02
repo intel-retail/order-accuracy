@@ -1,4 +1,7 @@
-from openvino_genai import GenerationConfig
+try:
+    from openvino_genai import GenerationConfig
+except ImportError:
+    GenerationConfig = None
 
 SEMANTIC_PROMPT = """
 You are matching grocery product names.
@@ -19,6 +22,10 @@ Answer ONLY YES or NO.
 """
 
 def semantic_match(vlm_pipeline, expected_name, detected_name):
+    if GenerationConfig is None:
+        print("[SEMANTIC-MATCH] openvino_genai not installed, cannot do local matching", flush=True)
+        return False
+
     print(f"[SEMANTIC-MATCH] Comparing '{expected_name}' ↔ '{detected_name}'", flush=True)
 
     prompt = SEMANTIC_PROMPT.format(

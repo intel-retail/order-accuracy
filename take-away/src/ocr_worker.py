@@ -39,6 +39,12 @@ def run_worker(input_queue, output_queue, models_dir):
             small = cv2.resize(img, (640, 360))
             results = reader.readtext(small, detail=0)
             order_id = None
+            
+            # DEBUG: Log all OCR results for troubleshooting
+            import sys
+            if results:
+                print(f"[OCR-DEBUG] frame={frame_id} raw_results={results}", file=sys.stderr, flush=True)
+            
             for text in results:
                 if '#' in text:
                     digits = ''.join(c for c in text if c.isdigit())

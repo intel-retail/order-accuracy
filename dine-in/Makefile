@@ -35,10 +35,18 @@ BENCHMARK_API_ENDPOINT ?= http://localhost:8083
 COMPOSE_FILE ?= docker-compose.yml
 
 # Version tag for registry images
-TAG ?= 1.0.0
+TAG ?= 2026.0-rc1
+
+# Dine-In image configuration
+DINEIN_IMAGE_NAME ?= intel/order-accuracy-dine-in
+DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(TAG)
+
+# Registry configuration
+# REGISTRY=false : Build and use local images
+# REGISTRY=true  : Use images from registry (default for up, pull for build)
+REGISTRY ?= true
 
 # Benchmark registry configuration
-REGISTRY ?= false
 REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
 
 # Benchmark Order Accuracy settings
@@ -66,10 +74,18 @@ help:
 	@echo "$(BLUE)Dine-In Order Accuracy - Available Commands$(NC)"
 	@echo "=============================================="
 	@echo ""
+	@echo "$(YELLOW)Image Configuration:$(NC)"
+	@echo "  REGISTRY=false              - Build/use local images"
+	@echo "  REGISTRY=true (default)     - Use images from registry"
+	@echo "  TAG=$(TAG)            - Image version tag"
+	@echo "  Image: $(DINEIN_IMAGE)"
+	@echo ""
 	@echo "$(YELLOW)Basic Commands:$(NC)"
 	@echo "  make update-submodules        - Clone/update git submodules"
-	@echo "  make build                    - Build Docker images"
-	@echo "  make up                       - Start services (UI mode)"
+	@echo "  make build                    - Pull image from registry (default)"
+	@echo "  make build REGISTRY=false     - Build Docker image locally"
+	@echo "  make up                       - Start services with registry image (default)"
+	@echo "  make up REGISTRY=false        - Start services with local image"
 	@echo "  make down                     - Stop all services"
 	@echo "  make logs                     - View application logs"
 	@echo "  make restart                  - Restart dine-in service"
@@ -163,12 +179,27 @@ build-benchmark:
 
 build:
 	@echo "Building dine-in Docker images..."
-	docker compose build
+	@if [ "$(REGISTRY)" = "false" ]; then \
+		echo "$(BLUE)Building locally and tagging as $(DINEIN_IMAGE)...$(NC)"; \
+		docker compose build; \
+		docker tag $$(docker compose images dine-in -q 2>/dev/null || echo "dine-in-dine-in") $(DINEIN_IMAGE) 2>/dev/null || \
+			docker build -t $(DINEIN_IMAGE) .; \
+		echo "$(GREEN)✓ Local image built and tagged as $(DINEIN_IMAGE)$(NC)"; \
+	else \
+		echo "$(BLUE)Pulling image from registry: $(DINEIN_IMAGE)...$(NC)"; \
+		docker pull $(DINEIN_IMAGE) || echo "$(YELLOW)Warning: Could not pull $(DINEIN_IMAGE). Build locally with REGISTRY=false$(NC)"; \
+	fi
 
 up:
 	@echo "Starting dine-in services..."
-	docker compose up -d
-	@echo "Services started:"
+	@if [ "$(REGISTRY)" = "false" ]; then \
+		echo "$(BLUE)Using locally built image: $(DINEIN_IMAGE)$(NC)"; \
+		DINEIN_IMAGE=$(DINEIN_IMAGE) docker compose up -d --no-build; \
+	else \
+		echo "$(BLUE)Using registry image: $(DINEIN_IMAGE)$(NC)"; \
+		DINEIN_IMAGE=$(DINEIN_IMAGE) docker compose up -d --no-build; \
+	fi
+	@echo "$(GREEN)Services started:$(NC)"
 	@echo "  - Gradio UI: http://localhost:7861"
 	@echo "  - API: http://localhost:8083"
 	@echo "  - API Docs: http://localhost:8083/docs"

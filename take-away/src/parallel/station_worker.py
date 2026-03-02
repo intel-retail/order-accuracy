@@ -49,8 +49,8 @@ logger = logging.getLogger(__name__)
 class PipelineConfig:
     """Configuration for GStreamer pipeline behavior."""
     
-    # RTSP source hardening
-    rtsp_latency_ms: int = 200
+    # RTSP source hardening - LOW LATENCY for fast connection
+    rtsp_latency_ms: int = 0  # Zero buffering (was 200ms)
     rtsp_retry_count: int = 50  # Conservative retry count for RTSP reconnection
     rtsp_timeout_us: int = 5000000   # 5 seconds
     rtsp_keepalive: bool = True
@@ -278,6 +278,12 @@ class StationWorker:
         self._frames_buffer: List = []
         
         # =================================================================
+        # Sync Signal Control
+        # =================================================================
+        # When True, preserve ready signal on cleanup (for RTSP sync to work)
+        self._preserve_ready_signal: bool = False
+        
+        # =================================================================
         # Reusable Components (initialized in run())
         # =================================================================
         self._pipeline_runner = None
@@ -393,13 +399,36 @@ class StationWorker:
             
             self._running = True
             
-            # Wait for RTSP stream to be available
-            if not self._wait_for_rtsp_stream():
-                self._log_structured("error", "rtsp_unavailable_at_startup", {
-                    "timeout": self.pipeline_config.rtsp_wait_timeout_sec
-                })
-                self._pipeline_metrics.rtsp_unavailable_events += 1
-                return
+            # Wait for RTSP stream to be available (with retry loop for sync)
+            # The sync mechanism requires workers to keep retrying so that:
+            # 1. Workers signal ready
+            # 2. RTSP streamer waits for ready signals, then starts streams
+            # 3. Workers detect streams and connect
+            max_sync_retries = 3
+            sync_retry = 0
+            while sync_retry < max_sync_retries:
+                if self._wait_for_rtsp_stream():
+                    break
+                    
+                sync_retry += 1
+                if sync_retry < max_sync_retries:
+                    self._log_structured("warning", "rtsp_unavailable_retrying", {
+                        "timeout": self.pipeline_config.rtsp_wait_timeout_sec,
+                        "retry": sync_retry,
+                        "max_retries": max_sync_retries
+                    })
+                    # Re-signal ready in case file was cleared
+                    self._signal_pipeline_ready()
+                    time.sleep(5)  # Brief pause before retry
+                else:
+                    self._log_structured("error", "rtsp_unavailable_at_startup", {
+                        "timeout": self.pipeline_config.rtsp_wait_timeout_sec,
+                        "retries_exhausted": sync_retry
+                    })
+                    self._pipeline_metrics.rtsp_unavailable_events += 1
+                    # Preserve ready signal so RTSP streamer can eventually start
+                    self._preserve_ready_signal = True
+                    return
             
             # Start persistent GStreamer pipeline
             self._start_persistent_pipeline()
@@ -645,6 +674,25 @@ class StationWorker:
                                 "port": port
                             })
                             port_ready = True
+                            
+                            # Signal ready as soon as RTSP port is open
+                            # This tells the RTSP streamer we're ready to receive frames
+                            # (before waiting for the specific stream path to exist)
+                            self._signal_pipeline_ready()
+                            
+                            # SINGLE-PHASE SYNC: When SYNC_MODE=signal, return immediately
+                            # after signaling ready. GStreamer will get 404 errors initially
+                            # but that's OK - the OCR warmup happens in frame_pipeline.py
+                            # module init, which signals ocr_ready. RTSP streamer waits for
+                            # all ocr_ready signals then starts streams. GStreamer retries
+                            # RTSP internally and eventually connects successfully.
+                            sync_mode = os.environ.get('SYNC_MODE', 'signal')
+                            if sync_mode == 'signal':
+                                self._log_structured("info", "single_phase_sync_enabled", {
+                                    "mode": "signal",
+                                    "note": "GStreamer will retry RTSP after OCR warmup completes"
+                                })
+                                return True  # Let GStreamer start and do OCR warmup
                 except Exception:
                     pass
                 
@@ -658,7 +706,7 @@ class StationWorker:
                     [
                         'timeout', str(cfg.rtsp_probe_timeout_sec),
                         'gst-launch-1.0', '-e',
-                        'rtspsrc', f'location={self.rtsp_url}', 'protocols=tcp', 'latency=50',
+                        'rtspsrc', f'location={self.rtsp_url}', 'protocols=tcp', 'latency=0',
                         '!', 'fakesink', 'sync=false'
                     ],
                     capture_output=True,
@@ -734,7 +782,7 @@ class StationWorker:
                 [
                     'timeout', str(timeout_sec),
                     'gst-launch-1.0', '-e',
-                    'rtspsrc', f'location={self.rtsp_url}', 'protocols=tcp', 'latency=50',
+                    'rtspsrc', f'location={self.rtsp_url}', 'protocols=tcp', 'latency=0',
                     '!', 'fakesink', 'sync=false'
                 ],
                 capture_output=True,
@@ -855,33 +903,123 @@ class StationWorker:
         # Use module name (not file path) for gvapython - PYTHONPATH must include /app
         frame_pipeline_module = "frame_pipeline"
         
-        # Use uridecodebin which handles both RTSP and file sources seamlessly
-        # caps="video/x-raw" filters to video only (ignores audio stream)
-        # Using 1fps for CPU-based EasyOCR (can increase if GPU available)
-        uri = self.rtsp_url
-        if not uri.startswith(("rtsp://", "file://", "http://", "https://")):
-            # Local file path - convert to file:// URI
-            uri = f"file://{self.rtsp_url}"
-        
         # Capture framerate for the GStreamer pipeline.
         # NOTE: 1fps is the recommended rate for CPU-based EasyOCR + YOLO processing.
-        # Order 925 spans only ~5s in the test video (~5 frames at 1fps) — this is a
-        # VIDEO CONTENT limitation. Increasing fps causes YOLO to process 2x more frames
-        # per bucket, adding ~10s of overhead and degrading end-to-end accuracy.
         capture_fps = int(os.environ.get("CAPTURE_FPS", "1"))
-
-        pipeline = (
-            f'uridecodebin uri={uri} caps="video/x-raw" '
-            "! videoconvert "
-            "! video/x-raw,format=BGR "
-            "! videorate "
-            f"! video/x-raw,framerate={capture_fps}/1 "
-            f"! gvapython module={frame_pipeline_module} function=process_frame "
-            "! fakesink sync=false"
-        )
+        
+        # Check if source is RTSP - use optimized low-latency rtspsrc
+        if self.rtsp_url.startswith("rtsp://"):
+            # LOW-LATENCY RTSP PIPELINE
+            # - latency=0: Zero buffering (default is 2000ms!)
+            # - buffer-mode=0: Auto/slave mode for minimal delay
+            # - ntp-sync=false: Skip NTP synchronization
+            # - do-rtcp=false: Disable RTCP feedback loop
+            # - protocols=tcp: Force TCP for reliability
+            # - retry=5: Quick retry on connection issues
+            # - queue: Buffer frames to prevent drops during slow OCR processing
+            #          max-size-buffers=200 holds ~200 frames (enough for 200s at 1fps)
+            pipeline = (
+                f'rtspsrc location={self.rtsp_url} latency=0 buffer-mode=0 '
+                'protocols=tcp ntp-sync=false do-rtcp=false retry=5 '
+                '! rtph264depay '
+                '! avdec_h264 '
+                '! videoconvert '
+                '! video/x-raw,format=BGR '
+                '! videorate '
+                f'! video/x-raw,framerate={capture_fps}/1 '
+                '! queue max-size-time=0 max-size-bytes=0 max-size-buffers=200 leaky=no '
+                f'! gvapython module={frame_pipeline_module} function=process_frame '
+                '! fakesink sync=false'
+            )
+        else:
+            # FILE/HTTP SOURCE - use uridecodebin
+            uri = self.rtsp_url
+            if not uri.startswith(("file://", "http://", "https://")):
+                # Local file path - convert to file:// URI
+                uri = f"file://{self.rtsp_url}"
+            
+            # queue: Buffer frames to prevent drops during slow OCR processing
+            pipeline = (
+                f'uridecodebin uri={uri} caps="video/x-raw" '
+                '! videoconvert '
+                '! video/x-raw,format=BGR '
+                '! videorate '
+                f'! video/x-raw,framerate={capture_fps}/1 '
+                '! queue max-size-time=0 max-size-bytes=0 max-size-buffers=200 leaky=no '
+                f'! gvapython module={frame_pipeline_module} function=process_frame '
+                '! fakesink sync=false'
+            )
         
         return pipeline
     
+    def _signal_pipeline_ready(self):
+        """
+        Signal to RTSP streamer that this station's pipeline is ready.
+        
+        Creates a ready marker file in /sync/ready/{station_id} to indicate
+        this station's GStreamer pipeline has connected and is ready to receive
+        frames. The RTSP streamer waits for all stations to signal ready before
+        starting video playback, ensuring no frames are missed.
+        
+        This solves the race condition where:
+        1. RTSP streamer starts video playback
+        2. GStreamer pipelines take time to connect
+        3. By the time pipelines connect, initial frames (order 384) are missed
+        """
+        sync_dir = os.environ.get('PIPELINE_SYNC_DIR', '/sync/ready')
+        try:
+            os.makedirs(sync_dir, exist_ok=True)
+            ready_file = os.path.join(sync_dir, self.station_id)
+            
+            # Write timestamp to ready file with explicit flush/sync
+            with open(ready_file, 'w') as f:
+                f.write(f"{time.time()}\n{self._pipeline_pid}\n")
+                f.flush()
+                os.fsync(f.fileno())  # Force write to disk
+            
+            # Also sync the directory to ensure file entry is visible
+            dir_fd = os.open(sync_dir, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+            
+            # Verify file was actually created
+            import subprocess
+            file_exists = os.path.exists(ready_file)
+            dir_contents = os.listdir(sync_dir)
+            
+            self._log_structured("info", "pipeline_ready_signaled", {
+                "ready_file": ready_file,
+                "pid": self._pipeline_pid,
+                "file_exists": file_exists,
+                "dir_contents": dir_contents
+            })
+        except Exception as e:
+            # Non-fatal - sync is optional (for cases without shared volume)
+            self._log_structured("warning", "pipeline_ready_signal_failed", {
+                "error": str(e)
+            })
+    
+    def _clear_ready_signal(self):
+        """Clear the ready signal on shutdown (unless preserving for RTSP sync)."""
+        # Skip clearing if we want RTSP streamer to see the signal
+        # This prevents the deadlock where workers and RTSP wait for each other
+        if self._preserve_ready_signal:
+            self._log_structured("debug", "pipeline_ready_signal_preserved", {
+                "reason": "rtsp_unavailable_at_startup"
+            })
+            return
+            
+        sync_dir = os.environ.get('PIPELINE_SYNC_DIR', '/sync/ready')
+        ready_file = os.path.join(sync_dir, self.station_id)
+        try:
+            if os.path.exists(ready_file):
+                os.remove(ready_file)
+                self._log_structured("debug", "pipeline_ready_signal_cleared")
+        except Exception:
+            pass
+
     def _safe_pipeline_restart(self, reason: str):
         """
         Safely restart pipeline with all production safeguards.
@@ -1690,6 +1828,9 @@ class StationWorker:
         Prevents zombie processes and ensures clean exit.
         """
         self._log_structured("info", "cleanup_starting")
+        
+        # Clear ready signal so RTSP streamer knows we're shutting down
+        self._clear_ready_signal()
         
         # Calculate total uptime
         if self._pipeline_metrics.pipeline_start_time > 0:

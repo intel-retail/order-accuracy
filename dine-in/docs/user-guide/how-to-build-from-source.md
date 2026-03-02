@@ -43,22 +43,56 @@ dine-in/
 
 ## Build Docker Images
 
-### Using Make
+The application uses `intel/order-accuracy-dine-in:2026.0-rc1` as the default image tag.
+
+### Build Options
+
+The build system supports two modes controlled by the `REGISTRY` flag:
+
+| Command | Description |
+|---------|-------------|
+| `make build REGISTRY=false` | Build image locally from source |
+| `make build` | Pull image from registry (default) |
+
+### Build Locally from Source
 
 ```bash
+# Build and tag as intel/order-accuracy-dine-in:2026.0-rc1
+make build REGISTRY=false
+```
+
+This will:
+- Build the Docker image from the Dockerfile
+- Tag it as `intel/order-accuracy-dine-in:2026.0-rc1`
+
+### Pull from Registry
+
+```bash
+# Pull pre-built image from registry
 make build
 ```
 
 ### Using Docker Compose Directly
 
 ```bash
+# Build image
 docker compose build
+
+# Tag the image
+docker tag dine-in-dine-in intel/order-accuracy-dine-in:2026.0-rc1
 ```
 
 ### Build with No Cache
 
 ```bash
 docker compose build --no-cache
+```
+
+### Custom Image Tag
+
+```bash
+# Build with a custom tag
+make build REGISTRY=false TAG=1.0.0-custom
 ```
 
 ## Build Dependencies
@@ -154,12 +188,12 @@ docker build -t metrics-collector:latest .
 
 ```bash
 # List built images
-docker images | grep -E 'dine-in|semantic|metrics'
+docker images | grep -E 'order-accuracy-dine-in|semantic|metrics'
 
 # Expected output:
-# dine-in-dine-in              latest    ...
-# semantic-comparison-service  latest    ...
-# metrics-collector           latest    ...
+# intel/order-accuracy-dine-in  2026.0-rc1  ...
+# semantic-comparison-service   latest      ...
+# metrics-collector            latest      ...
 ```
 
 ## Troubleshooting Build Issues

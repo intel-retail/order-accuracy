@@ -70,13 +70,16 @@ take-away/
 │   ├── core/                   # Core business logic
 │   └── parallel/               # Parallel mode components
 ├── frame-selector-service/     # YOLO frame selection
-│   ├── app/                    # Frame selector code
-│   ├── Dockerfile              # Service Dockerfile
-│   └── requirements.txt        # Python dependencies
+│   ├── app/                    # Frame selector code + requirements.txt
+│   └── dockerfile              # Service Dockerfile
 ├── gradio-ui/                  # Web interface
 │   ├── gradio_app.py           # Gradio application
-│   ├── Dockerfile              # UI Dockerfile
-│   └── requirements.txt        # Gradio dependencies
+│   └── dockerfile              # UI Dockerfile (deps inline)
+├── rtsp-streamer/              # RTSP video streamer (MediaMTX + FFmpeg)
+│   ├── start.sh                # Entry point with 2PC sync
+│   └── Dockerfile              # Multi-stage Alpine image
+├── model/                      # YOLO models (pre-exported)
+├── models/                     # EasyOCR models (from setup_models.sh)
 ├── config/                     # Configuration files
 ├── scripts/                    # Utility scripts
 ├── docker-compose.yaml         # Service orchestration
@@ -97,15 +100,14 @@ Build all Docker images:
 # Navigate to project directory
 cd take-away
 
-# Copy and configure environment
-cp .env.example .env
-# Edit .env as needed
+# Create environment file
+make init-env
 
-# Build all images
+# Pull images from registry (default)
 make build
 
-# Equivalent to:
-docker compose -f docker-compose.yaml build
+# OR build locally from source
+make build REGISTRY=false
 ```
 
 ### Individual Service Build
@@ -124,28 +126,27 @@ docker compose build gradio-ui
 ### Build Arguments
 
 ```bash
-# Build with specific Python version
-docker compose build \
-    --build-arg PYTHON_VERSION=3.11 \
-    order-accuracy
-
 # Build with no cache (clean rebuild)
 docker compose build --no-cache
 
 # Build with progress output
 docker compose build --progress=plain
+
+# Pass proxy settings (handled automatically by docker-compose.yaml)
+HTTP_PROXY=http://proxy:8080 make build REGISTRY=false
 ```
 
 ### Build Verification
 
 ```bash
 # List built images
-docker images | grep oa_
+docker images | grep intel/order-accuracy
 
 # Expected output:
-# oa_service         latest    abc123...   5 minutes ago   2.1GB
-# oa_gradio          latest    def456...   5 minutes ago   1.8GB
-# oa_frame_selector  latest    ghi789...   5 minutes ago   1.5GB
+# intel/order-accuracy-take-away           2026.0-rc1   ...   9.64GB
+# intel/order-accuracy-frame-selector      2026.0-rc1   ...   1.96GB
+# intel/order-accuracy-take-away-ui        2026.0-rc1   ...   1.3GB
+# intel/order-accuracy-take-away-rtsp      2026.0-rc1   ...   227MB
 ```
 
 ---
@@ -172,12 +173,6 @@ pip install --upgrade pip
 ```bash
 # Main application dependencies
 pip install -r requirements.txt
-
-# Development dependencies
-pip install -r requirements-dev.txt  # If available
-
-# Or install editable mode
-pip install -e .
 ```
 
 ### Step 3: Install GStreamer (for video processing)
@@ -220,65 +215,56 @@ uvicorn src.main:app --reload --host 0.0.0.0 --port 8000
 
 ## Model Preparation
 
-### Download VLM Model
+### Download VLM and EasyOCR Models
+
+Use the shared OVMS setup script (downloads the pre-converted OpenVINO INT8 model and EasyOCR models):
 
 ```bash
-# Using provided script
-./scripts/model-downloader.sh
-
-# Or manually download from Hugging Face
-mkdir -p models/vlm
-cd models/vlm
-
-# Option 1: Using huggingface-cli
-pip install huggingface_hub
-huggingface-cli download Qwen/Qwen2.5-VL-7B-Instruct
-
-# Option 2: Using git-lfs
-git lfs install
-git clone https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct
+cd ../ovms-service
+./setup_models.sh
 ```
 
-### Convert Model to OpenVINO (if needed)
-
-```bash
-# Install OpenVINO tools
-pip install openvino openvino-dev
-
-# Convert from PyTorch
-optimum-cli export openvino \
-    --model Qwen/Qwen2.5-VL-7B-Instruct \
-    --task text-generation-with-past \
-    --weight-format int8 \
-    models/vlm/qwen2.5-vl-7b-ov-int8
-```
+This downloads:
+- **Qwen2.5-VL-7B-Instruct-ov-int8** from HuggingFace (pre-converted OpenVINO model)
+- **EasyOCR** detection and recognition models
+- Generates `graph.pbtxt` from `config.json` graph_options
 
 ### Model Directory Structure
 
+After running `setup_models.sh`:
+
 ```
-models/
-└── vlm/
-    └── Qwen/
-        └── Qwen2.5-VL-7B-Instruct/
-            ├── config.json
-            ├── openvino_model.bin
-            ├── openvino_model.xml
-            └── tokenizer/
-                ├── tokenizer.json
-                └── vocab.json
+ovms-service/models/
+├── config.json                         # OVMS model server config
+├── graph.pbtxt                         # Auto-generated mediapipe graph
+└── Qwen/
+    └── Qwen2.5-VL-7B-Instruct/
+        ├── config.json
+        ├── openvino_*.bin / .xml        # OpenVINO IR model files
+        └── tokenizer/
+```
+
+EasyOCR models (mounted into order-accuracy container):
+
+```
+take-away/models/
+└── easyocr/
+    ├── craft_mlt_25k.pth               # Detection model
+    └── english_g2.pth                  # Recognition model
 ```
 
 ### YOLO Model (for Frame Selector)
 
-```bash
-# Download YOLOv8 model
-pip install ultralytics
-python -c "from ultralytics import YOLO; YOLO('yolov8n.pt')"
+The YOLO model is pre-exported and mounted at runtime from the `model/` directory. No separate download is needed — the models are included in the repository:
 
-# Move to models directory
-mkdir -p frame-selector-service/models
-mv yolov8n.pt frame-selector-service/models/
 ```
+model/
+├── yolo11n.pt                      # YOLOv11 nano (PyTorch)
+├── yolo11n_openvino_model/         # OpenVINO FP32 export
+└── yolo11n_int8_openvino_model/    # OpenVINO INT8 quantized
+```
+
+> **Note**: The frame-selector container mounts `./model:/app/models` and uses the INT8 OpenVINO model for inference. If models are missing, the frame-selector will auto-export them on first startup (requires torch).
 
 ---
 
@@ -288,47 +274,56 @@ mv yolov8n.pt frame-selector-service/models/
 
 ```dockerfile
 # Dockerfile excerpt
-FROM python:3.10-slim
+FROM intel/dlstreamer:2025.2.0-ubuntu22
+
+USER root
 
 # Install system dependencies
-RUN apt-get update && apt-get install -y \
-    gstreamer1.0-tools \
-    gstreamer1.0-plugins-base \
-    gstreamer1.0-plugins-good
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    tzdata git curl ca-certificates jq \
+    && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
+WORKDIR /app
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Copy source code
-COPY src/ /app/src/
-WORKDIR /app
+COPY src/core/ /app/core/
+COPY src/api/ /app/api/
+COPY src/parallel/ /app/parallel/
+COPY config/ /app/config/
+COPY src/main.py src/frame_pipeline.py config_loader.py /app/
 
-CMD ["python", "src/main.py"]
+CMD ["python3", "/app/main.py"]
 ```
+
+> **Note**: Uses `intel/dlstreamer:2025.2.0-ubuntu22` base image which includes GStreamer, DL Streamer plugins, and OpenVINO runtime.
 
 Build and test:
 
 ```bash
-docker build -t oa_service:dev -f Dockerfile .
-docker run --rm -p 8000:8000 oa_service:dev
+docker compose build order-accuracy
+docker compose up order-accuracy -d
 ```
 
 ### Frame Selector Service
 
 ```dockerfile
-# frame-selector-service/Dockerfile
+# frame-selector-service/dockerfile
 FROM python:3.10-slim
 
 RUN apt-get update && apt-get install -y \
-    libgl1-mesa-glx \
-    libglib2.0-0
+    libgl1 libglib2.0-0 \
+    && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY app/ /app/
 WORKDIR /app
+COPY app/requirements.txt .
+# Install CPU-only torch (ultralytics needs torch but inference uses OpenVINO)
+RUN pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+    pip install --no-cache-dir -r requirements.txt
+
+COPY app /app
 
 CMD ["python", "frame_selector.py"]
 ```
@@ -336,29 +331,37 @@ CMD ["python", "frame_selector.py"]
 Build and test:
 
 ```bash
-docker build -t oa_frame_selector:dev -f frame-selector-service/Dockerfile frame-selector-service/
+docker compose build frame-selector
 ```
 
 ### Gradio UI
 
 ```dockerfile
-# gradio-ui/Dockerfile
+# gradio-ui/dockerfile
 FROM python:3.10-slim
 
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY gradio_app.py /app/
 WORKDIR /app
 
-CMD ["python", "gradio_app.py"]
+RUN apt-get update && apt-get install -y \
+    libglib2.0-0 libsm6 libxext6 libxrender-dev \
+    libgomp1 ffmpeg curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencies installed inline (no separate requirements.txt)
+RUN pip install --no-cache-dir \
+    numpy==1.24.3 pillow==10.0.0 \
+    opencv-python-headless==4.8.1.78 \
+    requests==2.31.0 gradio==3.50.2
+
+COPY gradio_app.py /app/gradio_app.py
+
+EXPOSE 7860
 ```
 
 Build and test:
 
 ```bash
-docker build -t oa_gradio:dev -f gradio-ui/Dockerfile gradio-ui/
-docker run --rm -p 7860:7860 oa_gradio:dev
+docker compose build gradio-ui
 ```
 
 ---
@@ -405,16 +408,15 @@ docker compose -f docker-compose.yaml -f docker-compose.dev.yaml up
 ```bash
 # Test OVMS client
 python -c "
-from src.core.ovms_client import OVMSClient
-client = OVMSClient('http://localhost:8001')
-print(client.health_check())
+from core.ovms_client import OVMSVLMClient
+client = OVMSVLMClient(endpoint='http://localhost:8001')
+print('OVMS client initialized')
 "
 
-# Test VLM service
+# Test VLM component
 python -c "
-from src.core.vlm_service import VLMService
-service = VLMService()
-print(service.test_inference())
+from core.vlm_service import VLMComponent
+print('VLM component importable')
 "
 ```
 
@@ -516,23 +518,21 @@ docker exec oa_service ls -la /app/models/vlm/
 
 ```bash
 # Save images to tar
-docker save oa_service:latest | gzip > oa_service.tar.gz
-docker save oa_gradio:latest | gzip > oa_gradio.tar.gz
+docker save intel/order-accuracy-take-away:2026.0-rc1 | gzip > order-accuracy.tar.gz
+docker save intel/order-accuracy-frame-selector:2026.0-rc1 | gzip > frame-selector.tar.gz
+docker save intel/order-accuracy-take-away-ui:2026.0-rc1 | gzip > gradio-ui.tar.gz
+docker save intel/order-accuracy-take-away-rtsp:2026.0-rc1 | gzip > rtsp-streamer.tar.gz
 
 # Load on another machine
-docker load < oa_service.tar.gz
+docker load < order-accuracy.tar.gz
 ```
 
 ### Build Information
 
 ```bash
 # Tag with version
-docker build -t oa_service:v1.0.0 .
-docker tag oa_service:v1.0.0 registry/oa_service:v1.0.0
+docker tag intel/order-accuracy-take-away:2026.0-rc1 myregistry/order-accuracy:latest
 
-# Add build labels
-docker build \
-    --label "version=1.0.0" \
-    --label "build.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-    -t oa_service:latest .
+# Push to custom registry
+docker push myregistry/order-accuracy:latest
 ```

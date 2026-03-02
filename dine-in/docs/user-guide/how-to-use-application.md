@@ -13,14 +13,14 @@ Access the web interface at http://localhost:7861
 │  Dine-In Order Accuracy Benchmark                           │
 ├─────────────────────────────────────────────────────────────┤
 │                                                             │
-│  Scenario: [DD-6993 – McDonald's Table 12    ▼]            │
+│  Scenario: [MCD-1001 – McDonald's Table T12   ▼]           │
 │                                                             │
 │  ┌─────────────────────┐  ┌─────────────────────────────┐  │
 │  │                     │  │ Order Manifest              │  │
 │  │    [Plate Image]    │  │ ─────────────────           │  │
 │  │                     │  │ items_ordered:              │  │
-│  │                     │  │   - Maharaja Mac Chicken    │  │
-│  │                     │  │   - Cheese                  │  │
+│  │                     │  │   - Cheeseburger            │  │
+│  │                     │  │   - French Fries            │  │
 │  │                     │  │                             │  │
 │  └─────────────────────┘  └─────────────────────────────┘  │
 │                                                             │
@@ -51,14 +51,14 @@ Access the web interface at http://localhost:7861
 
 ```bash
 curl -X POST "http://localhost:8083/api/validate" \
-  -F "image=@images/DD-6993.jpg" \
+  -F "image=@images/MCD-1001.png" \
   -F 'order={
-    "order_id": "DD-6993",
-    "table_number": "12",
+    "order_id": "MCD-1001",
+    "table_number": "T12",
     "restaurant": "McDonald'\''s",
     "items": [
-      {"name": "Maharaja Mac Chicken", "quantity": 1},
-      {"name": "Cheese", "quantity": 1}
+      {"name": "Cheeseburger", "quantity": 1},
+      {"name": "French Fries", "quantity": 1}
     ]
   }'
 ```
@@ -68,26 +68,30 @@ curl -X POST "http://localhost:8083/api/validate" \
 ```json
 {
   "validation_id": "26eba3f8-276b-44ac-b553-74419f84c1ad",
-  "image_id": "DD-6993",
-  "order_complete": false,
-  "accuracy_score": 0.5,
-  "missing_items": [
-    {"name": "Cheese", "quantity": 1}
-  ],
+  "image_id": "MCD-1001",
+  "order_complete": true,
+  "accuracy_score": 1.0,
+  "missing_items": [],
   "extra_items": [],
   "quantity_mismatches": [],
   "matched_items": [
     {
-      "expected_name": "Maharaja Mac Chicken",
-      "detected_name": "Big Mac",
-      "similarity": 0.85,
+      "expected_name": "Cheeseburger",
+      "detected_name": "Cheeseburger",
+      "similarity": 1.0,
+      "quantity": 1
+    },
+    {
+      "expected_name": "French Fries",
+      "detected_name": "Fries",
+      "similarity": 0.92,
       "quantity": 1
     }
   ],
-  "timestamp": "2026-02-16T16:36:50.278369",
+  "timestamp": "2026-03-02T16:36:50.278369",
   "metrics": {
     "end_to_end_latency_ms": 9003,
-    "vlm_inference_ms": 9003,
+    "vlm_inference_ms": 8850,
     "agent_reconciliation_ms": 35,
     "cpu_utilization": 27.07,
     "gpu_utilization": 100.0,
@@ -141,7 +145,9 @@ make fetch-benchmark
 For a quick validation test with curl:
 
 ```bash
-make benchmark-single
+# IMAGE_ID must match an entry in configs/orders.json
+# Available IDs: MCD-1001, MCD-1002, MCD-1003, MCD-1004
+make benchmark-single IMAGE_ID=MCD-1001
 ```
 
 Output:
