@@ -56,6 +56,9 @@ def run_pipeline(source_type: str, source: str):
     # Explicitly pass environment to ensure PYTHONPATH is set for gvapython
     env = os.environ.copy()
     
+    # Propagate source type so frame_pipeline can skip 2PC for file uploads
+    env['SOURCE_TYPE'] = source_type
+    
     # Ensure app directory is in PYTHONPATH for gvapython to find frame_pipeline
     pythonpath = env.get('PYTHONPATH', '')
     

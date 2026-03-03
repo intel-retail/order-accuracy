@@ -23,7 +23,8 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
-    git && \
+    git \
+    gosu && \
     rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better layer caching
@@ -46,12 +47,14 @@ COPY configs/ ./configs/
 # Create results directory and set permissions
 RUN mkdir -p /app/results && chown -R appuser:appuser /app
 
-# Switch to non-root user
-USER appuser
+# Copy entrypoint script (runs as root to fix volume permissions, then drops to appuser)
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
 # Expose ports
 EXPOSE 7860
 EXPOSE 8080
 
-# Run the combined application from src directory
+# Entrypoint fixes permissions and drops to appuser
+ENTRYPOINT ["/app/entrypoint.sh"]
 CMD ["python", "src/main.py"]
