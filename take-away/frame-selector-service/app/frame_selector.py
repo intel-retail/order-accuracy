@@ -1461,6 +1461,7 @@ if __name__ == "__main__":
     def cleanup():
         """Cleanup function called on exit."""
         logger.info("Cleaning up resources...")
+        Path("/tmp/ready").unlink(missing_ok=True)
         shutdown_all_station_queues()
         if USE_RABBITMQ and _producer:
             _producer.close()
@@ -1479,6 +1480,10 @@ if __name__ == "__main__":
     logger.info(f"Per-station VLM queue: {'ENABLED' if USE_STATION_QUEUE else 'DISABLED'}")
     logger.info("Watching for frames in MinIO...")
     logger.info("=" * 60)
+
+    # Signal readiness for Docker health check
+    Path("/tmp/ready").touch()
+    logger.info("Readiness signal written to /tmp/ready")
 
     poll_count = 0
     while not _shutdown_requested:
