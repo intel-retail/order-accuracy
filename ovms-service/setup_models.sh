@@ -28,11 +28,34 @@ echo ""
 check_model() {
     local model_path="$1"
 
+    echo "Debug: Checking model at ${model_path}"
+    
+    if [ ! -d "${model_path}" ]; then
+        echo "  Directory not found"
+        # Check if model was created with source name instead
+        local source_path="${MODELS_DIR}/Qwen/Qwen2.5-VL-7B-Instruct"
+        if [ -d "${source_path}" ]; then
+            echo "  Found model at source path: ${source_path}"
+            echo "  Moving to expected path..."
+            mv "${source_path}" "${model_path}"
+        else
+            return 1
+        fi
+    fi
+    
+    echo "  Contents of ${model_path}:"
+    ls -la "${model_path}" 2>/dev/null || echo "  (empty or inaccessible)"
+
     if [ -f "${model_path}/graph.pbtxt" ] &&
        [ -f "${model_path}/openvino_language_model.xml" ] &&
        [ -f "${model_path}/openvino_language_model.bin" ]; then
+        echo "  ✓ All required files found"
         return 0
     else
+        echo "  ✗ Missing required files:"
+        [ ! -f "${model_path}/graph.pbtxt" ] && echo "    - graph.pbtxt"
+        [ ! -f "${model_path}/openvino_language_model.xml" ] && echo "    - openvino_language_model.xml" 
+        [ ! -f "${model_path}/openvino_language_model.bin" ] && echo "    - openvino_language_model.bin"
         return 1
     fi
 }
@@ -95,7 +118,8 @@ export_model() {
       --max_num_seqs 1 \
       --enable_prefix_caching \
       --config_file_path "${MODELS_DIR}/config.json" \
-      --model_repository_path "${MODELS_DIR}"
+      --model_repository_path "${MODELS_DIR}" \
+      --model_name "${MODEL_NAME}"
 }
 
 ###############################################
