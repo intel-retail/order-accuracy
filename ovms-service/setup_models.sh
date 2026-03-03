@@ -32,13 +32,22 @@ check_model() {
     
     if [ ! -d "${model_path}" ]; then
         echo "  Directory not found"
-        # Check if model was created with source name instead
-        local source_path="${MODELS_DIR}/Qwen/Qwen2.5-VL-7B-Instruct"
-        if [ -d "${source_path}" ]; then
-            echo "  Found model at source path: ${source_path}"
-            echo "  Moving to expected path..."
-            mv "${source_path}" "${model_path}"
-        else
+        
+        # Check alternative paths where export might have created the model
+        local alt_path1="${MODELS_DIR}/Qwen2.5-VL-7B-Instruct-ov-int8"
+        local alt_path2="${MODELS_DIR}/Qwen/Qwen2.5-VL-7B-Instruct"
+        
+        for alt_path in "${alt_path1}" "${alt_path2}"; do
+            if [ -d "${alt_path}" ]; then
+                echo "  Found model at alternative path: ${alt_path}"
+                echo "  Moving to expected path..."
+                mkdir -p "$(dirname "${model_path}")"
+                mv "${alt_path}" "${model_path}"
+                break
+            fi
+        done
+        
+        if [ ! -d "${model_path}" ]; then
             return 1
         fi
     fi
@@ -109,6 +118,9 @@ export_model() {
     echo "Exporting ${MODEL_NAME}"
     echo ""
 
+    # Create the Qwen subdirectory first
+    mkdir -p "${MODELS_DIR}/Qwen"
+
     python "${SCRIPT_DIR}/export_model.py" text_generation \
       --source_model "${SOURCE_MODEL}" \
       --weight-format int8 \
@@ -118,7 +130,7 @@ export_model() {
       --max_num_seqs 1 \
       --enable_prefix_caching \
       --config_file_path "${MODELS_DIR}/config.json" \
-      --model_repository_path "${MODELS_DIR}" \
+      --model_repository_path "${MODELS_DIR}/Qwen" \
       --model_name "${MODEL_NAME}"
 }
 
