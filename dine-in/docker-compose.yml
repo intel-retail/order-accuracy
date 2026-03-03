@@ -20,14 +20,13 @@ services:
       - "44"   # video group for GPU access
       - "992"  # render group for GPU access
     restart: unless-stopped
-    # Note: OVMS container doesn't have curl/wget, so we use startup period only
-    # The dine-in app has its own VLM health check on startup
     healthcheck:
-      test: ["CMD-SHELL", "exit 0"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 120s
+      # Check that model is AVAILABLE, not just that HTTP server is up
+      test: ["CMD-SHELL", "curl -sf http://localhost:8000/v1/config | grep -q AVAILABLE"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 45s
     networks:
       - dinein-net
 
@@ -48,7 +47,7 @@ services:
       - LOG_LEVEL=INFO
       - VLM_BACKEND=ovms
       - OVMS_ENDPOINT=http://ovms-vlm:8000
-      - OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
+      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct-ov-int8}
       - CACHE_ENABLED=true
       - CACHE_BACKEND=memory
       - PROMETHEUS_ENABLED=true
@@ -59,7 +58,7 @@ services:
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,dine-in,host.docker.internal
     depends_on:
       ovms-vlm:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8080/api/v1/health')"]
@@ -95,6 +94,7 @@ services:
     environment:
       - SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
       - OVMS_ENDPOINT=http://ovms-vlm:8000
+      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct-ov-int8}
       - METRICS_COLLECTOR_ENDPOINT=http://metrics-collector:8084
       - CONTAINER_RESULTS_PATH=/app/results
       - USECASE_1=dine-in-order-accuracy
@@ -102,7 +102,7 @@ services:
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
     depends_on:
       ovms-vlm:
-        condition: service_started
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - dinein-net
@@ -143,6 +143,7 @@ services:
       - RESULTS_DIR=/app/results
       - SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
       - OVMS_ENDPOINT=http://ovms-vlm:8000
+      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct-ov-int8}
       - CONTAINER_RESULTS_PATH=/app/results
       - USECASE_1=dine-in-order-accuracy
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal
@@ -150,7 +151,7 @@ services:
     command: ["python", "/app/src/worker.py"]
     depends_on:
       ovms-vlm:
-        condition: service_started
+        condition: service_healthy
     restart: "no"
     networks:
       - dinein-net
