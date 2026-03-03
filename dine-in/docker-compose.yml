@@ -46,8 +46,10 @@ services:
       - SERVICE_NAME=semantic-comparison-service
       - LOG_LEVEL=INFO
       - VLM_BACKEND=ovms
-      - OVMS_ENDPOINT=http://ovms-vlm:8000
-      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct-ov-int8}
+      - OVMS_ENDPOINT=${OVMS_ENDPOINT}
+      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME}
+      - VLM_PRECISION=${VLM_PRECISION}
+      - VLM_DEVICE=${VLM_DEVICE}
       - CACHE_ENABLED=true
       - CACHE_BACKEND=memory
       - PROMETHEUS_ENABLED=true
@@ -83,7 +85,6 @@ services:
         - https_proxy=${HTTPS_PROXY}
         - no_proxy=${NO_PROXY}
     container_name: dinein_app
-    user: "${UID:-1000}:${GID:-1000}"
     ports:
       - "7861:7860"  # Gradio UI
       - "8083:8080"  # FastAPI
@@ -92,9 +93,11 @@ services:
       - ./results:/app/results
       - ./configs:/app/configs:ro
     environment:
-      - SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
-      - OVMS_ENDPOINT=http://ovms-vlm:8000
-      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct-ov-int8}
+      - SEMANTIC_SERVICE_ENDPOINT=${SEMANTIC_SERVICE_ENDPOINT}
+      - OVMS_ENDPOINT=${OVMS_ENDPOINT}
+      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME}
+      - VLM_PRECISION=${VLM_PRECISION}
+      - VLM_DEVICE=${VLM_DEVICE}
       - METRICS_COLLECTOR_ENDPOINT=http://metrics-collector:8084
       - CONTAINER_RESULTS_PATH=/app/results
       - USECASE_1=dine-in-order-accuracy
@@ -127,7 +130,6 @@ services:
     profiles:
       - benchmark
       - worker
-    user: "${UID:-1000}:${GID:-1000}"
     deploy:
       replicas: ${WORKERS:-1}
     volumes:
@@ -141,9 +143,11 @@ services:
       - IMAGES_DIR=/app/images
       - ORDERS_FILE=/app/configs/orders.json
       - RESULTS_DIR=/app/results
-      - SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
-      - OVMS_ENDPOINT=http://ovms-vlm:8000
-      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct-ov-int8}
+      - SEMANTIC_SERVICE_ENDPOINT=${SEMANTIC_SERVICE_ENDPOINT}
+      - OVMS_ENDPOINT=${OVMS_ENDPOINT}
+      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME}
+      - VLM_PRECISION=${VLM_PRECISION}
+      - VLM_DEVICE=${VLM_DEVICE}
       - CONTAINER_RESULTS_PATH=/app/results
       - USECASE_1=dine-in-order-accuracy
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal

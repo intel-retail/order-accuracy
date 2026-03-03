@@ -195,7 +195,14 @@ _ocr_warmed_up: bool = False
 # Fault-tolerant: idempotent signals, timeout handling, retry on restart.
 # ==========================================================
 
-_commit_received: bool = False
+# For file uploads, skip 2PC entirely — no RTSP streamer to synchronize with
+_source_type = os.environ.get('SOURCE_TYPE', 'rtsp')
+# 2PC is only needed when the RTSP streamer *service* orchestrates startup
+# (SERVICE_MODE=parallel).  For any user-initiated source — file upload OR
+# manual RTSP URL via Gradio UI — the stream is already available.
+_service_mode = os.environ.get('SERVICE_MODE', 'single')
+_need_2pc = (_service_mode == 'parallel')
+_commit_received: bool = (not _need_2pc)
 _prepare_signaled: bool = False
 
 # 2PC timeout configuration
@@ -414,19 +421,25 @@ def _do_ocr_warmup():
     log(f"[OCR-WARMUP] [{ts()}] OCR warmup complete")
     
     # ========== TWO-PHASE COMMIT: PREPARE + WAIT FOR COMMIT ==========
-    # Phase 1: Signal PREPARE - we're ready to consume frames
-    _signal_prepare()
-    
-    # Also signal legacy ocr_ready for backward compatibility with RTSP streamer
-    _signal_ocr_ready()
-    
-    # Phase 2: Wait for COMMIT - RTSP streamer will signal when stream is ready
-    if _wait_for_commit():
-        log(f"[2PC-SUCCESS] [{ts()}] Synchronization complete - ready to process frames!")
+    # 2PC is only needed in parallel mode where the RTSP streamer service
+    # orchestrates stream startup.  For user-initiated sources (file upload
+    # or manual RTSP URL via Gradio UI) the source is already available.
+    if not _need_2pc:
+        log(f"[2PC-SKIP] [{ts()}] Skipping 2PC sync (service_mode={_service_mode}, source={_source_type})")
     else:
-        # Timeout - proceed anyway but log warning
-        log(f"[2PC-WARNING] [{ts()}] COMMIT not received - proceeding without sync")
-        log(f"[2PC-WARNING] [{ts()}] First order may be missed if RTSP not ready")
+        # Phase 1: Signal PREPARE - we're ready to consume frames
+        _signal_prepare()
+        
+        # Also signal legacy ocr_ready for backward compatibility with RTSP streamer
+        _signal_ocr_ready()
+        
+        # Phase 2: Wait for COMMIT - RTSP streamer will signal when stream is ready
+        if _wait_for_commit():
+            log(f"[2PC-SUCCESS] [{ts()}] Synchronization complete - ready to process frames!")
+        else:
+            # Timeout - proceed anyway but log warning
+            log(f"[2PC-WARNING] [{ts()}] COMMIT not received - proceeding without sync")
+            log(f"[2PC-WARNING] [{ts()}] First order may be missed if RTSP not ready")
     # ========== END TWO-PHASE COMMIT ==========
 
 

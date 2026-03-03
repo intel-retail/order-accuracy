@@ -108,6 +108,8 @@ services:
       # OVMS settings (when VLM_BACKEND=ovms)
       OVMS_ENDPOINT: ${OVMS_ENDPOINT:-http://ovms-vlm:8000}
       OVMS_MODEL_NAME: ${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct}
+      VLM_PRECISION: ${VLM_PRECISION:-int8}
+      VLM_DEVICE: ${VLM_DEVICE:-GPU}
       OVMS_TIMEOUT: ${OVMS_TIMEOUT:-120}
       
       # Semantic service
@@ -160,6 +162,8 @@ services:
         condition: service_healthy
       semantic-service:
         condition: service_healthy
+      frame-selector:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -186,11 +190,11 @@ services:
         - no_proxy=${NO_PROXY}
     container_name: oa_frame_selector
     healthcheck:
-      test: ["CMD-SHELL", "kill -0 1 2>/dev/null"]
+      test: ["CMD-SHELL", "test -f /tmp/ready"]
       interval: 10s
       timeout: 5s
-      retries: 3
-      start_period: 15s
+      retries: 12
+      start_period: 30s
     volumes:
       - ./config:/config:ro
       - ./model:/app/models
@@ -217,8 +221,6 @@ services:
       no_proxy: "localhost,127.0.0.1,order-accuracy,oa_service,minio,ovms-vlm,host.docker.internal"
     depends_on:
       minio:
-        condition: service_healthy
-      order-accuracy:
         condition: service_healthy
     networks:
       - order-accuracy-net
@@ -271,6 +273,8 @@ services:
       # OVMS settings (when VLM_BACKEND=ovms)
       - OVMS_ENDPOINT=http://ovms-vlm:8000
       - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct}
+      - VLM_PRECISION=${VLM_PRECISION:-int8}
+      - VLM_DEVICE=${VLM_DEVICE:-GPU}
       - OVMS_TIMEOUT=${OVMS_TIMEOUT:-60}
       # OpenVINO settings (when VLM_BACKEND=openvino)
       - OPENVINO_MODEL_PATH=${OPENVINO_MODEL_PATH:-/models/Qwen2.5-VL-7B-Instruct}

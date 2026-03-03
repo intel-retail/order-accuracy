@@ -16,6 +16,8 @@ class ServiceConfig:
     """Service endpoint configurations"""
     ovms_endpoint: str
     ovms_model_name: str
+    vlm_precision: str
+    vlm_device: str
     semantic_service_endpoint: str
     metrics_collector_endpoint: str
     api_timeout: int
@@ -79,7 +81,9 @@ class ConfigManager:
         
         service_config = ServiceConfig(
             ovms_endpoint=os.getenv("OVMS_ENDPOINT", "http://ovms-vlm:8000"),
-            ovms_model_name=os.getenv("OVMS_MODEL_NAME", "Qwen/Qwen2.5-VL-7B-Instruct-ov-int8"),
+            ovms_model_name=os.getenv("OVMS_MODEL_NAME", "Qwen/Qwen2.5-VL-7B-Instruct"),
+            vlm_precision=os.getenv("VLM_PRECISION", "int8"),
+            vlm_device=os.getenv("VLM_DEVICE", "GPU"),
             semantic_service_endpoint=os.getenv("SEMANTIC_SERVICE_ENDPOINT", "http://semantic-service:8080"),
             metrics_collector_endpoint=os.getenv("METRICS_COLLECTOR_ENDPOINT", "http://metrics-collector:8084"),
             api_timeout=int(os.getenv("API_TIMEOUT", "300"))  # Extended for 7B model with inventory
@@ -107,6 +111,9 @@ class ConfigManager:
         )
         
         logger.info(f"Configuration loaded: OVMS={service_config.ovms_endpoint}, "
+                   f"Model={service_config.ovms_model_name}, "
+                   f"Precision={service_config.vlm_precision}, "
+                   f"Device={service_config.vlm_device}, "
                    f"Semantic={service_config.semantic_service_endpoint}, "
                    f"Benchmark={benchmark_config.enabled}")
 
