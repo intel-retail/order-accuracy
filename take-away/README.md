@@ -24,45 +24,7 @@ Take-Away Order Accuracy is an AI-powered vision system that validates drive-thr
 
 ---
 
-## Architecture
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                          TAKE-AWAY ORDER ACCURACY                           │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                      │
-        ┌─────────────────────────────┼─────────────────────────────┐
-        │                             │                             │
-   ┌────▼────┐                  ┌─────▼─────┐                 ┌─────▼─────┐
-   │ Gradio  │                  │   Order   │                 │  Frame    │
-   │   UI    │◄────────────────►│ Accuracy  │                 │ Selector  │
-   │ :7860   │                  │  Service  │                 │  (YOLO)   │
-   └─────────┘                  │  :8000    │                 └─────┬─────┘
-                                └─────┬─────┘                       │
-           ┌─────────────────────────┬┴─────────────────────────┐   │
-           │                        │                           │   │
-      ┌────▼────┐             ┌─────▼─────┐              ┌──────▼───▼──┐
-      │ Station │             │ Station   │              │    VLM      │
-      │Worker 1 │             │ Worker N  │              │  Scheduler  │
-      │(Process)│             │ (Process) │              │  (Batcher)  │
-      └────┬────┘             └─────┬─────┘              └──────┬──────┘
-           │                        │                          │
-           └────────────────────────┼──────────────────────────┘
-                                    │
-                              ┌─────▼─────┐
-                              │  OVMS VLM │
-                              │  :8001    │
-                              │(Qwen2.5-VL)
-                              └─────┬─────┘
-                                    │
-           ┌────────────────────────┼────────────────────────┐
-           │                        │                        │
-      ┌────▼────┐             ┌─────▼─────┐           ┌──────▼──────┐
-      │  MinIO  │             │ Semantic  │           │   RTSP      │
-      │  :9000  │             │  Service  │           │  Streamer   │
-      │ (S3)    │             │  :8080    │           │   :8554     │
-      └─────────┘             └───────────┘           └─────────────┘
-```
 
 ### Service Modes
 
@@ -78,9 +40,12 @@ Take-Away Order Accuracy is an AI-powered vision system that validates drive-thr
 ### Prerequisites
 
 - Docker 24.0+ with Compose V2
-- NVIDIA GPU with 8GB+ VRAM (or Intel GPU)
+- Intel hardware (CPU, iGPU, dGPU, NPU)
 - 32GB+ RAM recommended
-- Intel Xeon or equivalent CPU
+- [Docker](https://docs.docker.com/engine/install/)
+- [Make](https://www.gnu.org/software/make/) (`sudo apt install make`)
+- **Python 3** (`sudo apt install python3`) - required for video download and validation scripts
+- Sufficient disk space for models, videos, and results
 
 ### 1. Setup OVMS Model (First Time Only)
 
@@ -148,107 +113,6 @@ make up REGISTRY=false
 | [API Reference](docs/user-guide/api-reference.md) | Complete REST API documentation |
 | [Benchmarking Guide](docs/user-guide/benchmarking-guide.md) | Performance testing guide |
 | [Release Notes](docs/user-guide/release-notes.md) | Version history and changes |
-
----
-
-## Key Commands
-
-```bash
-# Setup
-make update-submodules        # Initialize git submodules
-make build                    # Pull images (or build locally with REGISTRY=false)
-make build-benchmark          # Build benchmark Docker image
-
-# Service Management
-make up                       # Start services (single mode)
-make up-parallel              # Start services (parallel mode)
-make down                     # Stop all services
-make status                   # Show service status
-
-# Logs
-make logs                     # Order accuracy service logs
-make logs-vlm                 # OVMS VLM logs
-make logs-all                 # All service logs
-
-# Benchmarking
-make benchmark                # Single video benchmark
-make benchmark-oa             # Fixed workers benchmark
-make benchmark-stream-density  # Stream density test
-make benchmark-oa-metrics     # View VLM metrics
-make benchmark-oa-results     # View all results
-
-# Metrics Processing
-make consolidate-metrics      # Consolidate metrics to CSV
-make plot-metrics             # Generate plots
-
-# Cleanup
-make clean                    # Stop containers, remove volumes
-make clean-metrics            # Remove metrics files
-make clean-results            # Remove all results
-make clean-all                # Remove all unused Docker resources
-
-# Development
-make shell                    # Shell into container
-make test-api                 # Test API endpoints
-make show-config              # Show current configuration
-```
-
----
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `SERVICE_MODE` | `single` | Service mode (`single`, `parallel`) |
-| `WORKERS` | `0` | Number of station workers |
-| `VLM_BACKEND` | `ovms` | VLM backend type |
-| `OVMS_ENDPOINT` | `http://ovms-vlm:8000` | OVMS server endpoint |
-| `OVMS_MODEL_NAME` | `Qwen/Qwen2.5-VL-7B-Instruct` | Model name |
-| `DEFAULT_MATCHING_STRATEGY` | `hybrid` | Matching strategy |
-| `SIMILARITY_THRESHOLD` | `0.85` | Semantic similarity threshold |
-
-### Benchmark Variables
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BENCHMARK_TARGET_LATENCY_MS` | `25000` | Target latency threshold (ms) |
-| `BENCHMARK_MIN_TRANSACTIONS` | `3` | Minimum transactions per level |
-| `BENCHMARK_WORKER_INCREMENT` | `1` | Workers added per iteration |
-| `BENCHMARK_LATENCY_METRIC` | `avg` | Latency metric (`avg` or `p95`) |
-
----
-
-## Project Structure
-
-```
-take-away/
-├── src/
-│   ├── main.py                 # Service entry point
-│   ├── api/
-│   │   └── endpoints.py        # REST API endpoints
-│   ├── core/
-│   │   ├── vlm_service.py      # VLM processing logic
-│   │   ├── ovms_client.py      # OVMS client
-│   │   ├── validation_agent.py # Order validation
-│   │   ├── semantic_client.py  # Semantic service client
-│   │   └── semantic_matcher.py # Local semantic matching
-│   └── parallel/
-│       ├── station_worker.py   # Station worker process
-│       ├── vlm_scheduler.py    # VLM request batcher
-│       └── shared_queue.py     # Inter-process queue
-├── frame-selector-service/
-│   └── app/
-│       └── frame_selector.py   # YOLO frame selection
-├── gradio-ui/
-│   └── gradio_app.py          # Web interface
-├── config/                     # Configuration files
-├── storage/                    # Videos and results
-├── docker-compose.yaml         # Docker services
-├── Makefile                    # Build automation
-└── README.md                   # This file
-```
 
 ---
 
