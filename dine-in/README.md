@@ -102,7 +102,6 @@ make up REGISTRY=false      # Start using locally built image
 
 - **Deployment**
   - [How to Build from Source](docs/user-guide/how-to-build-from-source.md): Instructions for building from source code.
-  - [How to Build using Helm](docs/user-guide/deploy-with-helm.md): Instructions for building using helm.
 
 
 - **API Reference**
