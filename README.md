@@ -97,7 +97,6 @@ make up
 | [System Requirements](dine-in/docs/user-guide/system-requirements.md) | Hardware/software requirements |
 | [How to Use](dine-in/docs/user-guide/how-to-use-application.md) | Usage instructions |
 | [Build from Source](dine-in/docs/user-guide/how-to-build-from-source.md) | Build instructions |
-| [Deploy with Helm](dine-in/docs/user-guide/deploy-with-helm.md) | Kubernetes deployment |
 | [API Reference](dine-in/docs/user-guide/api-reference.md) | REST API documentation |
 | [Release Notes](dine-in/docs/user-guide/release-notes.md) | Version history |
 
