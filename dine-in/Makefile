@@ -192,6 +192,8 @@ build:
 
 up:
 	@echo "Starting dine-in services..."
+	@[ -d results ] || mkdir results
+	@[ -d metrics ] || mkdir metrics
 	@if [ "$(REGISTRY)" = "false" ]; then \
 		echo "$(BLUE)Using locally built image: $(DINEIN_IMAGE)$(NC)"; \
 		DINEIN_IMAGE=$(DINEIN_IMAGE) docker compose up -d --no-build; \
