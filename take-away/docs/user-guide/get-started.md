@@ -296,14 +296,8 @@ You should see the Order Accuracy web interface with:
 
 1. Open http://localhost:7860
 2. Upload a test video or enter RTSP URL
-3. Enter expected order items:
-   ```
-   2x Burger
-   1x Fries (Large)
-   1x Soda
-   ```
-4. Click "Validate Order"
-5. View results showing matched, missing, and extra items
+3. Click "Upload and Start Processing"
+4. View results showing matched, missing, and extra items
 
 ### Option 2: Via REST API
 
