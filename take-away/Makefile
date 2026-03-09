@@ -6,12 +6,12 @@
 # =============================================================================
 
 .PHONY: help build up down logs restart status clean benchmark benchmark-quick benchmark-results \
-        logs-vlm logs-gradio logs-frame-selector shell test-api ps exec dev-build \
-        check-env show-config init-env benchmark-oa benchmark-stream-density \
-        benchmark-oa-metrics benchmark-oa-results benchmark-oa-help \
-        update-submodules fetch-benchmark build-benchmark \
-        consolidate-metrics plot-metrics clean-images clean-containers clean-all \
-        clean-metrics clean-results clean-minio
+		logs-vlm logs-gradio logs-frame-selector shell test-api ps exec dev-build \
+		check-env show-config init-env benchmark-oa benchmark-stream-density \
+		benchmark-oa-metrics benchmark-oa-results benchmark-oa-help \
+		update-submodules fetch-benchmark build-benchmark \
+		consolidate-metrics plot-metrics clean-images clean-containers clean-all \
+		clean-metrics clean-results clean-minio setup-dirs
 
 # =============================================================================
 # Load Environment Variables from .env file
@@ -82,6 +82,16 @@ GREEN := \033[0;32m
 YELLOW := \033[0;33m
 BLUE := \033[0;34m
 NC := \033[0m  # No Color
+
+# =============================================================================
+# Directory Setup
+# =============================================================================
+
+setup-dirs:
+	@echo "$(BLUE)Creating required directories...$(NC)"
+	@[ -d results ] || mkdir results
+	@[ -d metrics ] || mkdir metrics
+	@echo "$(GREEN)✓ Directories created$(NC)"
 
 # =============================================================================
 # Environment Validation
@@ -210,6 +220,7 @@ help:
 	@echo "$(YELLOW)Setup:$(NC)"
 	@echo "  make update-submodules        - Clone/update git submodules"
 	@echo "  make init-env                 - Create .env from template"
+	@echo "  make setup-dirs               - Create required directories (results, metrics)"
 	@echo "  make show-config              - Show current configuration"
 	@echo "  make check-env                - Validate environment variables"
 	@echo ""
@@ -277,7 +288,7 @@ build: check-env
 	fi
 	@echo "$(GREEN)✓ Build complete$(NC)"
 
-up: check-env
+up: check-env setup-dirs
 	@echo "$(BLUE)Starting Take-Away services...$(NC)"
 	@if [ "$(REGISTRY)" = "false" ] || [ "$(REGISTRY)" = "FALSE" ]; then \
 		echo "$(YELLOW)REGISTRY=false → Building and starting services locally...$(NC)"; \
@@ -375,7 +386,7 @@ logs-all:
 # Benchmark
 # =============================================================================
 
-benchmark: ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
+benchmark: setup-dirs ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║       Take-Away Order Accuracy Benchmark                          ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
@@ -384,7 +395,6 @@ benchmark: ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
 	@echo "Init Duration: $(BENCHMARK_INIT_DURATION)s"
 	@echo "Target Device: $(OPENVINO_DEVICE)"
 	@echo ""
-	@mkdir -p $(RESULTS_DIR)
 	cd $(PERF_TOOLS_DIR) && \
 	( \
 		python3 -m venv venv && \
@@ -401,9 +411,8 @@ benchmark: ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
 		deactivate \
 	)
 
-benchmark-quick: ## Quick API test with curl (latency only)
+benchmark-quick: setup-dirs ## Quick API test with curl (latency only)
 	@echo "Running quick API test with test video..."
-	@mkdir -p results
 	@bash -c '\
 		if [ ! -f storage/videos/test.mp4 ]; then \
 			echo "Error: No test video found at storage/videos/test.mp4"; \
@@ -429,36 +438,7 @@ benchmark-quick: ## Quick API test with curl (latency only)
 		echo "Results logged to results/benchmark_performance.log"; \
 	'
 
-benchmark-results:
-	@echo "=== Benchmark Results ==="
-	@if [ -f results/benchmark_performance.log ]; then \
-		cat results/benchmark_performance.log; \
-	else \
-		echo "No benchmark results found. Run 'make benchmark' first."; \
-	fi
-
-# =============================================================================
-# Order Accuracy Performance Benchmarks (using performance-tools scripts)
-# =============================================================================
-
-benchmark-oa-help:
-	@echo "╔═══════════════════════════════════════════════════════════════════╗"
-	@echo "║         Order Accuracy Benchmark Commands                         ║"
-	@echo "╠═══════════════════════════════════════════════════════════════════╣"
-	@echo "║ make benchmark-oa           - Run fixed workers benchmark         ║"
-	@echo "║ make benchmark-stream-density - Run stream density test (latency) ║"
-	@echo "║ make benchmark-oa-metrics   - View VLM metrics logs               ║"
-	@echo "║ make benchmark-oa-results   - View all benchmark results          ║"
-	@echo "╠═══════════════════════════════════════════════════════════════════╣"
-	@echo "║ Configuration Variables:                                          ║"
-	@echo "║   BENCHMARK_WORKERS=$(BENCHMARK_WORKERS) (fixed workers benchmark)                      ║"
-	@echo "║   BENCHMARK_TARGET_LATENCY_MS=$(BENCHMARK_TARGET_LATENCY_MS)ms (latency threshold)           ║"
-	@echo "║   BENCHMARK_MIN_TRANSACTIONS=$(BENCHMARK_MIN_TRANSACTIONS) (transactions per iteration)      ║"
-	@echo "║   BENCHMARK_INIT_DURATION=$(BENCHMARK_INIT_DURATION)s (warmup time)                      ║"
-	@echo "║   BENCHMARK_WORKER_INCREMENT=$(BENCHMARK_WORKER_INCREMENT) (workers to add per iteration)    ║"
-	@echo "╚═══════════════════════════════════════════════════════════════════╝"
-
-benchmark-oa: ## Run Order Accuracy benchmark with fixed workers
+benchmark-oa: setup-dirs ## Run Order Accuracy benchmark with fixed workers
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║       Take-Away Order Accuracy Benchmark                          ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
@@ -467,7 +447,6 @@ benchmark-oa: ## Run Order Accuracy benchmark with fixed workers
 	@echo "Init Duration: $(BENCHMARK_INIT_DURATION)s"
 	@echo "Target Device: $(OPENVINO_DEVICE)"
 	@echo ""
-	mkdir -p $(RESULTS_DIR)
 	cd $(PERF_TOOLS_DIR) && \
 	( \
 		python3 -m venv venv && \
@@ -484,25 +463,16 @@ benchmark-oa: ## Run Order Accuracy benchmark with fixed workers
 		deactivate \
 	)
 
-benchmark-stream-density: ## Run Order Accuracy stream density benchmark (latency-based)
-	@if [ "$(OOM_PROTECTION)" = "0" ]; then \
-		echo "╔════════════════════════════════════════════════════════════╗"; \
-		echo "║ WARNING: OOM Protection DISABLED                           ║"; \
-		echo "║ This test may exhaust system memory.                       ║"; \
-		echo "║ Press Ctrl+C to cancel, or wait 5 seconds...               ║"; \
-		echo "╚════════════════════════════════════════════════════════════╝"; \
-		sleep 5; \
-	fi
+benchmark-stream-density: setup-dirs ## Run Order Accuracy stream density benchmark (latency-based)
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
-	@echo "║       Order Accuracy Stream Density - Latency Based               ║"
+	@echo "║       Take-Away Stream Density Benchmark (Latency-based)          ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
-	@echo "Target Latency: $(BENCHMARK_TARGET_LATENCY_MS)ms ($(shell echo $$(($(BENCHMARK_TARGET_LATENCY_MS)/1000)))s)"
+	@echo "Target Latency: $(BENCHMARK_TARGET_LATENCY_MS)ms"
 	@echo "Latency Metric: $(BENCHMARK_LATENCY_METRIC)"
 	@echo "Init Duration: $(BENCHMARK_INIT_DURATION)s"
 	@echo "Min Transactions: $(BENCHMARK_MIN_TRANSACTIONS)"
 	@echo "Worker Increment: $(BENCHMARK_WORKER_INCREMENT)"
 	@echo ""
-	mkdir -p $(RESULTS_DIR)
 	cd $(PERF_TOOLS_DIR) && \
 	( \
 		python3 -m venv venv && \
@@ -519,7 +489,7 @@ benchmark-stream-density: ## Run Order Accuracy stream density benchmark (latenc
 		deactivate \
 	)
 
-benchmark-oa-metrics: ## View VLM metrics from vlm_metrics_logger
+benchmark-oa-metrics: setup-dirs ## View VLM metrics from vlm_metrics_logger
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║                     VLM Metrics Logs                              ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
@@ -537,7 +507,7 @@ benchmark-oa-metrics: ## View VLM metrics from vlm_metrics_logger
 		echo "No VLM performance metrics found."; \
 	fi
 
-benchmark-oa-results: ## View all Order Accuracy benchmark results
+benchmark-oa-results: setup-dirs ## View all Order Accuracy benchmark results
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║                   Benchmark Results Summary                       ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
@@ -560,11 +530,32 @@ benchmark-oa-results: ## View all Order Accuracy benchmark results
 	@echo "=== VLM Metrics ==="
 	@$(MAKE) --no-print-directory benchmark-oa-metrics
 
+benchmark-oa-help: ## Show benchmark options
+	@echo "╔═══════════════════════════════════════════════════════════════════╗"
+	@echo "║                   Benchmark Options Help                          ║"
+	@echo "╚═══════════════════════════════════════════════════════════════════╝"
+	@echo ""
+	@echo "$(YELLOW)Current Benchmark Configuration:$(NC)"
+	@echo "  BENCHMARK_WORKERS            = $(BENCHMARK_WORKERS)"
+	@echo "  BENCHMARK_DURATION           = $(BENCHMARK_DURATION)s"
+	@echo "  BENCHMARK_INIT_DURATION      = $(BENCHMARK_INIT_DURATION)s"
+	@echo "  BENCHMARK_TARGET_LATENCY_MS  = $(BENCHMARK_TARGET_LATENCY_MS)ms"
+	@echo "  BENCHMARK_LATENCY_METRIC     = $(BENCHMARK_LATENCY_METRIC)"
+	@echo "  BENCHMARK_WORKER_INCREMENT   = $(BENCHMARK_WORKER_INCREMENT)"
+	@echo "  BENCHMARK_MIN_TRANSACTIONS   = $(BENCHMARK_MIN_TRANSACTIONS)"
+	@echo "  RESULTS_DIR                  = $(RESULTS_DIR)"
+	@echo "  OOM_PROTECTION               = $(OOM_PROTECTION)"
+	@echo ""
+	@echo "$(YELLOW)Override Examples:$(NC)"
+	@echo "  make benchmark BENCHMARK_WORKERS=4 BENCHMARK_DURATION=300"
+	@echo "  make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=15000"
+	@echo ""
+
 # =============================================================================
 # Metrics Processing
 # =============================================================================
 
-consolidate-metrics: ## Consolidate metrics from multiple benchmark runs
+consolidate-metrics: setup-dirs ## Consolidate metrics from multiple benchmark runs
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║                   Consolidating Metrics                           ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
@@ -579,7 +570,7 @@ consolidate-metrics: ## Consolidate metrics from multiple benchmark runs
 		deactivate \
 	)
 
-plot-metrics: ## Generate plots from benchmark metrics
+plot-metrics: setup-dirs ## Generate plots from benchmark metrics
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║                   Generating Metrics Plots                        ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
@@ -679,7 +670,7 @@ check-model:
 		echo "OVMS not responding. Is the service running?"
 
 # View results
-results:
+results: setup-dirs
 	@echo "=== Order Accuracy Results ==="
 	@if [ -f results/station_1_results.jsonl ]; then \
 		tail -20 results/station_1_results.jsonl | jq .; \
