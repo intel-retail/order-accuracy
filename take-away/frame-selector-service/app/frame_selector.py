@@ -1416,21 +1416,21 @@ def process_station(station_id: str, state: StationState) -> bool:
                 logger.debug(f"[{station_id}][MAIN-LOOP] Failed to delete frame {key}: {e}")
         logger.info(f"[{station_id}][MAIN-LOOP] Deleted {deleted_count} frames from FRAMES_BUCKET")
         
-        # CRITICAL: Also cleanup SELECTED_BUCKET to prevent stale frames affecting next video loop
-        # Without this, old frames from previous order processing stay in MinIO and can cause
-        # item detection mismatches when VLM picks up stale frames for the same order_id.
-        logger.info(f"[{station_id}][MAIN-LOOP] Cleaning up all selected frames from SELECTED_BUCKET")
-        selected_deleted = 0
-        try:
-            for obj in client.list_objects(SELECTED_BUCKET, prefix=f"{station_id}/", recursive=True):
-                try:
-                    client.remove_object(SELECTED_BUCKET, obj.object_name)
-                    selected_deleted += 1
-                except Exception as e:
-                    logger.debug(f"[{station_id}][MAIN-LOOP] Failed to delete selected frame {obj.object_name}: {e}")
-            logger.info(f"[{station_id}][MAIN-LOOP] Deleted {selected_deleted} frames from SELECTED_BUCKET")
-        except Exception as e:
-            logger.error(f"[{station_id}][MAIN-LOOP] Failed to cleanup SELECTED_BUCKET: {e}")
+        # ── DO NOT delete SELECTED_BUCKET here ───────────────────────────────
+        # The last order (e.g. 925) triggers a fire_and_forget VLM call inside
+        # process_completed_order() just above.  That call is non-blocking —
+        # the VLM service has NOT yet read the selected frames from MinIO when
+        # we reach this point.  Wiping SELECTED_BUCKET here races against the
+        # VLM HTTP request and causes "no_frames" failures for the final order.
+        #
+        # Stale frame safety is guaranteed by process_completed_order(), which
+        # already deletes existing selected frames for each order_id at the
+        # START of every call (before writing new ones).  That per-order
+        # cleanup is sufficient; a global wipe here is redundant AND harmful.
+        # ─────────────────────────────────────────────────────────────────────
+        logger.info(f"[{station_id}][MAIN-LOOP] Skipping SELECTED_BUCKET wipe — "
+                    "VLM fire_and_forget for last order may still be reading frames; "
+                    "per-order cleanup in process_completed_order() is sufficient")
         
         # Clear state for next video
         logger.info(f"[{station_id}][MAIN-LOOP] Clearing state for next video")
