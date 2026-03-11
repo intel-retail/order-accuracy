@@ -144,6 +144,8 @@ make fetch-benchmark
 
 For a quick validation test with curl:
 
+> **Prerequisite:** Services must be running. Start them first with `make up`.
+
 ```bash
 # IMAGE_ID must match an entry in configs/orders.json
 # Available IDs: MCD-1001, MCD-1002, MCD-1003, MCD-1004
@@ -177,7 +179,12 @@ Configuration options:
 |----------|---------|-------------|
 | `BENCHMARK_WORKERS` | 1 | Number of concurrent workers |
 | `BENCHMARK_DURATION` | 300 | Benchmark duration (seconds) |
+| `BENCHMARK_TARGET_LATENCY_MS` | 25000 | Target latency threshold (ms) |
+| `BENCHMARK_LATENCY_METRIC` | avg | Metric: `avg`, `p95`, or `max` |
+| `BENCHMARK_DENSITY_INCREMENT` | 1 | Concurrent images per iteration |
 | `BENCHMARK_INIT_DURATION` | 60 | Warmup time (seconds) |
+| `BENCHMARK_MIN_REQUESTS` | 3 | Min requests before measuring |
+| `BENCHMARK_REQUEST_TIMEOUT` | 300 | Request timeout (seconds) |
 | `BENCHMARK_TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
 | `RESULTS_DIR` | results | Output directory |
 | `REGISTRY` | false | Use registry images (true/false) |

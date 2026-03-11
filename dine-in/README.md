@@ -124,8 +124,10 @@ make update-submodules
 
 ### Quick Test
 
+> **Prerequisite:** Services must be running. Start them first with `make up`.
+
 ```bash
-make benchmark-single    # Quick single image test
+make benchmark-single IMAGE_ID=MCD-1001    # Quick single image test
 ```
 
 ### Full Benchmark
