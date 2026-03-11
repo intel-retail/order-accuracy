@@ -308,21 +308,27 @@ benchmark-test: ## Quick single image test (1 worker, 1 iteration)
 	@ls -la $(RESULTS_DIR)/worker_*.json 2>/dev/null | tail -1
 
 # Test with specific image ID using curl (for quick API testing)
-benchmark-single: ## Test with specific image via API (IMAGE_ID=DD-6993)
+benchmark-single: ## Test with specific image via API (IMAGE_ID=MCD-1001)
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║           Dine-In Single Image Test - $(IMAGE_ID)                 ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
 	@mkdir -p $(RESULTS_DIR)
 	@if [ -z "$(IMAGE_ID)" ]; then \
 		echo "$(RED)Error: IMAGE_ID not specified$(NC)"; \
-		echo "Usage: make benchmark-single IMAGE_ID=DD-6993"; \
+		echo "Usage: make benchmark-single IMAGE_ID=MCD-1001"; \
 		exit 1; \
 	fi
 	@echo "Testing image: $(IMAGE_ID)"
 	@bash -c '\
-		IMAGE_FILE="images/$(IMAGE_ID).jpg"; \
-		if [ ! -f "$$IMAGE_FILE" ]; then \
-			echo "$(RED)Error: Image $$IMAGE_FILE not found$(NC)"; \
+		IMAGE_FILE=""; \
+		for EXT in jpg jpeg png; do \
+			if [ -f "images/$(IMAGE_ID).$$EXT" ]; then \
+				IMAGE_FILE="images/$(IMAGE_ID).$$EXT"; \
+				break; \
+			fi; \
+		done; \
+		if [ -z "$$IMAGE_FILE" ]; then \
+			echo "$(RED)Error: No image found for $(IMAGE_ID) (tried .jpg, .jpeg, .png)$(NC)"; \
 			exit 1; \
 		fi; \
 		ORDER_JSON=$$(jq -c ".orders[] | select(.image_id == \"$(IMAGE_ID)\")" configs/orders.json); \
