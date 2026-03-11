@@ -56,6 +56,12 @@ PERF_TOOLS_DIR ?= ../performance-tools/benchmark-scripts
 # Version tag for registry images
 TAG ?= 2026.0-rc1
 
+# Sample video for quick-start testing (orders 384 → 651 → 925)
+# Hosted on the upstream repo's GitHub Releases. Override via env if needed:
+#   SAMPLE_VIDEO_URL=<url> make download-sample-video
+SAMPLE_VIDEO_URL ?= https://github.com/intel-retail/order-accuracy/releases/download/2026.0-rc1/test.mp4
+SAMPLE_VIDEO_DEST ?= storage/videos/test.mp4
+
 # Registry configuration: true=pull from registry, false=build locally
 REGISTRY ?= true
 REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
@@ -91,7 +97,36 @@ setup-dirs:
 	@echo "$(BLUE)Creating required directories...$(NC)"
 	@[ -d results ] || mkdir results
 	@[ -d metrics ] || mkdir metrics
+	@[ -d storage/videos ] || mkdir -p storage/videos
+	@[ -d storage/uploads ] || mkdir -p storage/uploads
+	@[ -f storage/videos/.gitkeep ] || touch storage/videos/.gitkeep
+	@[ -f storage/uploads/.gitkeep ] || touch storage/uploads/.gitkeep
 	@echo "$(GREEN)✓ Directories created$(NC)"
+	@if [ ! -f "$(SAMPLE_VIDEO_DEST)" ]; then \
+		echo "$(YELLOW)Tip: No sample video found. Run 'make download-sample-video' to get one.$(NC)"; \
+	fi
+
+# Download the sample video from GitHub Releases (run once after cloning)
+download-sample-video: setup-dirs
+	@echo "$(BLUE)Downloading sample video...$(NC)"
+	@if [ -f "$(SAMPLE_VIDEO_DEST)" ]; then \
+		echo "$(GREEN)✓ Sample video already exists: $(SAMPLE_VIDEO_DEST)$(NC)"; \
+	else \
+		echo "  URL : $(SAMPLE_VIDEO_URL)"; \
+		echo "  Dest: $(SAMPLE_VIDEO_DEST)"; \
+		if command -v curl >/dev/null 2>&1; then \
+			curl -L --progress-bar -o "$(SAMPLE_VIDEO_DEST)" "$(SAMPLE_VIDEO_URL)" \
+				&& echo "$(GREEN)✓ Download complete: $(SAMPLE_VIDEO_DEST)$(NC)" \
+				|| (echo "$(RED)✗ Download failed. Check SAMPLE_VIDEO_URL or add a video manually.$(NC)" && exit 1); \
+		elif command -v wget >/dev/null 2>&1; then \
+			wget -q --show-progress -O "$(SAMPLE_VIDEO_DEST)" "$(SAMPLE_VIDEO_URL)" \
+				&& echo "$(GREEN)✓ Download complete: $(SAMPLE_VIDEO_DEST)$(NC)" \
+				|| (echo "$(RED)✗ Download failed. Check SAMPLE_VIDEO_URL or add a video manually.$(NC)" && exit 1); \
+		else \
+			echo "$(RED)✗ Neither curl nor wget found. Install one or copy the video manually to $(SAMPLE_VIDEO_DEST)$(NC)"; \
+			exit 1; \
+		fi; \
+	fi
 
 # =============================================================================
 # Environment Validation
@@ -221,6 +256,7 @@ help:
 	@echo "  make update-submodules        - Clone/update git submodules"
 	@echo "  make init-env                 - Create .env from template"
 	@echo "  make setup-dirs               - Create required directories (results, metrics)"
+	@echo "  make download-sample-video    - Download sample test video (orders 384→651→925)"
 	@echo "  make show-config              - Show current configuration"
 	@echo "  make check-env                - Validate environment variables"
 	@echo ""

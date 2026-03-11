@@ -1,5 +1,5 @@
 import subprocess
-import os, io
+import os, io, time
 import threading
 import logging
 from minio import Minio
@@ -86,7 +86,25 @@ def run_pipeline(source_type: str, source: str):
         raise
     
     # 🔔 EOS MARKER (CRITICAL)
-    logger.info("Pipeline finished. Writing EOS marker to MinIO")
+    # Wait before writing the station EOS so that:
+    #   1. The atexit handler inside frame_pipeline.py has time to write the
+    #      per-order __EOS__ for the last active order (925) and drain the
+    #      MinIO upload queue.
+    #   2. The frame-selector's inactivity timeout (INACTIVITY_TIMEOUT=8s)
+    #      has time to fire for the last order even if the atexit handler
+    #      doesn't run (e.g. gvapython Python teardown path).
+    #
+    # EOS_DELAY_SEC defaults to 20s:
+    #   • 8s  = frame-selector inactivity timeout
+    #   • 10s = upload queue drain + MinIO round-trips for per-order EOS
+    #   • 2s  = headroom
+    eos_delay = int(os.environ.get("PIPELINE_EOS_DELAY_SEC", "20"))
+    logger.info(
+        f"Pipeline finished. Waiting {eos_delay}s before writing station EOS "
+        f"(allows last-order upload flush + frame-selector inactivity timeout)"
+    )
+    time.sleep(eos_delay)
+    logger.info("Writing EOS marker to MinIO")
 
     # Get station ID from environment (same as frame_pipeline.py uses)
     station_id = os.environ.get('STATION_ID', 'station_1')
