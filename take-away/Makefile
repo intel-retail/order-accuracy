@@ -57,8 +57,9 @@ PERF_TOOLS_DIR ?= ../performance-tools/benchmark-scripts
 TAG ?= 2026.0-rc1
 
 # Sample video for quick-start testing (orders 384 → 651 → 925)
-# Hosted as a GitHub Release asset; override via env or CLI.
-SAMPLE_VIDEO_URL ?= https://github.com/suryam789/order-accuracy/releases/download/v1.0.0/test.mp4
+# Hosted on the upstream repo's GitHub Releases. Override via env if needed:
+#   SAMPLE_VIDEO_URL=<url> make download-sample-video
+SAMPLE_VIDEO_URL ?= https://github.com/intel-retail/order-accuracy/releases/download/2026.0-rc1/test.mp4
 SAMPLE_VIDEO_DEST ?= storage/videos/test.mp4
 
 # Registry configuration: true=pull from registry, false=build locally
