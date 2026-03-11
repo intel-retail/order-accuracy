@@ -60,7 +60,7 @@ services:
   # SINGLE Station (per-container): docker compose up -d --scale order-accuracy=4
   # MULTI Station (multi-process in one container): Set SERVICE_MODE=parallel
   order-accuracy:
-    image: intel/order-accuracy-take-away:2026.0-rc1
+    image: intel/order-accuracy-take-away:2026.0-rc2
     build:
       context: .
       args:
@@ -178,7 +178,7 @@ services:
       - order-accuracy-net
 
   frame-selector:
-    image: intel/order-accuracy-frame-selector:2026.0-rc1
+    image: intel/order-accuracy-frame-selector:2026.0-rc2
     build:
       context: ./frame-selector-service
       args:
