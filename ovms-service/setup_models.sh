@@ -19,6 +19,16 @@ POTENTIAL_SOURCE_DIRS=(
 )
 
 ###############################################
+# LOAD OVMS_MODEL_NAME FROM take-away/.env
+###############################################
+ENV_FILE="${PROJECT_ROOT}/take-away/.env"
+if [ -f "${ENV_FILE}" ]; then
+    OVMS_MODEL_NAME_ENV=$(grep -E '^OVMS_MODEL_NAME=' "${ENV_FILE}" | head -1 | cut -d'=' -f2- | tr -d '"\r')
+fi
+# Fall back to the hard-coded source model if .env is missing or unset
+OVMS_MODEL_NAME_ENV="${OVMS_MODEL_NAME_ENV:-Qwen/Qwen2.5-VL-7B-Instruct}"
+
+###############################################
 echo "=========================================="
 echo "OVMS Model Setup for Order Accuracy"
 echo "=========================================="
@@ -340,6 +350,57 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
         apply_graph_config "${MODEL_NAME}"
     fi
 done
+
+###############################################
+# GENERATE OVMS config.json (mediapipe_config_list)
+# export_model.py generates a model_config_list config which does NOT support
+# the /v3/chat/completions endpoint. OVMS LLM/VLM serving requires a
+# mediapipe_config_list entry (pointing at the graph.pbtxt). The model name
+# is read from OVMS_MODEL_NAME in take-away/.env so it always matches what
+# the OA service requests (e.g. "Qwen/Qwen2.5-VL-7B-Instruct").
+###############################################
+generate_ovms_config() {
+    echo ""
+    echo "------------------------------------------"
+    echo "Generating OVMS config.json (mediapipe)"
+    echo "------------------------------------------"
+    echo "  OVMS_MODEL_NAME: ${OVMS_MODEL_NAME_ENV}"
+
+    local config_entries=""
+    local first=1
+
+    for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
+        local TARGET_PATH="${MODELS_DIR}/Qwen/${MODEL_NAME}"
+
+        if [ ! -d "${TARGET_PATH}" ]; then
+            echo "  Skipping ${MODEL_NAME} (not found)"
+            continue
+        fi
+
+        if [ $first -ne 1 ]; then
+            config_entries+=","
+        fi
+        config_entries+="
+        {
+            \"name\": \"${OVMS_MODEL_NAME_ENV}\",
+            \"base_path\": \"Qwen/${MODEL_NAME}\"
+        }"
+        first=0
+        echo "  + ${OVMS_MODEL_NAME_ENV}  →  Qwen/${MODEL_NAME}"
+    done
+
+    cat > "${MODELS_DIR}/config.json" << EOF
+{
+    "model_config_list": [],
+    "mediapipe_config_list": [${config_entries}
+    ]
+}
+EOF
+
+    echo "  ✓ config.json written to ${MODELS_DIR}/config.json"
+}
+
+generate_ovms_config
 
 ###############################################
 echo ""

@@ -59,6 +59,7 @@ import sys
 import time
 import queue
 import threading
+import atexit
 import traceback
 import uuid
 from collections import deque, OrderedDict
@@ -1119,6 +1120,55 @@ def process_frame(frame: "VideoFrame") -> bool:
 
     return True
 
+
+# ==========================================================
+# SHUTDOWN HANDLER — flush last active order on video-file EOF
+# ==========================================================
+# When gst-launch-1.0 exits normally after a file-source EOS the Python
+# interpreter starts tearing down.  _check_order_idle_timeout() is only
+# called from inside process_frame(), which stops being called once
+# GStreamer sends EOS, so the last active order (e.g. 925) **never** gets
+# its per-order __EOS__ marker written through the normal path.
+#
+# This atexit handler fires while daemon threads are still alive:
+#   1. Enqueues EOS for the currently active order (if any).
+#   2. Blocks on _upload_queue.join() until the upload worker has written
+#      every remaining frame AND the EOS marker to MinIO.
+#
+# After this handler completes the pipeline_runner (the parent process) can
+# safely write the station-level __EOS__ marker, knowing all frames and
+# per-order EOS markers are already in MinIO.
+# ==========================================================
+
+def _pipeline_atexit_handler() -> None:
+    """Flush in-flight uploads and write per-order EOS for the last order."""
+    global _active_order_id, _active_order_frame_count
+
+    log(f"[ATEXIT] [{ts()}] Pipeline shutdown — active_order={_active_order_id} "
+        f"queue_size={_upload_queue.qsize()}")
+
+    # 1. Enqueue EOS for the active order so frame-selector can finalise it
+    if _active_order_id is not None:
+        log(f"[ATEXIT] [{ts()}] Enqueueing EOS for last active order: {_active_order_id}")
+        _enqueue_eos(_active_order_id)
+        _active_order_id = None
+        _active_order_frame_count = 0
+
+    # 2. Drain the upload queue (blocks until the upload-worker thread is idle)
+    # The upload-worker is a daemon thread and is still alive during atexit.
+    drain_timeout = 60  # seconds
+    deadline = time.time() + drain_timeout
+    log(f"[ATEXIT] [{ts()}] Waiting up to {drain_timeout}s for upload queue to drain "
+        f"(current size={_upload_queue.qsize()})...")
+    try:
+        _upload_queue.join()  # blocks until all put()s have a matching task_done()
+        log(f"[ATEXIT] [{ts()}] Upload queue drained successfully")
+    except Exception as e:
+        log(f"[ATEXIT] [{ts()}] Error waiting for upload queue: {e}")
+
+
+atexit.register(_pipeline_atexit_handler)
+log(f"[INIT] [{ts()}] Registered pipeline shutdown atexit handler")
 
 # ==========================================================
 # MODULE INITIALIZATION - OCR WARMUP
