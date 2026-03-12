@@ -4,6 +4,8 @@ import cv2
 import threading
 import time
 import math
+import tempfile
+import os
 import numpy as np
 from typing import Optional, List, Dict
 from PIL import Image
@@ -925,6 +927,236 @@ def refresh_history():
     """Refresh history display"""
     return format_history_html()
 
+
+# -----------------------------
+# ORDER RECALL HELPERS
+# -----------------------------
+
+def format_recall_card(order_id, result, upload_time, completed_time, source, frames_available):
+    """Format the order details card for the Recall tab."""
+    if not result:
+        return f'''
+        <div style="background:#fef3c7;border-radius:10px;padding:20px;border-left:4px solid #f59e0b;">
+            <div style="font-weight:600;color:#92400e;">⚠️ Order {order_id} found in history but result details are unavailable.</div>
+            <div style="color:#78350f;font-size:13px;margin-top:6px;">Processed: {upload_time}</div>
+        </div>
+        '''
+
+    status = result.get('status', 'unknown')
+    detected_items  = result.get('detected_items', [])
+    expected_items  = result.get('expected_items', [])
+    validation      = result.get('validation', {})
+    missing         = validation.get('missing', [])
+    extra           = validation.get('extra', [])
+    qty_mismatch    = validation.get('quantity_mismatch', [])
+    inference_time  = result.get('inference_time_sec')
+    num_frames      = result.get('num_frames', frames_available)
+
+    status_icon  = '✅' if status == 'validated' else '❌'
+    status_text  = 'VALIDATED' if status == 'validated' else 'MISMATCH'
+    status_bg    = '#d1fae5' if status == 'validated' else '#fee2e2'
+    status_color = '#10b981' if status == 'validated' else '#ef4444'
+    border_color = status_color
+
+    # ── Expected items table ──────────────────────────────────────────────────
+    exp_rows = ''
+    for item in expected_items:
+        exp_rows += f'''
+        <tr>
+            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;">{item.get("name","?")}</td>
+            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;text-align:center;">{item.get("quantity",0)}</td>
+        </tr>'''
+
+    # ── Detected items table with per-item status ─────────────────────────────
+    det_rows = ''
+    for item in detected_items:
+        name = item.get('name', '?')
+        qty  = item.get('quantity', 0)
+        s, c = 'OK', '#10b981'
+        if any(m.get('name') == name for m in missing):
+            s, c = 'Missing', '#ef4444'
+        elif any(e.get('name') == name for e in extra):
+            s, c = 'Extra', '#f59e0b'
+        elif any(q.get('name') == name for q in qty_mismatch):
+            s, c = 'Qty Mismatch', '#f59e0b'
+        det_rows += f'''
+        <tr>
+            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;">{name}</td>
+            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;text-align:center;">{qty}</td>
+            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;text-align:center;color:{c};font-weight:600;">{s}</td>
+        </tr>'''
+
+    # ── Mismatch summary ──────────────────────────────────────────────────────
+    mismatch_detail = ''
+    if missing:
+        items_str = ', '.join(f"{m.get('name','?')} ×{m.get('quantity',1)}" for m in missing)
+        mismatch_detail += f'<div style="color:#ef4444;font-size:13px;margin-top:6px;">⚠️ Missing: {items_str}</div>'
+    if extra:
+        items_str = ', '.join(f"{e.get('name','?')} ×{e.get('quantity',1)}" for e in extra)
+        mismatch_detail += f'<div style="color:#f59e0b;font-size:13px;margin-top:4px;">➕ Extra: {items_str}</div>'
+    if qty_mismatch:
+        items_str = ', '.join(q.get('name', '?') for q in qty_mismatch)
+        mismatch_detail += f'<div style="color:#f59e0b;font-size:13px;margin-top:4px;">📊 Qty Mismatch: {items_str}</div>'
+    if not mismatch_detail:
+        mismatch_detail = '<div style="color:#10b981;font-size:13px;margin-top:6px;">✅ No mismatches</div>'
+
+    # ── Meta row (source, timing, frames) ────────────────────────────────────
+    meta_items = []
+    if upload_time:
+        meta_items.append(f'<span>🕐 Processed: <strong>{upload_time}</strong></span>')
+    if source:
+        meta_items.append(f'<span>📂 Source: <strong>{source}</strong></span>')
+    if inference_time:
+        meta_items.append(f'<span>⚡ Inference: <strong>{inference_time:.1f}s</strong></span>')
+    if num_frames:
+        meta_items.append(f'<span>🎞️ Frames: <strong>{num_frames}</strong></span>')
+    meta_html = '&nbsp;&nbsp;|&nbsp;&nbsp;'.join(meta_items)
+
+    return f'''
+    <div style="background:white;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
+
+        <!-- Header -->
+        <div style="background:linear-gradient(135deg,#0071C5 0%,#00285A 100%);color:white;
+                    padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
+            <div style="font-weight:700;font-size:18px;">🧾 Order #{order_id}</div>
+            <span style="background:{status_bg};color:{status_color};padding:5px 14px;
+                         border-radius:20px;font-size:13px;font-weight:700;">
+                {status_icon} {status_text}
+            </span>
+        </div>
+
+        <!-- Meta -->
+        <div style="background:#f8fafc;padding:10px 20px;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">
+            {meta_html}
+        </div>
+
+        <div style="padding:16px 20px;">
+
+            <!-- Expected items -->
+            <div style="font-weight:600;color:#00285A;font-size:13px;margin-bottom:6px;">📋 Expected Items</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+                <thead><tr style="background:#E6F3FB;">
+                    <th style="padding:8px 12px;text-align:left;color:#00285A;">Item</th>
+                    <th style="padding:8px 12px;text-align:center;color:#00285A;">Qty</th>
+                </tr></thead>
+                <tbody>{exp_rows if exp_rows else "<tr><td colspan=2 style='padding:10px;text-align:center;color:#6b7280;'>No expected items</td></tr>"}</tbody>
+            </table>
+
+            <!-- Detected items -->
+            <div style="font-weight:600;color:#00285A;font-size:13px;margin-bottom:6px;">🔎 Detected Items</div>
+            <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
+                <thead><tr style="background:#E6F3FB;">
+                    <th style="padding:8px 12px;text-align:left;color:#00285A;">Item</th>
+                    <th style="padding:8px 12px;text-align:center;color:#00285A;">Qty</th>
+                    <th style="padding:8px 12px;text-align:center;color:#00285A;">Status</th>
+                </tr></thead>
+                <tbody>{det_rows if det_rows else "<tr><td colspan=3 style='padding:10px;text-align:center;color:#6b7280;'>No items detected</td></tr>"}</tbody>
+            </table>
+
+            <!-- Mismatch summary -->
+            <div style="font-weight:600;color:#00285A;font-size:13px;margin-bottom:4px;">📊 Validation Summary</div>
+            <div style="background:#f8fafc;border-radius:8px;padding:10px 14px;border-left:4px solid {border_color};">
+                {mismatch_detail}
+            </div>
+
+        </div>
+    </div>
+    '''
+
+
+def recall_order_fn(order_id: str):
+    """Gradio callback for the Order Recall tab.
+
+    Returns:
+        (details_html, video_path_or_None)
+    """
+    order_id = (order_id or '').strip()
+
+    if not order_id:
+        return (
+            '<div style="background:#f8fafc;border-radius:10px;padding:32px;text-align:center;">' \
+            '<div style="font-size:40px;margin-bottom:12px;">🔍</div>' \
+            '<div style="color:#6b7280;font-size:14px;">Enter an order ID above and click Recall Order.</div></div>',
+            None
+        )
+
+    # ── Call backend recall endpoint ──────────────────────────────────────────
+    try:
+        resp = _api.get(f"{API_BASE}/orders/{order_id}/recall", timeout=10)
+        data = resp.json()
+    except Exception as e:
+        return (
+            f'<div style="background:#fee2e2;border-radius:10px;padding:20px;border-left:4px solid #ef4444;">'
+            f'<div style="font-weight:600;color:#b91c1c;">❌ Error contacting backend</div>'
+            f'<div style="font-size:13px;color:#7f1d1d;margin-top:4px;">{e}</div></div>',
+            None
+        )
+
+    status = data.get('status')
+
+    if status == 'not_found':
+        return (
+            f'<div style="background:#f8fafc;border-radius:10px;padding:32px;text-align:center;">'
+            f'<div style="font-size:40px;margin-bottom:12px;">🚫</div>'
+            f'<div style="font-weight:600;color:#374151;font-size:15px;">Order <code>{order_id}</code> not found</div>'
+            f'<div style="color:#6b7280;font-size:13px;margin-top:8px;">'
+            f'This order ID was never processed, or its history has been cleared.</div></div>',
+            None
+        )
+
+    if status == 'expired':
+        upload_time  = data.get('upload_time', 'unknown')
+        max_age      = data.get('max_age_hours', 24)
+        return (
+            f'<div style="background:#fef3c7;border-radius:10px;padding:24px;border-left:4px solid #f59e0b;">'
+            f'<div style="font-size:32px;margin-bottom:10px;">⏰</div>'
+            f'<div style="font-weight:600;color:#92400e;font-size:15px;">Recall window expired for order <code>{order_id}</code></div>'
+            f'<div style="color:#78350f;font-size:13px;margin-top:8px;">'
+            f'This order was processed on <strong>{upload_time}</strong> — '
+            f'orders can only be recalled within the last <strong>{max_age} hours</strong>.</div></div>',
+            None
+        )
+
+    # ── status == 'found' ─────────────────────────────────────────────────────
+    result          = data.get('result') or {}
+    upload_time     = data.get('upload_time', '')
+    completed_time  = data.get('completed_time', '')
+    source          = data.get('source', '')
+    has_replay      = data.get('has_replay', False)
+    frames_available = data.get('frames_available', 0)
+
+    details_html = format_recall_card(
+        order_id, result, upload_time, completed_time, source, frames_available
+    )
+
+    # ── Download replay MP4 from backend ─────────────────────────────────────
+    video_path = None
+    if has_replay:
+        try:
+            video_resp = _api.get(
+                f"{API_BASE}/orders/{order_id}/replay",
+                timeout=60,
+                stream=True
+            )
+            if video_resp.status_code == 200:
+                tmp = tempfile.NamedTemporaryFile(
+                    delete=False,
+                    suffix=f"_order_{order_id}_replay.mp4",
+                    dir="/tmp"
+                )
+                for chunk in video_resp.iter_content(chunk_size=8192):
+                    if chunk:
+                        tmp.write(chunk)
+                tmp.close()
+                video_path = tmp.name
+            else:
+                print(f"[Recall] Replay endpoint returned {video_resp.status_code} for order {order_id}")
+        except Exception as e:
+            print(f"[Recall] Failed to download replay video for order {order_id}: {e}")
+
+    return details_html, video_path
+
+
 # -----------------------------
 # UI
 # -----------------------------
@@ -1116,6 +1348,74 @@ with gr.Blocks(
             clear_history_btn.click(
                 fn=clear_history,
                 outputs=results_history_display
+            )
+
+        # ======================
+        # ORDER RECALL TAB
+        # ======================
+        with gr.TabItem("🔍 Order Recall"):
+            gr.HTML('<div style="height: 8px;"></div>')
+            gr.HTML(
+                '<div style="font-weight: 600; color: #00285A; margin-bottom: 6px; font-size: 15px;">'
+                '🔍 Order Recall</div>'
+                '<p style="color: #6b7280; font-size: 13px; margin-bottom: 16px;">'
+                'Enter an order ID to view its validation result and replay the footage. '
+                'Orders can be recalled within <strong>24 hours</strong> of processing.</p>'
+            )
+
+            # ── Search row ───────────────────────────────────────────────────
+            with gr.Row():
+                recall_input = gr.Textbox(
+                    label="Order ID",
+                    placeholder="e.g. 384",
+                    scale=4,
+                    container=True
+                )
+                recall_btn = gr.Button(
+                    "🔍 Recall Order",
+                    variant="primary",
+                    elem_classes=["primary-btn"],
+                    scale=1,
+                    size="lg"
+                )
+
+            # ── Results row: details card (left) | video player (right) ──────
+            with gr.Row():
+                with gr.Column(scale=1):
+                    recall_details = gr.HTML(
+                        value='<div style="background:#f8fafc;border-radius:10px;padding:32px;text-align:center;">'
+                              '<div style="font-size:40px;margin-bottom:12px;">🔍</div>'
+                              '<div style="color:#6b7280;font-size:14px;">'
+                              'Enter an order ID above and click Recall Order.</div></div>',
+                        label="Order Details"
+                    )
+
+                with gr.Column(scale=2):
+                    gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">'
+                            '📽️ Order Replay</div>')
+                    recall_video = gr.Video(
+                        label="",
+                        interactive=False,
+                        show_download_button=True,
+                        show_label=False,
+                        height=420
+                    )
+                    gr.HTML(
+                        '<p style="color:#6b7280;font-size:12px;margin-top:6px;">'
+                        'Replay is built from all frames captured during the order window '
+                        '(1 fps capture → played back at 2 fps).</p>'
+                    )
+
+            # ── Wire up button and Enter key ─────────────────────────────────
+            recall_btn.click(
+                fn=recall_order_fn,
+                inputs=[recall_input],
+                outputs=[recall_details, recall_video]
+            )
+            recall_input.submit(
+                fn=recall_order_fn,
+                inputs=[recall_input],
+                outputs=[recall_details, recall_video]
             )
 
     # Footer with Intel Branding

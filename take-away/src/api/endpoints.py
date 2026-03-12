@@ -3,11 +3,15 @@ API Endpoints for Single Worker Mode
 FastAPI REST endpoints for video upload and processing
 """
 import os
+import re
 import logging
 import uuid
 import shutil
-from fastapi import FastAPI, Body, UploadFile, File, Query
+from pathlib import Path
+from fastapi import FastAPI, Body, UploadFile, File, Query, HTTPException
+from fastapi.responses import FileResponse
 from typing import Dict, Any, Optional, List
+import cv2
 
 from core.pipeline_runner import run_pipeline_async
 from core.order_results import get_results, get_statistics, clear_all_results
@@ -16,7 +20,8 @@ from core.vlm_service import run_vlm
 from core.video_history import (
     start_video, complete_video, fail_video,
     get_video, get_video_history, get_video_summary,
-    get_current_video_id, add_result_to_video, clear_video_history
+    get_current_video_id, add_result_to_video, clear_video_history,
+    get_video_by_order_id
 )
 
 # Configure logging
@@ -30,6 +35,15 @@ logger = logging.getLogger(__name__)
 cfg = load_config()
 
 SERVICE_MODE = os.getenv('SERVICE_MODE', 'single')
+
+# ── Order Recall configuration ───────────────────────────────────────────────
+# Directory where frame-selector saves ALL frames per order
+#   structure: {FRAME_SELECTOR_DIR}/{station_id}/{order_id}/frame_N.jpg
+FRAME_SELECTOR_DIR = Path(os.getenv('FRAME_SELECTOR_DEBUG_DIR', '/results/frame-selector-in'))
+# Cached MP4s are written here so a second recall is instant
+RECALL_CACHE_DIR = Path(os.getenv('RESULTS_DIR', '/results')) / 'recall_cache'
+# Playback speed for the stitched replay video (10 fps matches 10-fps capture)
+REPLAY_FPS = float(os.getenv('RECALL_REPLAY_FPS', '10'))
 
 
 def create_app() -> FastAPI:
@@ -280,7 +294,170 @@ def create_app() -> FastAPI:
             "results_cleared": results_result.get('cleared_count', 0)
         }
 
+    # ==================== Order Recall Endpoints ====================
+
+    @app.get("/orders/{order_id}/recall")
+    def recall_order(order_id: str):
+        """Look up order details from history with 24-hour TTL.
+
+        Returns:
+          200 + status='not_found'  – order ID was never processed
+          200 + status='expired'    – order was processed but > 24 h ago
+          200 + status='found'      – full result + frame availability flag
+        """
+        logger.info(f"[API] Order recall requested: order_id={order_id}")
+        recall = get_video_by_order_id(order_id)
+
+        if recall['status'] != 'found':
+            logger.info(f"[API] Recall result for order {order_id}: {recall['status']}")
+            return recall
+
+        # Check whether frame-selector frames exist for this order
+        station_id = recall.get('station_id', 'station_1')
+        order_frame_dir = _find_order_frame_dir(station_id, order_id)
+        frame_files = _sorted_frames(order_frame_dir) if order_frame_dir else []
+
+        recall['frames_available'] = len(frame_files)
+        recall['has_replay'] = len(frame_files) > 0
+        logger.info(
+            f"[API] Recall found for order {order_id}: "
+            f"{len(frame_files)} frames, station={station_id}"
+        )
+        return recall
+
+    @app.get("/orders/{order_id}/frames/{filename}")
+    def serve_order_frame(order_id: str, filename: str):
+        """Serve a single JPEG frame for an order.
+
+        Bridges the volume gap: Gradio container cannot mount /results directly,
+        so it fetches each frame via this HTTP endpoint.
+        """
+        logger.info(f"[API] Frame requested: order_id={order_id}, filename={filename}")
+
+        recall = get_video_by_order_id(order_id)
+        if recall['status'] == 'not_found':
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+        if recall['status'] == 'expired':
+            raise HTTPException(status_code=410, detail=f"Order {order_id} recall window has expired")
+
+        station_id = recall.get('station_id', 'station_1')
+        order_frame_dir = _find_order_frame_dir(station_id, order_id)
+        if not order_frame_dir:
+            raise HTTPException(status_code=404, detail=f"No frames found for order {order_id}")
+
+        frame_path = order_frame_dir / filename
+        if not frame_path.exists():
+            raise HTTPException(status_code=404, detail=f"Frame {filename} not found")
+
+        return FileResponse(path=str(frame_path), media_type="image/jpeg")
+
+    @app.get("/orders/{order_id}/replay")
+    def replay_order(order_id: str):
+        """Generate (or serve cached) an MP4 replay for an order.
+
+        Stitches all frame-selector JPEG frames for the order into an MP4
+        at REPLAY_FPS (default 2 fps).  The result is cached under
+        /results/recall_cache/ so subsequent requests are served instantly.
+        """
+        logger.info(f"[API] Replay requested: order_id={order_id}")
+
+        recall = get_video_by_order_id(order_id)
+        if recall['status'] == 'not_found':
+            raise HTTPException(status_code=404, detail=f"Order {order_id} not found")
+        if recall['status'] == 'expired':
+            raise HTTPException(status_code=410, detail=f"Order {order_id} recall window has expired")
+
+        station_id = recall.get('station_id', 'station_1')
+
+        # Serve from cache if already built
+        RECALL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        cached_path = RECALL_CACHE_DIR / f"{station_id}_{order_id}.mp4"
+
+        if not cached_path.exists():
+            # Locate the frame directory
+            order_frame_dir = _find_order_frame_dir(station_id, order_id)
+            if not order_frame_dir:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"No frames found for order {order_id} — replay unavailable"
+                )
+
+            frame_files = _sorted_frames(order_frame_dir)
+            if not frame_files:
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Frame directory for order {order_id} is empty"
+                )
+
+            # Read first frame to get video dimensions
+            first_frame = cv2.imread(str(frame_files[0]))
+            if first_frame is None:
+                raise HTTPException(status_code=500, detail="Failed to read frames from disk")
+
+            height, width = first_frame.shape[:2]
+            fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+            writer = cv2.VideoWriter(str(cached_path), fourcc, REPLAY_FPS, (width, height))
+
+            for fp in frame_files:
+                frame = cv2.imread(str(fp))
+                if frame is not None:
+                    writer.write(frame)
+
+            writer.release()
+            logger.info(
+                f"[API] Replay MP4 built for order {order_id}: "
+                f"{len(frame_files)} frames → {cached_path}"
+            )
+
+        return FileResponse(
+            path=str(cached_path),
+            media_type="video/mp4",
+            filename=f"order_{order_id}_replay.mp4"
+        )
+
     return app
+
+
+# ── Private helpers ───────────────────────────────────────────────────────────
+
+def _find_order_frame_dir(station_id: str, order_id: str) -> Optional[Path]:
+    """Return the Path to the frame-selector debug folder for this order.
+
+    Tries {FRAME_SELECTOR_DIR}/{station_id}/{order_id} first (fast path).
+    Falls back to scanning all station subdirectories so the code stays
+    correct even if station_id stored in history differs from the folder name.
+    """
+    candidate = FRAME_SELECTOR_DIR / station_id / order_id
+    if candidate.exists():
+        return candidate
+
+    # Broader scan across all station dirs
+    if FRAME_SELECTOR_DIR.exists():
+        for station_dir in FRAME_SELECTOR_DIR.iterdir():
+            if station_dir.is_dir():
+                alt = station_dir / order_id
+                if alt.exists():
+                    logger.debug(
+                        f"[API] Found frames for order {order_id} in {alt} "
+                        f"(expected station_id={station_id})"
+                    )
+                    return alt
+
+    logger.warning(f"[API] No frame directory found for order {order_id}")
+    return None
+
+
+def _sorted_frames(order_dir: Path) -> List[Path]:
+    """Return JPEG files in order_dir sorted numerically by the number in the filename."""
+    files = [
+        f for f in order_dir.iterdir()
+        if f.suffix.lower() in ('.jpg', '.jpeg', '.png')
+    ]
+    return sorted(
+        files,
+        key=lambda f: int(re.search(r'(\d+)', f.stem).group(1))
+        if re.search(r'(\d+)', f.stem) else 0
+    )
 
 
 # Export for module-level imports
