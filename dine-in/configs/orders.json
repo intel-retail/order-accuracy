@@ -5,8 +5,8 @@
       "restaurant": "McDonald's",
       "table_number": "T12",
       "items_ordered": [
-        { "item": "Cheeseburger", "quantity": 1 },
-        { "item": "French Fries", "quantity": 1 }
+        { "item": "Filet-O-Fish", "quantity": 1 },
+        { "item": "Cheesy Fries", "quantity": 1 }
       ],
       "order_id": "MCD-1001"
     },
@@ -15,8 +15,9 @@
       "restaurant": "McDonald's",
       "table_number": "T18",
       "items_ordered": [
-        { "item": "McChicken", "quantity": 1 },
-        { "item": "Chicken Nuggets", "quantity": 6 }
+        { "item": "Cheeseburger", "quantity": 1 },
+        { "item": "Veg Burger", "quantity": 1 },
+        { "item": "Soft Drink", "quantity": 1 }
       ],
       "order_id": "MCD-1002"
     },
@@ -25,9 +26,8 @@
       "restaurant": "McDonald's",
       "table_number": "T25",
       "items_ordered": [
-        { "item": "Chicken Burger", "quantity": 1 },
-        { "item": "Veg Burger", "quantity": 1 },
-        { "item": "Soft Drink", "quantity": 1 }
+        { "item": "Filet-O-Fish", "quantity": 1 },
+        { "item": "Cheesy Fries", "quantity": 1 }
       ],
       "order_id": "MCD-1003"
     },
@@ -36,8 +36,8 @@
       "restaurant": "McDonald's",
       "table_number": "T31",
       "items_ordered": [
-        { "item": "Filet-O-Fish", "quantity": 1 },
-        { "item": "Cheesy Fries", "quantity": 1 }
+        { "item": "Chicken Nuggets", "quantity": 1 },
+        { "item": "McChicken", "quantity": 1 }
       ],
       "order_id": "MCD-1004"
     }

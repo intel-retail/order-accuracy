@@ -17,6 +17,7 @@ CONCURRENCY_MAX ?= 10
 REQUESTS_PER_LEVEL ?= 10
 REQUEST_TIMEOUT ?= 30
 RESULTS_DIR ?= results
+METRICS_DIR ?= metrics
 OOM_PROTECTION ?= 1
 
 # Performance tools path
@@ -548,7 +549,8 @@ consolidate-metrics: ## Consolidate metrics from multiple benchmark runs
 		. venv/bin/activate && \
 		pip3 install -r requirements.txt && \
 		python3 consolidate_multiple_run_of_metrics.py \
-			--results_dir $(CURDIR)/$(RESULTS_DIR); \
+			--root_directory $(CURDIR)/$(RESULTS_DIR) \
+			--output $(CURDIR)/$(RESULTS_DIR)/consolidated_metrics.csv; \
 		deactivate \
 	)
 
@@ -561,8 +563,10 @@ plot-metrics: ## Generate plots from benchmark metrics
 		python3 -m venv venv && \
 		. venv/bin/activate && \
 		pip3 install -r requirements.txt && \
+		python3 parse_qmassa_metrics_to_json.py \
+			--directory $(CURDIR)/$(METRICS_DIR) && \
 		python3 usage_graph_plot.py \
-			--results_dir $(CURDIR)/$(RESULTS_DIR); \
+			--dir $(CURDIR)/$(METRICS_DIR); \
 		deactivate \
 	)
 
