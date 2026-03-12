@@ -17,6 +17,7 @@ CONCURRENCY_MAX ?= 10
 REQUESTS_PER_LEVEL ?= 10
 REQUEST_TIMEOUT ?= 30
 RESULTS_DIR ?= results
+METRICS_DIR ?= metrics
 OOM_PROTECTION ?= 1
 
 # Performance tools path
@@ -30,6 +31,31 @@ BENCHMARK_DENSITY_INCREMENT ?= 1
 BENCHMARK_MIN_REQUESTS ?= 3
 BENCHMARK_REQUEST_TIMEOUT ?= 300
 BENCHMARK_API_ENDPOINT ?= http://localhost:8083
+
+# Short-name aliases (documented in get-started.md)
+# Allows: make benchmark-density TARGET_LATENCY_MS=15000 LATENCY_METRIC=max
+# Both forms are equivalent; BENCHMARK_* takes precedence if both are set.
+ifdef TARGET_LATENCY_MS
+BENCHMARK_TARGET_LATENCY_MS := $(TARGET_LATENCY_MS)
+endif
+ifdef LATENCY_METRIC
+BENCHMARK_LATENCY_METRIC := $(LATENCY_METRIC)
+endif
+ifdef DENSITY_INCREMENT
+BENCHMARK_DENSITY_INCREMENT := $(DENSITY_INCREMENT)
+endif
+ifdef INIT_DURATION
+BENCHMARK_INIT_DURATION := $(INIT_DURATION)
+endif
+ifdef MIN_REQUESTS
+BENCHMARK_MIN_REQUESTS := $(MIN_REQUESTS)
+endif
+ifdef REQUEST_TIMEOUT
+BENCHMARK_REQUEST_TIMEOUT := $(REQUEST_TIMEOUT)
+endif
+ifdef API_ENDPOINT
+BENCHMARK_API_ENDPOINT := $(API_ENDPOINT)
+endif
 
 # Docker compose file
 COMPOSE_FILE ?= docker-compose.yml
@@ -320,36 +346,46 @@ benchmark-single: ## Test with specific image via API (IMAGE_ID=MCD-1001)
 	fi
 	@echo "Testing image: $(IMAGE_ID)"
 	@bash -c '\
-		IMAGE_FILE=""; \
-		for EXT in jpg jpeg png; do \
-			if [ -f "images/$(IMAGE_ID).$$EXT" ]; then \
-				IMAGE_FILE="images/$(IMAGE_ID).$$EXT"; \
-				break; \
-			fi; \
-		done; \
-		if [ -z "$$IMAGE_FILE" ]; then \
-			echo "$(RED)Error: No image found for $(IMAGE_ID) (tried .jpg, .jpeg, .png)$(NC)"; \
-			exit 1; \
-		fi; \
-		ORDER_JSON=$$(jq -c ".orders[] | select(.image_id == \"$(IMAGE_ID)\")" configs/orders.json); \
-		if [ -z "$$ORDER_JSON" ]; then \
-			echo "$(RED)Error: Order not found for $(IMAGE_ID)$(NC)"; \
-			exit 1; \
-		fi; \
-		ORDER_MANIFEST=$$(echo $$ORDER_JSON | jq -c "{items: [.items_ordered[] | {name: .item, quantity: .quantity}]}"); \
-		echo "Order: $$ORDER_MANIFEST" | jq .; \
-		echo ""; \
-		START_TIME=$$(date +%s%3N); \
-		RESPONSE=$$(curl -s -X POST $(BENCHMARK_API_ENDPOINT)/api/validate \
-			-F "image=@$$IMAGE_FILE" \
-			-F "order=$$ORDER_MANIFEST"); \
-		END_TIME=$$(date +%s%3N); \
-		LATENCY=$$((END_TIME - START_TIME)); \
-		echo "=== Response ==="; \
-		echo "$$RESPONSE" | jq .; \
-		echo ""; \
-		echo "$(GREEN)Latency: $${LATENCY}ms$(NC)"; \
-	'
+                RED="\033[0;31m"; GREEN="\033[0;32m"; NC="\033[0m"; \
+                IMAGE_FILE=""; \
+                for EXT in jpg jpeg png; do \
+                        if [ -f "images/$(IMAGE_ID).$$EXT" ]; then \
+                                IMAGE_FILE="images/$(IMAGE_ID).$$EXT"; \
+                                break; \
+                        fi; \
+                done; \
+                if [ -z "$$IMAGE_FILE" ]; then \
+                        printf "$${RED}Error: No image found for $(IMAGE_ID) (tried .jpg, .jpeg, .png)$${NC}\n"; \
+                        exit 1; \
+                fi; \
+                ORDER_JSON=$$(jq -c ".orders[] | select(.image_id == \"$(IMAGE_ID)\")" configs/orders.json); \
+                if [ -z "$$ORDER_JSON" ]; then \
+                        printf "$${RED}Error: Order not found for $(IMAGE_ID)$${NC}\n"; \
+                        exit 1; \
+                fi; \
+                ORDER_MANIFEST=$$(echo $$ORDER_JSON | jq -c "{items: [.items_ordered[] | {name: .item, quantity: .quantity}]}"); \
+                echo "Order:"; \
+                echo "$$ORDER_MANIFEST" | jq . 2>/dev/null || echo "$$ORDER_MANIFEST"; \
+                echo ""; \
+                START_TIME=$$(date +%s%3N); \
+                RESPONSE=$$(curl -s -w "\n__HTTP_STATUS__:%{http_code}" \
+                        -X POST $(BENCHMARK_API_ENDPOINT)/api/validate \
+                        -F "image=@$$IMAGE_FILE" \
+                        -F "order=$$ORDER_MANIFEST"); \
+                HTTP_STATUS=$$(echo "$$RESPONSE" | grep "__HTTP_STATUS__" | cut -d: -f2); \
+                BODY=$$(echo "$$RESPONSE" | sed "s/__HTTP_STATUS__:.*//"); \
+                END_TIME=$$(date +%s%3N); \
+                LATENCY=$$((END_TIME - START_TIME)); \
+                echo "=== Response (HTTP $$HTTP_STATUS) ==="; \
+                if echo "$$BODY" | jq . 2>/dev/null; then \
+                        : ; \
+                else \
+                        printf "$${RED}Warning: Response is not valid JSON$${NC}\n"; \
+                        echo "Raw response: $$BODY"; \
+                fi; \
+                echo ""; \
+                printf "$${GREEN}Latency: $${LATENCY}ms$${NC}\n"; \
+        '
 
 benchmark:
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
@@ -513,7 +549,8 @@ consolidate-metrics: ## Consolidate metrics from multiple benchmark runs
 		. venv/bin/activate && \
 		pip3 install -r requirements.txt && \
 		python3 consolidate_multiple_run_of_metrics.py \
-			--results_dir $(CURDIR)/$(RESULTS_DIR); \
+			--root_directory $(CURDIR)/$(RESULTS_DIR) \
+			--output $(CURDIR)/$(RESULTS_DIR)/consolidated_metrics.csv; \
 		deactivate \
 	)
 
@@ -526,8 +563,10 @@ plot-metrics: ## Generate plots from benchmark metrics
 		python3 -m venv venv && \
 		. venv/bin/activate && \
 		pip3 install -r requirements.txt && \
+		python3 parse_qmassa_metrics_to_json.py \
+			--directory $(CURDIR)/$(METRICS_DIR) && \
 		python3 usage_graph_plot.py \
-			--results_dir $(CURDIR)/$(RESULTS_DIR); \
+			--dir $(CURDIR)/$(METRICS_DIR); \
 		deactivate \
 	)
 

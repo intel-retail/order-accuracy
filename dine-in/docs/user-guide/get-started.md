@@ -165,15 +165,17 @@ For stream density and performance testing, configure these variables:
 # =============================================================================
 # Stream Density Benchmarking
 # =============================================================================
-TARGET_LATENCY_MS=15000      # Target latency threshold (ms)
-LATENCY_METRIC=avg           # 'avg', 'p95', or 'max'
-DENSITY_INCREMENT=1          # Concurrent images per iteration
-INIT_DURATION=60             # Warmup time (seconds)
-MIN_REQUESTS=3               # Min requests before measuring
-REQUEST_TIMEOUT=300          # Individual request timeout (seconds)
-API_ENDPOINT=http://localhost:8083
+BENCHMARK_TARGET_LATENCY_MS=15000      # Target latency threshold (ms)
+BENCHMARK_LATENCY_METRIC=avg           # 'avg', 'p95', or 'max'
+BENCHMARK_DENSITY_INCREMENT=1          # Concurrent images per iteration
+BENCHMARK_INIT_DURATION=60             # Warmup time (seconds)
+BENCHMARK_MIN_REQUESTS=3               # Min requests before measuring
+BENCHMARK_REQUEST_TIMEOUT=300          # Individual request timeout (seconds)
+BENCHMARK_API_ENDPOINT=http://localhost:8083
 RESULTS_DIR=./results
 ```
+
+> **Note:** Short aliases without the `BENCHMARK_` prefix (e.g. `TARGET_LATENCY_MS`, `LATENCY_METRIC`) are also accepted as CLI overrides for convenience.
 
 > **Note:** CLI arguments override environment variables. See [Benchmark Configuration](#stream-density-configuration) for detailed usage.
 
@@ -324,6 +326,8 @@ curl -X POST "http://localhost:8083/api/validate" \
 
 ### Option 3: Using Make Target
 
+> **Prerequisite:** Services must be running (`make up`) before using this command.
+
 ```bash
 # Quick single image test (IMAGE_ID from configs/orders.json)
 make benchmark-single IMAGE_ID=MCD-1001
@@ -344,6 +348,8 @@ make update-submodules
 ### Quick Single Image Test
 
 For a quick validation test with a single image:
+
+> **Prerequisite:** Services must be running. If not already started, run `make up` first.
 
 ```bash
 # IMAGE_ID must match an entry in configs/orders.json and a file in images/
@@ -384,27 +390,32 @@ make benchmark-density
 
 All benchmark parameters can be configured via **environment variables** or **CLI arguments**. CLI arguments take precedence.
 
-| Environment Variable | CLI Argument | Default | Description |
-|---------------------|--------------|---------|-------------|
-| `TARGET_LATENCY_MS` | `--target_latency_ms` | 15000 | Target latency threshold (ms) |
-| `LATENCY_METRIC` | `--latency_metric` | avg | Metric: `avg`, `p95`, or `max` |
-| `DENSITY_INCREMENT` | `--density_increment` | 1 | Concurrent images per iteration |
-| `INIT_DURATION` | `--init_duration` | 60 | Warmup time per iteration (s) |
-| `MIN_REQUESTS` | `--min_requests` | 3 | Min requests before measuring |
-| `REQUEST_TIMEOUT` | `--request_timeout` | 300 | Request timeout (seconds) |
-| `API_ENDPOINT` | `--api_endpoint` | http://localhost:8083 | API URL |
-| `RESULTS_DIR` | `--results_dir` | ./results | Output directory |
+| Make Variable | Short Alias | CLI Argument | Default | Description |
+|--------------|-------------|--------------|---------|-------------|
+| `BENCHMARK_TARGET_LATENCY_MS` | `TARGET_LATENCY_MS` | `--target_latency_ms` | 25000 | Target latency threshold (ms) |
+| `BENCHMARK_LATENCY_METRIC` | `LATENCY_METRIC` | `--latency_metric` | avg | Metric: `avg`, `p95`, or `max` |
+| `BENCHMARK_DENSITY_INCREMENT` | `DENSITY_INCREMENT` | `--density_increment` | 1 | Concurrent images per iteration |
+| `BENCHMARK_INIT_DURATION` | `INIT_DURATION` | `--init_duration` | 60 | Warmup time per iteration (s) |
+| `BENCHMARK_MIN_REQUESTS` | `MIN_REQUESTS` | `--min_requests` | 3 | Min requests before measuring |
+| `BENCHMARK_REQUEST_TIMEOUT` | `REQUEST_TIMEOUT` | `--request_timeout` | 300 | Request timeout (seconds) |
+| `BENCHMARK_API_ENDPOINT` | `API_ENDPOINT` | `--api_endpoint` | http://localhost:8083 | API URL |
+| `RESULTS_DIR` | — | `--results_dir` | ./results | Output directory |
+
+> Both the full `BENCHMARK_*` name and the short alias work interchangeably on the `make` command line. `BENCHMARK_*` takes precedence if both are supplied.
 
 **Using Environment Variables:**
 
 ```bash
 # Set in .env file or export directly
-export TARGET_LATENCY_MS=20000
-export DENSITY_INCREMENT=2
-export LATENCY_METRIC=p95
+export BENCHMARK_TARGET_LATENCY_MS=20000
+export BENCHMARK_DENSITY_INCREMENT=2
+export BENCHMARK_LATENCY_METRIC=p95
 
 # Run benchmark (uses env vars)
 make benchmark-density
+
+# Short aliases also work on the CLI:
+make benchmark-density TARGET_LATENCY_MS=20000 DENSITY_INCREMENT=2 LATENCY_METRIC=p95
 ```
 
 **Using CLI Arguments (override env vars):**
