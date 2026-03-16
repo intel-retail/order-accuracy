@@ -285,6 +285,7 @@ make benchmark-density-results  # View density benchmark results
 
 ```bash
 cd take-away
+make init-env               # Create .env from template
 make build                  # Build Docker images
 make up                     # Start (single mode)
 make up-parallel WORKERS=4  # Start (parallel mode)
@@ -292,9 +293,12 @@ make down                   # Stop services
 make logs                   # View logs
 make update-submodules      # Initialize performance-tools (required before benchmarking)
 make benchmark              # Run Order Accuracy benchmark
-make benchmark-oa-density   # Stream density test (latency-based)
-make benchmark-oa-results   # View benchmark results
+make benchmark-stream-density  # Stream density test (latency-based)
+make consolidate-metrics    # Consolidate benchmark metrics to CSV
+make plot-metrics           # Generate plots from benchmark metrics
 ```
+
+> **Note**: Before running benchmarks, ensure a test video is present at `storage/videos/test.mp4`. Use `make download-sample-video` to fetch one.
 
 ---
 
