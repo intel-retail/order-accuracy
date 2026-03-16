@@ -28,7 +28,7 @@ frame_queue = queue.Queue(maxsize=5)  # Buffer for smooth streaming
 # Global processing state
 is_processing = False
 
-APP_TITLE = "📦 Take-Away Order Accuracy"
+APP_TITLE = "Take-Away Order Accuracy"
 APP_DESCRIPTION = "AI-powered order validation for take-away operations"
 
 # Intel Brand CSS (matching dine-in styling)
@@ -37,7 +37,7 @@ CUSTOM_CSS = """
 :root {
     --primary-500: #0071C5 !important;
     --primary-600: #005A9E !important;
-    --primary-700: #00285A !important;
+    --primary-700: #0258b5 !important;
     --neutral-50: #f8fafc;
     --neutral-100: #f1f5f9;
     --neutral-200: #e2e8f0;
@@ -77,7 +77,7 @@ a[href*="gradio.app"] {
 
 /* Header Banner - Intel Blue */
 .header-banner {
-    background: linear-gradient(135deg, #0071C5 0%, #00285A 100%);
+    background: linear-gradient(135deg, #0071C5 0%, #0258b5 100%);
     color: white;
     padding: 28px 40px;
     border-radius: 12px;
@@ -125,7 +125,7 @@ a[href*="gradio.app"] {
 
 /* Primary Button - Intel Blue */
 .primary-btn {
-    background: linear-gradient(135deg, #0071C5 0%, #00285A 100%) !important;
+    background: linear-gradient(135deg, #0071C5 0%, #0258b5 100%) !important;
     border: none !important;
     border-radius: 10px !important;
     font-weight: 600 !important;
@@ -158,7 +158,7 @@ a[href*="gradio.app"] {
 }
 
 .video-history-header {
-    background: linear-gradient(135deg, #0071C5 0%, #00285A 100%);
+    background: linear-gradient(135deg, #0071C5 0%, #0258b5 100%);
     color: white;
     padding: 14px 20px;
     cursor: pointer;
@@ -183,7 +183,7 @@ a[href*="gradio.app"] {
     padding: 12px 15px;
     text-align: left;
     font-weight: 600;
-    color: #00285A;
+    color: #0258b5;
     font-size: 13px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
@@ -233,7 +233,7 @@ a[href*="gradio.app"] {
 /* Section Headers */
 .section-header {
     font-weight: 600;
-    color: #00285A;
+    color: #0258b5;
     font-size: 14px;
     margin-bottom: 10px;
 }
@@ -241,7 +241,7 @@ a[href*="gradio.app"] {
 /* Footer */
 .footer-info {
     text-align: center;
-    color: #00285A;
+    color: #0258b5;
     font-size: 13px;
     padding: 20px;
     border-top: 2px solid #E6F3FB;
@@ -393,11 +393,11 @@ def start_smooth_stream(rtsp_url):
                 current_time = time.time()
                 if current_time - last_update >= 1.0:
                     fps = fps_counter / (current_time - last_update)
-                    status = f"✅ Frame {frame_count} - Smooth stream active ({fps:.1f} FPS)"
+                    status = f"Frame {frame_count} - Smooth stream active ({fps:.1f} FPS)"
                     fps_counter = 0
                     last_update = current_time
                 else:
-                    status = f"✅ Frame {frame_count} - Smooth stream active"
+                    status = f"Frame {frame_count} - Smooth stream active"
                 
                 yield frame, status
                 
@@ -463,7 +463,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
         initial_stats = fetch_statistics()
         initial_processed = initial_stats.get("total_processed", 0) if initial_stats else 0
         
-        progress(0.1, desc="📤 Uploading video...")
+        progress(0.1, desc="Uploading video...")
         
         with open(file.name, "rb") as f:
             resp = _api.post(
@@ -474,7 +474,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
 
         if resp.status_code != 200:
             is_processing = False
-            return f"❌ Upload failed: {resp.text}", gr.update(interactive=True, value="🚀 Upload & Start Processing")
+            return f"❌ Upload failed: {resp.text}", gr.update(interactive=True, value="Upload & Start Processing")
 
         data = resp.json()
         video_id = data.get('video_id', 'unknown')
@@ -505,11 +505,11 @@ def upload_video_with_progress(file, progress=gr.Progress()):
                 if orders_completed > 0:
                     # Bump progress when orders complete
                     order_progress = min(0.9, time_progress + 0.1 * orders_completed)
-                    progress(order_progress, desc=f"🔄 {orders_completed} order(s) detected")
+                    progress(order_progress, desc=f"{orders_completed} order(s) detected")
                 else:
-                    progress(time_progress, desc=f"🔍 Analyzing video...")
+                    progress(time_progress, desc=f"Analyzing video...")
             else:
-                progress(time_progress, desc=f"🔄 Processing...")
+                progress(time_progress, desc=f"Processing...")
             
             # Check if results are available
             results = fetch_results()
@@ -522,7 +522,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
                 results = fetch_results()
                 break
         
-        progress(1.0, desc="✅ Processing complete!")
+        progress(1.0, desc="Processing complete!")
         
         # Mark video as completed via API
         try:
@@ -543,12 +543,12 @@ def upload_video_with_progress(file, progress=gr.Progress()):
         mismatch = stats.get("total_mismatch", 0) if stats else 0
         
         return (
-            f"✅ Video processed successfully\n"
+            f"Video processed successfully\n"
             f"Video: {video_name}\n"
             f"Time: {upload_time}\n"
             f"Orders detected: {len(session_results)}\n"
             f"Validated: {validated} | Mismatch: {mismatch}",
-            gr.update(interactive=True, value="🚀 Upload & Start Processing")
+            gr.update(interactive=True, value="Upload & Start Processing")
         )
 
     except Exception as e:
@@ -559,7 +559,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
                 _api.post(f"{API_BASE}/videos/{video_id}/fail?error={str(e)}", timeout=5)
             except:
                 pass
-        return f"❌ Upload error: {e}", gr.update(interactive=True, value="🚀 Upload & Start Processing")
+        return f"Upload error: {e}", gr.update(interactive=True, value="Upload & Start Processing")
 
 def generate_validation_summary(results):
     """Generate validation summary from results"""
@@ -623,10 +623,10 @@ def start_rtsp_processing(rtsp_url):
         data = resp.json()
         video_id = data.get("video_id", "")
         return (
-            f"✅ RTSP pipeline started\n"
+            f"RTSP pipeline started\n"
             f"Source: {rtsp_url}\n"
             f"Video ID: {video_id}\n"
-            f"Results will appear in the '📊 Detected Orders' tab."
+            f"Results will appear in the 'Detected Orders' tab."
         )
 
     except Exception as e:
@@ -663,24 +663,24 @@ def format_validation_summary_table(results):
     <table class="validation-table" style="width: 100%; border-collapse: collapse; margin-top: 12px;">
         <thead>
             <tr>
-                <th style="background: #E6F3FB; padding: 12px 15px; text-align: left; font-weight: 600; color: #00285A; font-size: 13px;">Metric</th>
-                <th style="background: #E6F3FB; padding: 12px 15px; text-align: center; font-weight: 600; color: #00285A; font-size: 13px;">Count</th>
-                <th style="background: #E6F3FB; padding: 12px 15px; text-align: center; font-weight: 600; color: #00285A; font-size: 13px;">Percentage</th>
+                <th style="background: #E6F3FB; padding: 12px 15px; text-align: left; font-weight: 600; color: #0258b5; font-size: 13px;">Metric</th>
+                <th style="background: #E6F3FB; padding: 12px 15px; text-align: center; font-weight: 600; color: #0258b5; font-size: 13px;">Count</th>
+                <th style="background: #E6F3FB; padding: 12px 15px; text-align: center; font-weight: 600; color: #0258b5; font-size: 13px;">Percentage</th>
             </tr>
         </thead>
         <tbody>
             <tr>
-                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef;">Total Orders</td>
-                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; text-align: center; font-weight: 600;">{total}</td>
-                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; text-align: center;">100%</td>
+                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; color: #1f2937;">Total Orders</td>
+                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; text-align: center; font-weight: 600; color: #1f2937;">{total}</td>
+                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; text-align: center; color: #1f2937;">100%</td>
             </tr>
             <tr>
-                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; color: #10b981;">✅ Validated</td>
+                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; color: #10b981;">Validated</td>
                 <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; text-align: center; font-weight: 600; color: #10b981;">{validated}</td>
                 <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; text-align: center; color: #10b981;">{validated/total*100:.1f}%</td>
             </tr>
             <tr>
-                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; color: #ef4444;">❌ Mismatch</td>
+                <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; color: #ef4444;">Mismatch</td>
                 <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; text-align: center; font-weight: 600; color: #ef4444;">{mismatch}</td>
                 <td style="padding: 10px 15px; border-bottom: 1px solid #e9ecef; text-align: center; color: #ef4444;">{mismatch/total*100:.1f}%</td>
             </tr>
@@ -726,8 +726,8 @@ def format_order_card(result):
         
         items_rows += f'''
         <tr>
-            <td style="padding: 8px 12px; border-bottom: 1px solid #e9ecef;">{name}</td>
-            <td style="padding: 8px 12px; border-bottom: 1px solid #e9ecef; text-align: center;">{qty}</td>
+            <td style="padding: 8px 12px; border-bottom: 1px solid #e9ecef; color: #1f2937;">{name}</td>
+            <td style="padding: 8px 12px; border-bottom: 1px solid #e9ecef; text-align: center; color: #1f2937;">{qty}</td>
             <td style="padding: 8px 12px; border-bottom: 1px solid #e9ecef; text-align: center; color: {item_color}; font-weight: 500;">{item_status}</td>
         </tr>
         '''
@@ -736,13 +736,13 @@ def format_order_card(result):
     validation_details = ""
     if missing:
         missing_items = ", ".join([f"{m.get('name', 'Unknown')} (×{m.get('quantity', 1)})" for m in missing])
-        validation_details += f'<div style="color: #ef4444; font-size: 13px; margin-top: 8px;">⚠️ Missing: {missing_items}</div>'
+        validation_details += f'<div style="color: #ef4444; font-size: 13px; margin-top: 8px;"> Missing: {missing_items}</div>'
     if extra:
         extra_items = ", ".join([f"{e.get('name', 'Unknown')} (×{e.get('quantity', 1)})" for e in extra])
-        validation_details += f'<div style="color: #f59e0b; font-size: 13px; margin-top: 4px;">➕ Extra: {extra_items}</div>'
+        validation_details += f'<div style="color: #f59e0b; font-size: 13px; margin-top: 4px;"> Extra: {extra_items}</div>'
     if qty_mismatch:
         qty_items = ", ".join([f"{q.get('name', 'Unknown')}" for q in qty_mismatch])
-        validation_details += f'<div style="color: #f59e0b; font-size: 13px; margin-top: 4px;">📊 Qty Mismatch: {qty_items}</div>'
+        validation_details += f'<div style="color: #f59e0b; font-size: 13px; margin-top: 4px;">Qty Mismatch: {qty_items}</div>'
     
     return f'''
     <div style="background: #f8fafc; border-radius: 8px; padding: 16px; margin-top: 12px; border-left: 4px solid {status_color};">
@@ -818,7 +818,7 @@ def format_history_html():
         
         # Status badge for video
         if status == "processing":
-            video_status = '<span style="background: #e0f2fe; color: #0284c7; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-right: 8px;">⏳ Processing</span>'
+            video_status = '<span style="background: #e0f2fe; color: #0284c7; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-right: 8px;">Processing</span>'
         elif status == "completed":
             video_status = '<span style="background: #d1fae5; color: #10b981; padding: 4px 10px; border-radius: 12px; font-size: 11px; font-weight: 600; margin-right: 8px;">✓ Completed</span>'
         elif status == "failed":
@@ -848,9 +848,9 @@ def format_history_html():
         # Use Gradio accordion-compatible structure
         html_parts.append(f'''
         <details style="background: white; border-radius: 12px; border: 1px solid #e2e8f0; margin-bottom: 16px; overflow: hidden;">
-            <summary style="background: linear-gradient(135deg, #0071C5 0%, #00285A 100%); color: white; padding: 14px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none;">
+            <summary style="background: linear-gradient(135deg, #0071C5 0%, #0258b5 100%); color: white; padding: 14px 20px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; list-style: none;">
                 <div>
-                    <div style="font-weight: 600; font-size: 15px;">📹 {video_name}</div>
+                    <div style="font-weight: 600; font-size: 15px;">{video_name}</div>
                     <div style="font-size: 12px; opacity: 0.9; margin-top: 4px;">{timestamp}</div>
                 </div>
                 <div style="display: flex; align-items: center; gap: 10px;">
@@ -859,10 +859,10 @@ def format_history_html():
                 </div>
             </summary>
             <div style="padding: 20px;">
-                <div style="font-weight: 600; color: #00285A; margin-bottom: 8px; font-size: 14px;">📊 Validation Summary</div>
+                <div style="font-weight: 600; color: #0258b5; margin-bottom: 8px; font-size: 14px;">Validation Summary</div>
                 {summary_table if summary_table else '<div style="color: #6b7280; font-size: 13px;">No results available</div>'}
                 
-                <div style="font-weight: 600; color: #00285A; margin: 20px 0 8px 0; font-size: 14px;">🧾 Order Details</div>
+                <div style="font-weight: 600; color: #0258b5; margin: 20px 0 8px 0; font-size: 14px;">Order Details</div>
                 {order_cards if order_cards else '<div style="color: #6b7280; font-size: 13px;">No orders detected</div>'}
             </div>
         </details>
@@ -910,12 +910,12 @@ def format_detected_orders():
         rows.append([
             order_id,
             "\n".join(item_lines) if item_lines else "No items",
-            "✅ VALIDATED" if status == "validated" else "❌ MISMATCH"
+            "✅ VALIDATED" if status == "validated" else "MISMATCH"
         ])
 
         summaries.append(
             f"### Order {order_id}\n"
-            f"- Status: {'✅ VALIDATED' if status == 'validated' else '❌ MISMATCH'}\n"
+            f"- Status: {'✅ VALIDATED' if status == 'validated' else 'MISMATCH'}\n"
             f"- Missing: {missing or 'None'}\n"
             f"- Extra: {extra or 'None'}\n"
             f"- Quantity Mismatch: {qty_mismatch or 'None'}"
@@ -990,35 +990,35 @@ def format_recall_card(order_id, result, upload_time, completed_time, source, fr
     mismatch_detail = ''
     if missing:
         items_str = ', '.join(f"{m.get('name','?')} ×{m.get('quantity',1)}" for m in missing)
-        mismatch_detail += f'<div style="color:#ef4444;font-size:13px;margin-top:6px;">⚠️ Missing: {items_str}</div>'
+        mismatch_detail += f'<div style="color:#ef4444;font-size:13px;margin-top:6px;">Missing: {items_str}</div>'
     if extra:
         items_str = ', '.join(f"{e.get('name','?')} ×{e.get('quantity',1)}" for e in extra)
-        mismatch_detail += f'<div style="color:#f59e0b;font-size:13px;margin-top:4px;">➕ Extra: {items_str}</div>'
+        mismatch_detail += f'<div style="color:#f59e0b;font-size:13px;margin-top:4px;">Extra: {items_str}</div>'
     if qty_mismatch:
         items_str = ', '.join(q.get('name', '?') for q in qty_mismatch)
-        mismatch_detail += f'<div style="color:#f59e0b;font-size:13px;margin-top:4px;">📊 Qty Mismatch: {items_str}</div>'
+        mismatch_detail += f'<div style="color:#f59e0b;font-size:13px;margin-top:4px;">Qty Mismatch: {items_str}</div>'
     if not mismatch_detail:
-        mismatch_detail = '<div style="color:#10b981;font-size:13px;margin-top:6px;">✅ No mismatches</div>'
+        mismatch_detail = '<div style="color:#10b981;font-size:13px;margin-top:6px;">No mismatches</div>'
 
     # ── Meta row (source, timing, frames) ────────────────────────────────────
     meta_items = []
     if upload_time:
-        meta_items.append(f'<span>🕐 Processed: <strong>{upload_time}</strong></span>')
+        meta_items.append(f'<span>Processed: <strong>{upload_time}</strong></span>')
     if source:
-        meta_items.append(f'<span>📂 Source: <strong>{source}</strong></span>')
+        meta_items.append(f'<span>Source: <strong>{source}</strong></span>')
     if inference_time:
-        meta_items.append(f'<span>⚡ Inference: <strong>{inference_time:.1f}s</strong></span>')
+        meta_items.append(f'<span>Inference: <strong>{inference_time:.1f}s</strong></span>')
     if num_frames:
-        meta_items.append(f'<span>🎞️ Frames: <strong>{num_frames}</strong></span>')
+        meta_items.append(f'<span>Frames: <strong>{num_frames}</strong></span>')
     meta_html = '&nbsp;&nbsp;|&nbsp;&nbsp;'.join(meta_items)
 
     return f'''
     <div style="background:white;border-radius:12px;border:1px solid #e2e8f0;overflow:hidden;">
 
         <!-- Header -->
-        <div style="background:linear-gradient(135deg,#0071C5 0%,#00285A 100%);color:white;
+        <div style="background:linear-gradient(135deg,#0071C5 0%,#0258b5 100%);color:white;
                     padding:16px 20px;display:flex;justify-content:space-between;align-items:center;">
-            <div style="font-weight:700;font-size:18px;">🧾 Order #{order_id}</div>
+            <div style="font-weight:700;font-size:18px;">Order #{order_id}</div>
             <span style="background:{status_bg};color:{status_color};padding:5px 14px;
                          border-radius:20px;font-size:13px;font-weight:700;">
                 {status_icon} {status_text}
@@ -1033,28 +1033,28 @@ def format_recall_card(order_id, result, upload_time, completed_time, source, fr
         <div style="padding:16px 20px;">
 
             <!-- Expected items -->
-            <div style="font-weight:600;color:#00285A;font-size:13px;margin-bottom:6px;">📋 Expected Items</div>
+            <div style="font-weight:600;color:#0258b5;font-size:13px;margin-bottom:6px;">Expected Items</div>
             <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
                 <thead><tr style="background:#E6F3FB;">
-                    <th style="padding:8px 12px;text-align:left;color:#00285A;">Item</th>
-                    <th style="padding:8px 12px;text-align:center;color:#00285A;">Qty</th>
+                    <th style="padding:8px 12px;text-align:left;color:#0258b5;">Item</th>
+                    <th style="padding:8px 12px;text-align:center;color:#0258b5;">Qty</th>
                 </tr></thead>
                 <tbody>{exp_rows if exp_rows else "<tr><td colspan=2 style='padding:10px;text-align:center;color:#6b7280;'>No expected items</td></tr>"}</tbody>
             </table>
 
             <!-- Detected items -->
-            <div style="font-weight:600;color:#00285A;font-size:13px;margin-bottom:6px;">🔎 Detected Items</div>
+            <div style="font-weight:600;color:#0258b5;font-size:13px;margin-bottom:6px;">Detected Items</div>
             <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px;">
                 <thead><tr style="background:#E6F3FB;">
-                    <th style="padding:8px 12px;text-align:left;color:#00285A;">Item</th>
-                    <th style="padding:8px 12px;text-align:center;color:#00285A;">Qty</th>
-                    <th style="padding:8px 12px;text-align:center;color:#00285A;">Status</th>
+                    <th style="padding:8px 12px;text-align:left;color:#0258b5;">Item</th>
+                    <th style="padding:8px 12px;text-align:center;color:#0258b5;">Qty</th>
+                    <th style="padding:8px 12px;text-align:center;color:#0258b5;">Status</th>
                 </tr></thead>
                 <tbody>{det_rows if det_rows else "<tr><td colspan=3 style='padding:10px;text-align:center;color:#6b7280;'>No items detected</td></tr>"}</tbody>
             </table>
 
             <!-- Mismatch summary -->
-            <div style="font-weight:600;color:#00285A;font-size:13px;margin-bottom:4px;">📊 Validation Summary</div>
+            <div style="font-weight:600;color:#0258b5;font-size:13px;margin-bottom:4px;">Validation Summary</div>
             <div style="background:#f8fafc;border-radius:8px;padding:10px 14px;border-left:4px solid {border_color};">
                 {mismatch_detail}
             </div>
@@ -1194,21 +1194,21 @@ with gr.Blocks(
         # ======================
         # FILE UPLOAD TAB
         # ======================
-        with gr.TabItem("📁 Upload Video"):
+        with gr.TabItem("Upload Video"):
             gr.HTML('<div style="height: 8px;"></div>')
             
             with gr.Row():
                 with gr.Column(scale=2):
                     upload_file = gr.File(
-                        label="📹 Select Video File",
+                        label="Select Video File",
                         file_types=[".mp4", ".avi", ".mkv", ".mov"],
                         elem_classes=["card-panel"]
                     )
                 
                 with gr.Column(scale=1):
-                    gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">🎬 Upload Controls</div>')
+                    gr.HTML('<div style="font-weight: 600; color: #0251b5; margin-bottom: 10px; font-size: 15px;">Upload Controls</div>')
                     upload_btn = gr.Button(
-                        "🚀 Upload & Start Processing",
+                        "Upload & Start Processing",
                         variant="primary",
                         elem_classes=["primary-btn"],
                         size="lg",
@@ -1229,7 +1229,7 @@ with gr.Blocks(
 
             # Connect upload function with button state management
             upload_btn.click(
-                fn=lambda: gr.update(interactive=False, value="⏳ Processing..."),
+                fn=lambda: gr.update(interactive=False, value="Processing..."),
                 outputs=upload_btn
             ).then(
                 fn=upload_video_with_progress,
@@ -1241,7 +1241,7 @@ with gr.Blocks(
         # ======================
         # RTSP STREAM TAB
         # ======================
-        with gr.TabItem("📡 RTSP Stream"):
+        with gr.TabItem("RTSP Stream"):
             gr.HTML('<div style="height: 8px;"></div>')
 
             # ── Row 1: Mode badge ──────────────────────────────────────────
@@ -1257,7 +1257,7 @@ with gr.Blocks(
             with gr.Row():
                 # Left column: Controls
                 with gr.Column(scale=1):
-                    gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">🔗 Stream Configuration</div>')
+                    gr.HTML('<div style="font-weight: 600; color: #0258b5; margin-bottom: 10px; font-size: 15px;">Stream Configuration</div>')
                     rtsp_url = gr.Textbox(
                         label="RTSP URL",
                         placeholder="rtsp://rtsp-streamer:8554/station_1",
@@ -1265,21 +1265,21 @@ with gr.Blocks(
                     )
 
                     gr.HTML('<div style="height: 16px;"></div>')
-                    gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">🎥 Stream Controls</div>')
+                    gr.HTML('<div style="font-weight: 600; color: #0258b5; margin-bottom: 10px; font-size: 15px;">Stream Controls</div>')
 
                     with gr.Row():
-                        stream_start_btn = gr.Button("▶️ Start Preview", variant="primary", elem_classes=["primary-btn"])
-                        stream_stop_btn = gr.Button("⏹️ Stop", variant="secondary")
+                        stream_start_btn = gr.Button("Start Preview", variant="primary", elem_classes=["primary-btn"])
+                        stream_stop_btn = gr.Button("Stop", variant="secondary")
 
                     gr.HTML('<div style="height: 16px;"></div>')
-                    gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">🔄 Processing Pipeline</div>')
-                    process_btn = gr.Button("🚀 Start Processing", variant="primary", elem_classes=["primary-btn"])
+                    gr.HTML('<div style="font-weight: 600; color: #0258b5; margin-bottom: 10px; font-size: 15px;">Processing Pipeline</div>')
+                    process_btn = gr.Button("Start Processing", variant="primary", elem_classes=["primary-btn"])
 
                     processing_status = gr.Textbox(label="Pipeline Status", lines=2, interactive=False)
 
                 # Right column: Stream display
                 with gr.Column(scale=2):
-                    gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">📺 Live Stream Preview</div>')
+                    gr.HTML('<div style="font-weight: 600; color: #0258b5; margin-bottom: 10px; font-size: 15px;">Live Stream Preview</div>')
                     stream_image = gr.Image(
                         label="",
                         width=None,
@@ -1297,10 +1297,10 @@ with gr.Blocks(
                 mode = info.get('service_mode', 'unknown')
                 workers = info.get('workers', 1)
                 if mode == 'parallel':
-                    return f"⚡ Parallel mode — {workers} station(s) running. 'Start Processing' will show station status."
+                    return f"Parallel mode — {workers} station(s) running. 'Start Processing' will show station status."
                 elif mode == 'single':
-                    return "🔵 Single mode — 'Start Processing' will launch a new GStreamer pipeline for this URL."
-                return f"⚠️  Mode unknown ({mode})"
+                    return "Single mode — 'Start Processing' will launch a new GStreamer pipeline for this URL."
+                return f"Mode unknown ({mode})"
 
             demo.load(fn=_load_mode_status, inputs=None, outputs=[mode_status])
 
@@ -1325,10 +1325,10 @@ with gr.Blocks(
         # ======================
         # RESULTS TAB - History View
         # ======================
-        with gr.TabItem("📊 Detected Orders"):
+        with gr.TabItem("Detected Orders"):
             gr.HTML('<div style="height: 8px;"></div>')
             
-            gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">📜 Video Processing History</div>')
+            gr.HTML('<div style="font-weight: 600; color: #0258b5; margin-bottom: 10px; font-size: 15px;">Video Processing History</div>')
             gr.HTML('<p style="color: #6b7280; font-size: 13px; margin-bottom: 16px;">Click on any video entry to expand and view detailed validation results.</p>')
             
             results_history_display = gr.HTML(
@@ -1337,8 +1337,8 @@ with gr.Blocks(
             )
             
             with gr.Row():
-                refresh_btn = gr.Button("🔄 Refresh Results", variant="secondary")
-                clear_history_btn = gr.Button("🗑️ Clear History", variant="secondary")
+                refresh_btn = gr.Button("Refresh Results", variant="secondary")
+                clear_history_btn = gr.Button("Clear History", variant="secondary")
             
             refresh_btn.click(
                 fn=refresh_history,
@@ -1353,11 +1353,11 @@ with gr.Blocks(
         # ======================
         # ORDER RECALL TAB
         # ======================
-        with gr.TabItem("🔍 Order Recall"):
+        with gr.TabItem("Order Recall"):
             gr.HTML('<div style="height: 8px;"></div>')
             gr.HTML(
-                '<div style="font-weight: 600; color: #00285A; margin-bottom: 6px; font-size: 15px;">'
-                '🔍 Order Recall</div>'
+                '<div style="font-weight: 600; color: #0258b5; margin-bottom: 6px; font-size: 15px;">'
+                'Order Recall</div>'
                 '<p style="color: #6b7280; font-size: 13px; margin-bottom: 16px;">'
                 'Enter an order ID to view its validation result and replay the footage. '
                 'Orders can be recalled within <strong>24 hours</strong> of processing.</p>'
@@ -1372,7 +1372,7 @@ with gr.Blocks(
                     container=True
                 )
                 recall_btn = gr.Button(
-                    "🔍 Recall Order",
+                    "Recall Order",
                     variant="primary",
                     elem_classes=["primary-btn"],
                     scale=1,
@@ -1391,8 +1391,8 @@ with gr.Blocks(
                     )
 
                 with gr.Column(scale=2):
-                    gr.HTML('<div style="font-weight: 600; color: #00285A; margin-bottom: 10px; font-size: 15px;">'
-                            '📽️ Order Replay</div>')
+                    gr.HTML('<div style="font-weight: 600; color: #0258b5; margin-bottom: 10px; font-size: 15px;">'
+                            'Order Replay</div>')
                     recall_video = gr.Video(
                         label="",
                         interactive=False,
