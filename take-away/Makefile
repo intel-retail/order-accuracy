@@ -11,7 +11,7 @@
 		benchmark-oa-metrics benchmark-oa-results benchmark-oa-help \
 		update-submodules fetch-benchmark build-benchmark \
 		consolidate-metrics plot-metrics clean-images clean-containers clean-all \
-		clean-metrics clean-results clean-minio setup-dirs download download-sample-video
+		clean-metrics clean-results clean-minio setup-dirs
 
 # =============================================================================
 # Load Environment Variables from .env file
@@ -56,11 +56,10 @@ PERF_TOOLS_DIR ?= ../performance-tools/benchmark-scripts
 # Version tag for registry images
 TAG ?= 2026.0-rc1
 
-# Sample video for benchmarking (used by make benchmark and make benchmark-stream-density).
-# Set SAMPLE_VIDEO_URL in your .env file or export it before running:
-#   export SAMPLE_VIDEO_URL=https://example.com/video.mp4
-#   make download
-SAMPLE_VIDEO_URL ?=
+# Sample video for quick-start testing (orders 384 → 651 → 925)
+# Hosted on the upstream repo's GitHub Releases. Override via env if needed:
+#   SAMPLE_VIDEO_URL=<url> make download-sample-video
+SAMPLE_VIDEO_URL ?= https://github.com/intel-retail/order-accuracy/releases/download/2026.0-rc1/test.mp4
 SAMPLE_VIDEO_DEST ?= storage/videos/test.mp4
 
 # Registry configuration: true=pull from registry, false=build locally
@@ -104,22 +103,11 @@ setup-dirs:
 	@[ -f storage/uploads/.gitkeep ] || touch storage/uploads/.gitkeep
 	@echo "$(GREEN)✓ Directories created$(NC)"
 	@if [ ! -f "$(SAMPLE_VIDEO_DEST)" ]; then \
-		echo "$(YELLOW)Tip: No sample video found. Set SAMPLE_VIDEO_URL and run 'make download'.$(NC)"; \
+		echo "$(YELLOW)Tip: No sample video found. Run 'make download-sample-video' to get one.$(NC)"; \
 	fi
 
-# Download the sample video (run once after cloning)
-# Reads SAMPLE_VIDEO_URL from environment or .env file.
-# Usage:
-#   export SAMPLE_VIDEO_URL=https://example.com/video.mp4 && make download
-#   SAMPLE_VIDEO_URL=https://example.com/video.mp4 make download
-download: setup-dirs
-	@if [ -z "$(SAMPLE_VIDEO_URL)" ]; then \
-		echo "$(RED)✗ SAMPLE_VIDEO_URL is not set.$(NC)"; \
-		echo "  Set it in your .env file or export it before running:"; \
-		echo "  export SAMPLE_VIDEO_URL=https://example.com/video.mp4"; \
-		echo "  make download"; \
-		exit 1; \
-	fi
+# Download the sample video from GitHub Releases (run once after cloning)
+download-sample-video: setup-dirs
 	@echo "$(BLUE)Downloading sample video...$(NC)"
 	@if [ -f "$(SAMPLE_VIDEO_DEST)" ]; then \
 		echo "$(GREEN)✓ Sample video already exists: $(SAMPLE_VIDEO_DEST)$(NC)"; \
@@ -127,26 +115,18 @@ download: setup-dirs
 		echo "  URL : $(SAMPLE_VIDEO_URL)"; \
 		echo "  Dest: $(SAMPLE_VIDEO_DEST)"; \
 		if command -v curl >/dev/null 2>&1; then \
-			curl -L --fail --show-error --progress-bar -A "Mozilla/5.0" \
-				-o "$(SAMPLE_VIDEO_DEST).part" "$(SAMPLE_VIDEO_URL)" \
-				&& mv "$(SAMPLE_VIDEO_DEST).part" "$(SAMPLE_VIDEO_DEST)" \
+			curl -L --progress-bar -o "$(SAMPLE_VIDEO_DEST)" "$(SAMPLE_VIDEO_URL)" \
 				&& echo "$(GREEN)✓ Download complete: $(SAMPLE_VIDEO_DEST)$(NC)" \
-				|| (echo "$(RED)✗ Download failed. Check SAMPLE_VIDEO_URL.$(NC)" \
-				   && rm -f "$(SAMPLE_VIDEO_DEST).part" && exit 1); \
+				|| (echo "$(RED)✗ Download failed. Check SAMPLE_VIDEO_URL or add a video manually.$(NC)" && exit 1); \
 		elif command -v wget >/dev/null 2>&1; then \
-			wget -q --show-progress -O "$(SAMPLE_VIDEO_DEST).part" "$(SAMPLE_VIDEO_URL)" \
-				&& mv "$(SAMPLE_VIDEO_DEST).part" "$(SAMPLE_VIDEO_DEST)" \
+			wget -q --show-progress -O "$(SAMPLE_VIDEO_DEST)" "$(SAMPLE_VIDEO_URL)" \
 				&& echo "$(GREEN)✓ Download complete: $(SAMPLE_VIDEO_DEST)$(NC)" \
-				|| (echo "$(RED)✗ Download failed. Check SAMPLE_VIDEO_URL.$(NC)" \
-				   && rm -f "$(SAMPLE_VIDEO_DEST).part" && exit 1); \
+				|| (echo "$(RED)✗ Download failed. Check SAMPLE_VIDEO_URL or add a video manually.$(NC)" && exit 1); \
 		else \
 			echo "$(RED)✗ Neither curl nor wget found. Install one or copy the video manually to $(SAMPLE_VIDEO_DEST)$(NC)"; \
 			exit 1; \
 		fi; \
 	fi
-
-# Alias kept for backward compatibility
-download-sample-video: download
 
 # =============================================================================
 # Environment Validation
@@ -276,7 +256,7 @@ help:
 	@echo "  make update-submodules        - Clone/update git submodules"
 	@echo "  make init-env                 - Create .env from template"
 	@echo "  make setup-dirs               - Create required directories (results, metrics)"
-	@echo "  make download                 - Download sample video (reads SAMPLE_VIDEO_URL from env)"
+	@echo "  make download-sample-video    - Download sample test video (orders 384→651→925)"
 	@echo "  make show-config              - Show current configuration"
 	@echo "  make check-env                - Validate environment variables"
 	@echo ""
@@ -443,11 +423,6 @@ logs-all:
 # =============================================================================
 
 benchmark: setup-dirs ## Run Order Accuracy benchmark (uses benchmark_order_accuracy.py)
-	@if [ ! -f "$(SAMPLE_VIDEO_DEST)" ]; then \
-		echo "$(RED)✗ Sample video not found at $(SAMPLE_VIDEO_DEST)$(NC)"; \
-		echo "  Run: make download  (requires SAMPLE_VIDEO_URL to be set)"; \
-		exit 1; \
-	fi
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║       Take-Away Order Accuracy Benchmark                          ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
@@ -525,11 +500,6 @@ benchmark-oa: setup-dirs ## Run Order Accuracy benchmark with fixed workers
 	)
 
 benchmark-stream-density: setup-dirs ## Run Order Accuracy stream density benchmark (latency-based)
-	@if [ ! -f "$(SAMPLE_VIDEO_DEST)" ]; then \
-		echo "$(RED)✗ Sample video not found at $(SAMPLE_VIDEO_DEST)$(NC)"; \
-		echo "  Run: make download  (requires SAMPLE_VIDEO_URL to be set)"; \
-		exit 1; \
-	fi
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║       Take-Away Stream Density Benchmark (Latency-based)          ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
@@ -645,8 +615,10 @@ plot-metrics: setup-dirs ## Generate plots from benchmark metrics
 		python3 -m venv venv && \
 		. venv/bin/activate && \
 		pip3 install -r requirements.txt && \
+		python3 parse_qmassa_metrics_to_json.py \
+			--directory $(CURDIR)/$(RESULTS_DIR) && \
 		python3 usage_graph_plot.py \
-			--results_dir $(CURDIR)/$(RESULTS_DIR); \
+			--dir $(CURDIR)/$(RESULTS_DIR); \
 		deactivate \
 	)
 
