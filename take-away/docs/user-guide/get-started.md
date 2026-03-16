@@ -320,6 +320,11 @@ curl http://localhost:8000/results/test_001
 
 ### Option 3: Using Make Target
 
+> **Important**: Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
+> ```bash
+> make download-sample-video
+> ```
+
 ```bash
 # Run benchmark with test video
 make benchmark

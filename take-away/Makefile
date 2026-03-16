@@ -615,8 +615,10 @@ plot-metrics: setup-dirs ## Generate plots from benchmark metrics
 		python3 -m venv venv && \
 		. venv/bin/activate && \
 		pip3 install -r requirements.txt && \
+		python3 parse_qmassa_metrics_to_json.py \
+			--directory $(CURDIR)/$(RESULTS_DIR) && \
 		python3 usage_graph_plot.py \
-			--results_dir $(CURDIR)/$(RESULTS_DIR); \
+			--dir $(CURDIR)/$(RESULTS_DIR); \
 		deactivate \
 	)
 

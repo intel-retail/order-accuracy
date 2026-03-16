@@ -820,12 +820,16 @@ def cleanup_buckets_on_startup():
 
 def ensure_buckets():
     logger.info("Ensuring MinIO buckets exist")
-    wait_for_bucket(FRAMES_BUCKET)
-    if not client.bucket_exists(SELECTED_BUCKET):
-        logger.info(f"Creating bucket: {SELECTED_BUCKET}")
-        client.make_bucket(SELECTED_BUCKET)
-    else:
-        logger.info(f"Bucket already exists: {SELECTED_BUCKET}")
+    for bucket in [FRAMES_BUCKET, SELECTED_BUCKET]:
+        try:
+            if not client.bucket_exists(bucket):
+                logger.info(f"Creating bucket: {bucket}")
+                client.make_bucket(bucket)
+            else:
+                logger.info(f"Bucket already exists: {bucket}")
+        except Exception as e:
+            logger.warning(f"Bucket check/create failed for {bucket}, waiting: {e}")
+            wait_for_bucket(bucket)
     
     # Clean up stale data from previous runs
     cleanup_buckets_on_startup()
