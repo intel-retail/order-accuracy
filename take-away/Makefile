@@ -99,8 +99,6 @@ setup-dirs:
 	@[ -d metrics ] || mkdir metrics
 	@[ -d storage/videos ] || mkdir -p storage/videos
 	@[ -d storage/uploads ] || mkdir -p storage/uploads
-	@[ -f storage/videos/.gitkeep ] || touch storage/videos/.gitkeep
-	@[ -f storage/uploads/.gitkeep ] || touch storage/uploads/.gitkeep
 	@echo "$(GREEN)✓ Directories created$(NC)"
 	@if [ ! -f "$(SAMPLE_VIDEO_DEST)" ]; then \
 		echo "$(YELLOW)Tip: No sample video found. Run 'make download-sample-video' to get one.$(NC)"; \
@@ -435,7 +433,7 @@ benchmark: setup-dirs ## Run Order Accuracy benchmark (uses benchmark_order_accu
 	( \
 		python3 -m venv venv && \
 		. venv/bin/activate && \
-		pip3 install -r requirements.txt && \
+		pip3 install --no-input -r requirements.txt && \
 		python3 benchmark_order_accuracy.py \
 			--compose_file $(CURDIR)/$(COMPOSE_FILE) \
 			--workers $(BENCHMARK_WORKERS) \
@@ -487,7 +485,7 @@ benchmark-oa: setup-dirs ## Run Order Accuracy benchmark with fixed workers
 	( \
 		python3 -m venv venv && \
 		. venv/bin/activate && \
-		pip3 install -r requirements.txt && \
+		pip3 install --no-input -r requirements.txt && \
 		python3 benchmark_order_accuracy.py \
 			--compose_file $(CURDIR)/$(COMPOSE_FILE) \
 			--workers $(BENCHMARK_WORKERS) \
@@ -513,7 +511,7 @@ benchmark-stream-density: setup-dirs ## Run Order Accuracy stream density benchm
 	( \
 		python3 -m venv venv && \
 		. venv/bin/activate && \
-		pip3 install -r requirements.txt && \
+		pip3 install --no-input -r requirements.txt && \
 		OOM_PROTECTION=$(OOM_PROTECTION) python3 stream_density_latency_oa.py \
 			--compose_file $(CURDIR)/$(COMPOSE_FILE) \
 			--target_latency_ms $(BENCHMARK_TARGET_LATENCY_MS) \
@@ -599,7 +597,7 @@ consolidate-metrics: setup-dirs ## Consolidate metrics from multiple benchmark r
 	( \
 		python3 -m venv venv && \
 		. venv/bin/activate && \
-		pip3 install -r requirements.txt && \
+		pip3 install --no-input -r requirements.txt && \
 		python3 consolidate_multiple_run_of_metrics.py \
 			--root_directory $(CURDIR)/$(RESULTS_DIR) \
 			--output $(CURDIR)/$(RESULTS_DIR)/consolidated_metrics.csv; \
@@ -614,7 +612,7 @@ plot-metrics: setup-dirs ## Generate plots from benchmark metrics
 	( \
 		python3 -m venv venv && \
 		. venv/bin/activate && \
-		pip3 install -r requirements.txt && \
+		pip3 install --no-input -r requirements.txt && \
 		python3 parse_qmassa_metrics_to_json.py \
 			--directory $(CURDIR)/$(RESULTS_DIR) && \
 		python3 usage_graph_plot.py \
