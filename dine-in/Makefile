@@ -218,8 +218,8 @@ build:
 
 up:
 	@echo "Starting dine-in services..."
-	@[ -d results ] || mkdir results
-	@[ -d metrics ] || mkdir metrics
+	@mkdir -p results && chmod 777 results
+	@mkdir -p metrics && chmod 777 metrics
 	@if [ "$(REGISTRY)" = "false" ]; then \
 		echo "$(BLUE)Using locally built image: $(DINEIN_IMAGE)$(NC)"; \
 		DINEIN_IMAGE=$(DINEIN_IMAGE) docker compose up -d --no-build; \
@@ -558,6 +558,7 @@ plot-metrics: ## Generate plots from benchmark metrics
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║                   Generating Metrics Plots                        ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
+	@sudo chmod -R ugo+rw $(CURDIR)/$(METRICS_DIR) 2>/dev/null || true
 	cd $(PERF_TOOLS_DIR) && \
 	( \
 		python3 -m venv venv && \
