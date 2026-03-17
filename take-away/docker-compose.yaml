@@ -204,13 +204,13 @@ services:
       - ./config:/config:ro
       - ./model:/app/models
       - ./datasets:/app/datasets
-      # - ./results/frame-selector-in:/app/debug/frame-selector-in  # Debug frames (disabled)
+      - ./results/frame-selector-in:/app/debug/frame-selector-in  # Debug frames for Order Recall
     environment:
       # Multi-station mode: single instance handles all stations
       MULTI_STATION_MODE: "true"
       WORKERS: ${WORKERS:-1}
       # Debug frame saving
-      DEBUG_FRAMES_ENABLED: ${DEBUG_FRAMES_ENABLED:-false}
+      DEBUG_FRAMES_ENABLED: ${DEBUG_FRAMES_ENABLED:-true}
       # Clean up stale frames from MinIO on startup (ensures fresh start for benchmarking)
       CLEANUP_ON_STARTUP: ${CLEANUP_ON_STARTUP:-true}
       # Legacy single-station config (ignored when MULTI_STATION_MODE=true)
@@ -249,6 +249,8 @@ services:
     environment:
       NO_PROXY: "localhost,127.0.0.1,order-accuracy,oa_service,minio,ovms-vlm,oa_ovms_vlm,semantic-service,oa_semantic_service,frame-selector,oa_frame_selector,host.docker.internal"
       no_proxy: "localhost,127.0.0.1,order-accuracy,oa_service,minio,ovms-vlm,oa_ovms_vlm,semantic-service,oa_semantic_service,frame-selector,oa_frame_selector,host.docker.internal"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - order-accuracy-net
 
