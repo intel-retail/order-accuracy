@@ -45,6 +45,12 @@ RECALL_CACHE_DIR = Path(os.getenv('RESULTS_DIR', '/results')) / 'recall_cache'
 # Playback speed for the stitched replay video (10 fps matches 10-fps capture)
 REPLAY_FPS = float(os.getenv('RECALL_REPLAY_FPS', '10'))
 
+# Always ensure these directories exist so deletion never breaks recall
+FRAME_SELECTOR_DIR.mkdir(parents=True, exist_ok=True)
+RECALL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+logger.info(f"[API] Frame selector dir: {FRAME_SELECTOR_DIR}")
+logger.info(f"[API] Recall cache dir:   {RECALL_CACHE_DIR}")
+
 
 def create_app() -> FastAPI:
     """Create and configure FastAPI application"""

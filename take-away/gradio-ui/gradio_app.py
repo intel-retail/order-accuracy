@@ -110,17 +110,61 @@ a[href*="gradio.app"] {
 #rtsp-stream-image img {
     width: 100% !important;
     height: auto !important;
-    min-height: 360px !important;
+    max-height: 380px !important;
     object-fit: contain !important;
     border-radius: 8px;
     background: #000;
     display: block;
+    margin: 0 auto !important;
 }
 #rtsp-stream-image {
     width: 100% !important;
     background: #000;
     border-radius: 8px;
     overflow: hidden;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
+
+/* Upload Video Preview - full video visible with black bars */
+#upload-video-preview,
+#upload-video-preview > div,
+#upload-video-preview > div > div {
+    background: #000 !important;
+    border-radius: 8px !important;
+    height: 340px !important;
+    max-height: 340px !important;
+    overflow: hidden !important;
+}
+#upload-video-preview video {
+    object-fit: contain !important;
+    width: 100% !important;
+    height: 340px !important;
+    max-height: 340px !important;
+    background: #000 !important;
+    border-radius: 8px !important;
+    display: block !important;
+}
+
+/* Order Recall Replay - full video visible with black bars */
+#recall-video-player,
+#recall-video-player > div,
+#recall-video-player > div > div {
+    background: #000 !important;
+    border-radius: 8px !important;
+    height: 420px !important;
+    max-height: 420px !important;
+    overflow: hidden !important;
+}
+#recall-video-player video {
+    object-fit: contain !important;
+    width: 100% !important;
+    height: 420px !important;
+    max-height: 420px !important;
+    background: #000 !important;
+    border-radius: 8px !important;
+    display: block !important;
 }
 
 /* Primary Button - Intel Blue */
@@ -278,14 +322,15 @@ class RTSPStreamReader:
         
     def start(self):
         if self.running:
-            return False
+            return False, "Already running"
             
         print(f"[RTSP Reader] Starting stream: {self.rtsp_url}")
         self.cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
         
         if not self.cap.isOpened():
-            print(f"[RTSP Reader] Failed to connect")
-            return False
+            msg = f"[RTSP Reader] Failed to open: {self.rtsp_url}"
+            print(msg)
+            return False, msg
             
         # Optimize capture settings for low latency
         self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -301,7 +346,7 @@ class RTSPStreamReader:
         self.thread.start()
         
         print(f"[RTSP Reader] Stream started successfully")
-        return True
+        return True, "ok"
     
     def stop(self):
         print(f"[RTSP Reader] Stopping stream")
@@ -319,13 +364,22 @@ class RTSPStreamReader:
                 break
                 
     def _read_frames(self):
+        consecutive_failures = 0
+        max_failures = 10  # Stop after 10 consecutive read failures (stream ended)
         while self.running and self.cap and self.cap.isOpened():
             ret, frame = self.cap.read()
             if not ret or frame is None:
-                print("[RTSP Reader] Lost connection, reconnecting...")
-                time.sleep(1)
+                consecutive_failures += 1
+                print(f"[RTSP Reader] Read failed ({consecutive_failures}/{max_failures})")
+                if consecutive_failures >= max_failures:
+                    print("[RTSP Reader] Stream ended — stopping reader.")
+                    self.running = False
+                    break
+                time.sleep(0.2)
                 continue
-            
+
+            consecutive_failures = 0  # Reset on successful read
+
             # Convert to RGB for Gradio
             frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
             pil_image = Image.fromarray(frame_rgb)
@@ -372,9 +426,10 @@ def start_smooth_stream(rtsp_url):
     
     # Start new stream reader
     rtsp_reader = RTSPStreamReader(rtsp_url)
-    
-    if not rtsp_reader.start():
-        yield None, "❌ Failed to start RTSP stream"
+
+    ok, err_msg = rtsp_reader.start()
+    if not ok:
+        yield None, f"❌ Failed to connect to RTSP stream\nURL tried: {rtsp_url}\nReason: {err_msg}\n\nTip: If running MediaMTX on host, use rtsp://localhost:8554/... — it is auto-mapped to host.docker.internal inside the container."
         return
     
     frame_count = 0
@@ -385,7 +440,7 @@ def start_smooth_stream(rtsp_url):
         while not STREAM_STOP_EVENT.is_set():
             try:
                 # Get frame from queue with timeout
-                frame = frame_queue.get(timeout=1.0)
+                frame = frame_queue.get(timeout=0.5)
                 frame_count += 1
                 fps_counter += 1
                 
@@ -393,11 +448,11 @@ def start_smooth_stream(rtsp_url):
                 current_time = time.time()
                 if current_time - last_update >= 1.0:
                     fps = fps_counter / (current_time - last_update)
-                    status = f"Frame {frame_count} - Smooth stream active ({fps:.1f} FPS)"
+                    status = f"Frame {frame_count} - Streaming ({fps:.1f} FPS)"
                     fps_counter = 0
                     last_update = current_time
                 else:
-                    status = f"Frame {frame_count} - Smooth stream active"
+                    status = f"Frame {frame_count} - Streaming"
                 
                 yield frame, status
                 
@@ -405,7 +460,10 @@ def start_smooth_stream(rtsp_url):
                 time.sleep(0.05)  # 20 FPS for UI updates
                 
             except queue.Empty:
-                yield None, f"❌ Frame {frame_count} - No frames available"
+                # If the reader has stopped (stream ended naturally), exit cleanly
+                if rtsp_reader and not rtsp_reader.running:
+                    break
+                # Otherwise just wait for next frame
                 continue
                 
     except Exception as e:
@@ -415,7 +473,7 @@ def start_smooth_stream(rtsp_url):
         if rtsp_reader:
             rtsp_reader.stop()
             rtsp_reader = None
-        yield None, f"Smooth stream stopped after {frame_count} frames"
+        yield None, f"Stream finished after {frame_count} frames."
 
 def stop_smooth_stream():
     """Stop the smooth stream"""
@@ -588,49 +646,108 @@ def fetch_service_mode():
 
 def normalize_rtsp_url(url: str) -> str:
     """Normalize RTSP URL for use inside Docker containers.
-    - localhost / 127.0.0.1  → rtsp-streamer (direct Docker network, avoids host hop)
-    - host.docker.internal   → rtsp-streamer (same reasoning; streamer is on the same network)
+    - localhost / 127.0.0.1  → host.docker.internal (reach host machine from inside container)
+    - All other URLs (e.g. rtsp-streamer service name) are returned unchanged.
     """
-    for prefix in ("rtsp://localhost", "rtsp://127.0.0.1", "rtsp://host.docker.internal"):
+    for prefix in ("rtsp://localhost", "rtsp://127.0.0.1"):
         if url.startswith(prefix):
             rest = url[len(prefix):]
-            return f"rtsp://rtsp-streamer{rest}"
+            return f"rtsp://host.docker.internal{rest}"
     return url
 
 
 def start_rtsp_processing(rtsp_url):
-    """Start RTSP processing pipeline via backend"""
+    """Start RTSP processing pipeline via backend and poll for results (generator)"""
     if not rtsp_url:
-        return "❌ RTSP URL missing"
+        yield "❌ RTSP URL missing", format_history_html()
+        return
 
     rtsp_url = normalize_rtsp_url(rtsp_url)
-
-    payload = {
-        "source_type": "rtsp",
-        "source": rtsp_url
-    }
+    payload = {"source_type": "rtsp", "source": rtsp_url}
 
     try:
-        resp = _api.post(
-            f"{API_BASE}/run-video",
-            json=payload,
-            timeout=15
-        )
+        initial_stats = fetch_statistics()
+        initial_processed = initial_stats.get("total_processed", 0) if initial_stats else 0
+
+        yield f"Sending stream to backend...\nURL: {rtsp_url}", format_history_html()
+
+        resp = _api.post(f"{API_BASE}/run-video", json=payload, timeout=15)
 
         if resp.status_code != 200:
-            return f"❌ RTSP processing failed: {resp.text}"
+            yield f"❌ RTSP processing failed: {resp.text}", format_history_html()
+            return
 
         data = resp.json()
         video_id = data.get("video_id", "")
-        return (
-            f"RTSP pipeline started\n"
-            f"Source: {rtsp_url}\n"
-            f"Video ID: {video_id}\n"
-            f"Results will appear in the 'Detected Orders' tab."
+        yield (
+            f"✅ RTSP pipeline started\nVideo ID: {video_id}\nPolling for results...",
+            format_history_html()
+        )
+
+        # Poll for results — mirrors upload_video_with_progress logic
+        max_wait = 600   # 10 min max for live streams
+        poll_interval = 3
+        elapsed = 0
+        orders_completed = 0
+        last_order_count = 0
+        stale_count = 0
+
+        while elapsed < max_wait:
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+            stats = fetch_statistics()
+            if stats:
+                current_processed = stats.get("total_processed", 0)
+                orders_completed = current_processed - initial_processed
+                validated = stats.get("total_validated", 0)
+                mismatch = stats.get("total_mismatch", 0)
+
+                if orders_completed > 0:
+                    if orders_completed == last_order_count:
+                        stale_count += 1
+                    else:
+                        stale_count = 0
+                    last_order_count = orders_completed
+
+                    yield (
+                        f"✅ Processing...\nVideo ID: {video_id}\n"
+                        f"Orders found: {orders_completed} "
+                        f"(✅ {validated} validated / ❌ {mismatch} mismatch)\n"
+                        f"Elapsed: {elapsed}s",
+                        format_history_html()
+                    )
+
+                    # No new orders for ~30 s → assume stream finished
+                    if stale_count >= 10:
+                        break
+                else:
+                    yield (
+                        f"✅ Pipeline running\nVideo ID: {video_id}\n"
+                        f"Analyzing stream... ({elapsed}s elapsed)",
+                        format_history_html()
+                    )
+            else:
+                yield (
+                    f"✅ Pipeline started\nVideo ID: {video_id}\n"
+                    f"Waiting for stats... ({elapsed}s elapsed)",
+                    format_history_html()
+                )
+
+        # Final summary
+        stats = fetch_statistics()
+        validated = stats.get("total_validated", 0) if stats else 0
+        mismatch = stats.get("total_mismatch", 0) if stats else 0
+
+        yield (
+            f"✅ Processing complete!\nVideo ID: {video_id}\n"
+            f"Total orders: {orders_completed} "
+            f"(✅ {validated} validated / ❌ {mismatch} mismatch)",
+            format_history_html()
         )
 
     except Exception as e:
-        return f"❌ RTSP processing error: {e}"
+        yield f"❌ RTSP processing error: {e}", format_history_html()
 
 def fetch_results():
     try:
@@ -963,8 +1080,8 @@ def format_recall_card(order_id, result, upload_time, completed_time, source, fr
     for item in expected_items:
         exp_rows += f'''
         <tr>
-            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;">{item.get("name","?")}</td>
-            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;text-align:center;">{item.get("quantity",0)}</td>
+            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;color:#1f2937;">{item.get("name","?")}</td>
+            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;text-align:center;color:#1f2937;">{item.get("quantity",0)}</td>
         </tr>'''
 
     # ── Detected items table with per-item status ─────────────────────────────
@@ -981,8 +1098,8 @@ def format_recall_card(order_id, result, upload_time, completed_time, source, fr
             s, c = 'Qty Mismatch', '#f59e0b'
         det_rows += f'''
         <tr>
-            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;">{name}</td>
-            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;text-align:center;">{qty}</td>
+            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;color:#1f2937;">{name}</td>
+            <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;text-align:center;color:#1f2937;">{qty}</td>
             <td style="padding:7px 12px;border-bottom:1px solid #e9ecef;text-align:center;color:{c};font-weight:600;">{s}</td>
         </tr>'''
 
@@ -1098,7 +1215,7 @@ def recall_order_fn(order_id: str):
         return (
             f'<div style="background:#f8fafc;border-radius:10px;padding:32px;text-align:center;">'
             f'<div style="font-size:40px;margin-bottom:12px;">🚫</div>'
-            f'<div style="font-weight:600;color:#374151;font-size:15px;">Order <code>{order_id}</code> not found</div>'
+            f'<div style="font-weight:600;color:#374151;font-size:15px;">Order <code style="color:#000000;">{order_id}</code> not found</div>'
             f'<div style="color:#6b7280;font-size:13px;margin-top:8px;">'
             f'This order ID was never processed, or its history has been cleared.</div></div>',
             None
@@ -1204,6 +1321,14 @@ with gr.Blocks(
                         file_types=[".mp4", ".avi", ".mkv", ".mov"],
                         elem_classes=["card-panel"]
                     )
+                    gr.HTML('<div style="font-weight: 600; color: #0258b5; margin: 12px 0 8px 0; font-size: 15px;">Video Preview</div>')
+                    upload_video_preview = gr.Video(
+                        label="",
+                        interactive=False,
+                        show_label=False,
+                        show_download_button=False,
+                        elem_id="upload-video-preview",
+                    )
                 
                 with gr.Column(scale=1):
                     gr.HTML('<div style="font-weight: 600; color: #0251b5; margin-bottom: 10px; font-size: 15px;">Upload Controls</div>')
@@ -1220,11 +1345,11 @@ with gr.Blocks(
                         interactive=False
                     )
             
-            # Enable button only when a file is selected/loaded
+            # Enable button and show preview when a file is selected
             upload_file.change(
-                fn=lambda f: gr.update(interactive=f is not None),
+                fn=lambda f: (gr.update(interactive=f is not None), f.name if f else None),
                 inputs=upload_file,
-                outputs=upload_btn
+                outputs=[upload_btn, upload_video_preview]
             )
 
             # Connect upload function with button state management
@@ -1275,7 +1400,7 @@ with gr.Blocks(
                     gr.HTML('<div style="font-weight: 600; color: #0258b5; margin-bottom: 10px; font-size: 15px;">Processing Pipeline</div>')
                     process_btn = gr.Button("Start Processing", variant="primary", elem_classes=["primary-btn"])
 
-                    processing_status = gr.Textbox(label="Pipeline Status", lines=2, interactive=False)
+                    processing_status = gr.Textbox(label="Pipeline Status", lines=5, interactive=False)
 
                 # Right column: Stream display
                 with gr.Column(scale=2):
@@ -1316,15 +1441,11 @@ with gr.Blocks(
                 outputs=[stream_image, stream_status]
             )
 
-            process_btn.click(
-                fn=start_rtsp_processing,
-                inputs=[rtsp_url],
-                outputs=[processing_status]
-            )
+            # process_btn wiring moved below after results_history_display is defined
 
         # ======================
         # RESULTS TAB - History View
-        # ======================
+        # =======================
         with gr.TabItem("Detected Orders"):
             gr.HTML('<div style="height: 8px;"></div>')
             
@@ -1349,6 +1470,13 @@ with gr.Blocks(
                 fn=clear_history,
                 outputs=results_history_display
             )
+
+        # Wire process_btn here so results_history_display is in scope
+        process_btn.click(
+            fn=start_rtsp_processing,
+            inputs=[rtsp_url],
+            outputs=[processing_status, results_history_display]
+        )
 
         # ======================
         # ORDER RECALL TAB
@@ -1398,12 +1526,12 @@ with gr.Blocks(
                         interactive=False,
                         show_download_button=True,
                         show_label=False,
-                        height=420
+                        elem_id="recall-video-player",
                     )
                     gr.HTML(
                         '<p style="color:#6b7280;font-size:12px;margin-top:6px;">'
                         'Replay is built from all frames captured during the order window '
-                        '(1 fps capture → played back at 2 fps).</p>'
+                        '(10 fps capture).</p>'
                     )
 
             # ── Wire up button and Enter key ─────────────────────────────────
