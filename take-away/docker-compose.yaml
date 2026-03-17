@@ -249,6 +249,8 @@ services:
     environment:
       NO_PROXY: "localhost,127.0.0.1,order-accuracy,oa_service,minio,ovms-vlm,oa_ovms_vlm,semantic-service,oa_semantic_service,frame-selector,oa_frame_selector,host.docker.internal"
       no_proxy: "localhost,127.0.0.1,order-accuracy,oa_service,minio,ovms-vlm,oa_ovms_vlm,semantic-service,oa_semantic_service,frame-selector,oa_frame_selector,host.docker.internal"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     networks:
       - order-accuracy-net
 
