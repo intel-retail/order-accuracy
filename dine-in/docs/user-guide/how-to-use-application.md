@@ -2,6 +2,12 @@
 
 Guide to using the Dine-In Order Accuracy application features.
 
+> **Note — `TARGET_DEVICE`**: To change the inference device mode, set `TARGET_DEVICE` in your `.env` file to `GPU`, `CPU`, or `AUTO`. After changing the device, re-run the setup script to update the model config:
+> ```bash
+> cd ../ovms-service && ./setup_models.sh --app dine-in
+> ```
+> You can also pass the device explicitly: `./setup_models.sh --device CPU`
+
 ## Gradio UI
 
 Access the web interface at http://localhost:7861
@@ -185,13 +191,13 @@ Configuration options:
 | `BENCHMARK_INIT_DURATION` | 60 | Warmup time (seconds) |
 | `BENCHMARK_MIN_REQUESTS` | 3 | Min requests before measuring |
 | `BENCHMARK_REQUEST_TIMEOUT` | 300 | Request timeout (seconds) |
-| `BENCHMARK_TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
+| `TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
 | `RESULTS_DIR` | results | Output directory |
 | `REGISTRY` | false | Use registry images (true/false) |
 
 Example:
 ```bash
-make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600 BENCHMARK_TARGET_DEVICE=GPU
+make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600 TARGET_DEVICE=GPU
 ```
 
 ### Stream Density Test

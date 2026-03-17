@@ -2,6 +2,12 @@
 
 This guide walks you through the installation, configuration, and first-run of the Take-Away Order Accuracy system.
 
+> **Note — `TARGET_DEVICE`**: To change the inference device mode, set `TARGET_DEVICE` in your `.env` file to `GPU`, `CPU`, or `AUTO`. After changing the device, re-run the setup script to update the model config:
+> ```bash
+> cd ../ovms-service && ./setup_models.sh --app take-away
+> ```
+> You can also pass the device explicitly: `./setup_models.sh --device CPU`
+
 ---
 
 ## Table of Contents
@@ -147,7 +153,7 @@ For multiple stations, increase `WORKERS` (e.g., `WORKERS=3`) to create `station
 VLM_BACKEND=ovms
 OVMS_ENDPOINT=http://ovms-vlm:8000
 OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
-OPENVINO_DEVICE=GPU          # 'GPU', 'CPU', or 'AUTO'
+TARGET_DEVICE=GPU            # 'GPU', 'CPU', or 'AUTO'
 
 # =============================================================================
 # Semantic Service
@@ -399,7 +405,7 @@ make up
 export VLM_BATCH_SIZE=1
 
 # Use CPU instead of GPU (slower but less memory)
-export OPENVINO_DEVICE=CPU
+export TARGET_DEVICE=CPU
 
 # Restart services
 make down && make up

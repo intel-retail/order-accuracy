@@ -5,6 +5,12 @@
 # Dine-In Order Accuracy - Makefile
 # =============================================================================
 
+# =============================================================================
+# Load Environment Variables from .env file
+# =============================================================================
+-include .env
+export
+
 # Worker configuration for stream density testing
 WORKERS ?= 1
 ITERATIONS ?= 0
@@ -80,7 +86,7 @@ BENCHMARK_WORKERS ?= 1
 BENCHMARK_ITERATIONS ?= 1
 BENCHMARK_DURATION ?= 180
 BENCHMARK_TARGET_FPS ?= 15.0
-BENCHMARK_TARGET_DEVICE ?= GPU
+TARGET_DEVICE ?= GPU
 
 # Colors for output
 RED := \033[0;31m
@@ -393,7 +399,7 @@ benchmark:
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
 	@echo "Workers: $(BENCHMARK_WORKERS)"
 	@echo "Iterations: $(BENCHMARK_ITERATIONS)"
-	@echo "Target Device: $(BENCHMARK_TARGET_DEVICE)"
+	@echo "Target Device: $(TARGET_DEVICE)"
 	@echo "Results Dir: $(RESULTS_DIR)"
 	@echo ""
 	mkdir -p $(RESULTS_DIR)
@@ -410,7 +416,7 @@ benchmark:
 			--init_duration $(BENCHMARK_INIT_DURATION) \
 			--duration $(BENCHMARK_DURATION) \
 			--results_dir $(CURDIR)/$(RESULTS_DIR) \
-			--target_device $(BENCHMARK_TARGET_DEVICE) \
+			--target_device $(TARGET_DEVICE) \
 			--skip_perf_tools; \
 		deactivate \
 	)

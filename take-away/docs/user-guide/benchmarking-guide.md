@@ -2,6 +2,12 @@
 
 This guide covers performance testing, stream density benchmarking, and metrics collection for the Take-Away Order Accuracy system.
 
+> **Note — `TARGET_DEVICE`**: To change the inference device mode, set `TARGET_DEVICE` in your `.env` file to `GPU`, `CPU`, or `AUTO`. After changing the device, re-run the setup script to update the model config:
+> ```bash
+> cd ../ovms-service && ./setup_models.sh --app take-away
+> ```
+> You can also pass the device explicitly: `./setup_models.sh --device CPU`
+
 ---
 
 ## Table of Contents
@@ -562,7 +568,7 @@ VLM_BATCH_SIZE=4
 VLM_BATCH_TIMEOUT_MS=100
 
 # For memory-constrained systems
-OPENVINO_DEVICE=CPU
+TARGET_DEVICE=CPU
 VLM_MAX_CONCURRENT=2
 ```
 

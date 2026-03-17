@@ -49,7 +49,7 @@ services:
       - OVMS_ENDPOINT=${OVMS_ENDPOINT}
       - OVMS_MODEL_NAME=${OVMS_MODEL_NAME}
       - VLM_PRECISION=${VLM_PRECISION}
-      - VLM_DEVICE=${VLM_DEVICE}
+      - VLM_DEVICE=${TARGET_DEVICE:-GPU}
       - CACHE_ENABLED=true
       - CACHE_BACKEND=memory
       - PROMETHEUS_ENABLED=true
@@ -97,7 +97,7 @@ services:
       - OVMS_ENDPOINT=${OVMS_ENDPOINT}
       - OVMS_MODEL_NAME=${OVMS_MODEL_NAME}
       - VLM_PRECISION=${VLM_PRECISION}
-      - VLM_DEVICE=${VLM_DEVICE}
+      - VLM_DEVICE=${TARGET_DEVICE:-GPU}
       - METRICS_COLLECTOR_ENDPOINT=http://metrics-collector:8084
       - CONTAINER_RESULTS_PATH=/app/results
       - USECASE_1=dine-in-order-accuracy
@@ -147,7 +147,7 @@ services:
       - OVMS_ENDPOINT=${OVMS_ENDPOINT}
       - OVMS_MODEL_NAME=${OVMS_MODEL_NAME}
       - VLM_PRECISION=${VLM_PRECISION}
-      - VLM_DEVICE=${VLM_DEVICE}
+      - VLM_DEVICE=${TARGET_DEVICE:-GPU}
       - CONTAINER_RESULTS_PATH=/app/results
       - USECASE_1=dine-in-order-accuracy
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,host.docker.internal

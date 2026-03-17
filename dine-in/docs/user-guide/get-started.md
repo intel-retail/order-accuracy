@@ -2,6 +2,12 @@
 
 This guide walks you through the installation, configuration, and first-run of the Dine-In Order Accuracy system for image-based plate validation.
 
+> **Note — `TARGET_DEVICE`**: To change the inference device mode, set `TARGET_DEVICE` in your `.env` file to `GPU`, `CPU`, or `AUTO`. After changing the device, re-run the setup script to update the model config:
+> ```bash
+> cd ../ovms-service && ./setup_models.sh --app dine-in
+> ```
+> You can also pass the device explicitly: `./setup_models.sh --device CPU`
+
 ---
 
 ## Table of Contents
@@ -366,13 +372,13 @@ Configuration options:
 |----------|---------|-------------|
 | `BENCHMARK_WORKERS` | 1 | Number of concurrent workers |
 | `BENCHMARK_DURATION` | 180 | Benchmark duration (seconds) |
-| `BENCHMARK_TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
+| `TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
 | `RESULTS_DIR` | results | Output directory |
 
 Example with custom settings:
 
 ```bash
-make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600
+make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600 TARGET_DEVICE=GPU
 ```
 
 ### Stream Density Test

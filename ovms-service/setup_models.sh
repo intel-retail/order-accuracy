@@ -7,6 +7,32 @@ PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 MODELS_DIR="${SCRIPT_DIR}/models"
 
 ###############################################
+# TARGET DEVICE CONFIGURATION
+# Override via: TARGET_DEVICE=CPU ./setup_models.sh
+# or:           ./setup_models.sh --device CPU
+###############################################
+# Parse CLI flags: --device <DEV> and --app <dine-in|take-away>
+for arg in "$@"; do
+    case "$arg" in
+        --device=*) TARGET_DEVICE="${arg#*=}"; TARGET_DEVICE_FROM_CLI=true ;;
+        --device)   _shift_device=true ;;
+        --app=*)    SETUP_APP="${arg#*=}" ;;
+        --app)      _shift_app=true ;;
+        *)
+            if [ "${_shift_device:-}" = true ]; then
+                TARGET_DEVICE="$arg"; TARGET_DEVICE_FROM_CLI=true; _shift_device=false
+            elif [ "${_shift_app:-}" = true ]; then
+                SETUP_APP="$arg"; _shift_app=false
+            fi
+            ;;
+    esac
+done
+# If set via environment variable (not CLI), mark it so .env doesn't override
+if [ -n "${TARGET_DEVICE:-}" ] && [ -z "${TARGET_DEVICE_FROM_CLI:-}" ]; then
+    TARGET_DEVICE_FROM_CLI=true
+fi
+
+###############################################
 # HARD CODED MODEL REGISTRY
 ###############################################
 declare -A MODEL_SOURCES
@@ -19,14 +45,48 @@ POTENTIAL_SOURCE_DIRS=(
 )
 
 ###############################################
-# LOAD OVMS_MODEL_NAME FROM take-away/.env
+# LOAD OVMS_MODEL_NAME AND TARGET_DEVICE FROM .env
 ###############################################
-ENV_FILE="${PROJECT_ROOT}/take-away/.env"
-if [ -f "${ENV_FILE}" ]; then
-    OVMS_MODEL_NAME_ENV=$(grep -E '^OVMS_MODEL_NAME=' "${ENV_FILE}" | head -1 | cut -d'=' -f2- | tr -d '"\r')
+# Determine which .env file(s) to read based on --app flag
+if [ "${SETUP_APP:-}" = "take-away" ]; then
+    _env_files=("${PROJECT_ROOT}/take-away/.env")
+elif [ "${SETUP_APP:-}" = "dine-in" ]; then
+    _env_files=("${PROJECT_ROOT}/dine-in/.env")
+else
+    # No --app specified: check both (take-away first, then dine-in)
+    _env_files=("${PROJECT_ROOT}/take-away/.env" "${PROJECT_ROOT}/dine-in/.env")
 fi
+
+TARGET_DEVICE_SOURCE=""
+for _env_file in "${_env_files[@]}"; do
+    if [ -f "${_env_file}" ]; then
+        _model=$(grep -E '^OVMS_MODEL_NAME=' "${_env_file}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+        [ -n "${_model}" ] && OVMS_MODEL_NAME_ENV="${_model}"
+        # Read TARGET_DEVICE from .env if not already set via CLI/env
+        if [ -z "${TARGET_DEVICE_FROM_CLI:-}" ]; then
+            _device=$(grep -E '^TARGET_DEVICE=' "${_env_file}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+            if [ -n "${_device}" ]; then
+                TARGET_DEVICE="${_device}"
+                TARGET_DEVICE_SOURCE="${_env_file}"
+            fi
+        fi
+    fi
+done
+
+TARGET_DEVICE="${TARGET_DEVICE:-GPU}"
+
 # Fall back to the hard-coded source model if .env is missing or unset
 OVMS_MODEL_NAME_ENV="${OVMS_MODEL_NAME_ENV:-Qwen/Qwen2.5-VL-7B-Instruct}"
+
+# Print source of TARGET_DEVICE so user knows exactly where it came from
+if [ "${TARGET_DEVICE_FROM_CLI:-}" = true ]; then
+    echo "Target device: ${TARGET_DEVICE}  (from CLI / environment variable)"
+elif [ -n "${TARGET_DEVICE_SOURCE}" ]; then
+    echo "Target device: ${TARGET_DEVICE}  (from ${TARGET_DEVICE_SOURCE})"
+else
+    echo "Target device: ${TARGET_DEVICE}  (default — no .env found)"
+fi
+echo ""
 
 ###############################################
 echo "=========================================="
@@ -135,7 +195,7 @@ export_model() {
       --source_model "${SOURCE_MODEL}" \
       --weight-format int8 \
       --pipeline_type VLM_CB \
-      --target_device GPU \
+      --target_device "${TARGET_DEVICE}" \
       --cache_size 32 \
       --max_num_seqs 1 \
       --enable_prefix_caching \
@@ -241,7 +301,9 @@ apply_graph_config() {
     local GRAPH_FILE="${MODELS_DIR}/Qwen/${MODEL_NAME}/graph.pbtxt"
 
     if [ ! -f "${GRAPH_OPTIONS_FILE}" ]; then
-        echo "  No graph_options.json found, keeping existing graph.pbtxt"
+        echo "  No graph_options.json found, updating device to ${TARGET_DEVICE} in graph.pbtxt"
+        sed -i "s/device: \"[A-Z]*\"/device: \"${TARGET_DEVICE}\"/g" "${GRAPH_FILE}"
+        echo "  ✓ graph.pbtxt device set to ${TARGET_DEVICE}"
         return 0
     fi
 
@@ -250,8 +312,8 @@ apply_graph_config() {
     echo "Applying graph_options.json to graph.pbtxt"
     echo "------------------------------------------"
 
-    python3 - "${GRAPH_OPTIONS_FILE}" "${GRAPH_FILE}" << 'PYEOF'
-import json, sys
+    TARGET_DEVICE="${TARGET_DEVICE}" python3 - "${GRAPH_OPTIONS_FILE}" "${GRAPH_FILE}" << 'PYEOF'
+import json, sys, os
 
 graph_options_file = sys.argv[1]
 graph_file = sys.argv[2]
@@ -269,7 +331,7 @@ dynamic_split = 'true' if opts.get('dynamic_split_fuse', False) else 'false'
 max_num_seqs = opts.get('max_num_seqs', 4)
 cache_size = opts.get('cache_size', 10)
 max_num_batched_tokens = opts.get('max_num_batched_tokens', 4096)
-device = opts.get('device', 'GPU')
+device = opts.get('device', os.environ.get('TARGET_DEVICE', 'GPU'))
 
 graph = f'''input_stream: "HTTP_REQUEST_PAYLOAD:input"
 output_stream: "HTTP_RESPONSE_PAYLOAD:output"
