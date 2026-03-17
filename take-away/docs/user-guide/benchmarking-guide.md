@@ -113,7 +113,7 @@ make up
 make test-api
 
 # 5. Check GPU availability
-nvidia-smi  # or clinfo for Intel
+clinfo 
 ```
 
 ### Single Video Benchmark

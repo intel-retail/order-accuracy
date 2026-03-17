@@ -24,7 +24,7 @@ This guide walks you through the installation, configuration, and first-run of t
 |-----------|---------|-------------|
 | CPU | Intel Xeon 8 cores | Intel Xeon 16+ cores |
 | RAM | 16GB | 32GB+ |
-| GPU | Intel Arc A770 (8GB) | NVIDIA RTX 3080+ / Intel Arc |
+| GPU | Intel Arc A770 (8GB) | Intel Arc |
 | Storage | 50GB SSD | 200GB NVMe |
 | Network | 1 Gbps | 10 Gbps |
 
@@ -34,7 +34,6 @@ This guide walks you through the installation, configuration, and first-run of t
 |----------|---------|---------|
 | Docker | 24.0+ | Container runtime |
 | Docker Compose | V2+ | Service orchestration |
-| NVIDIA Driver | 535+ | GPU support (if NVIDIA) |
 | Intel GPU Driver | Latest | GPU support (if Intel) |
 | Python | 3.10+ | Local development (optional) |
 
@@ -49,8 +48,6 @@ docker --version
 docker compose version
 # Expected: Docker Compose version v2.x.x
 
-# GPU availability (NVIDIA)
-nvidia-smi
 # OR for Intel
 clinfo | head -20
 ```
@@ -116,6 +113,26 @@ make up
 ```
 
 > **Note**: `make build` pulls pre-built images from Docker Hub by default. Use `REGISTRY=false` to build from source.
+
+## RTSP Stream for Live Verification
+
+To start a standalone RTSP streamer that loops video files for real-time order verification, run:
+
+```bash
+WORKERS=1 docker compose --profile parallel up -d --no-deps rtsp-streamer
+```
+
+> **Prerequisite:** Place a test video at `storage/videos/test.mp4` before starting the streamer. You can run `make download-sample-video` to get one.
+
+Once the streamer is running, the following RTSP URL becomes available:
+
+| Access From | URL |
+|-------------|-----|
+| Host machine / Gradio UI | `rtsp://localhost:8554/station_1` |
+| Other containers (internal) | `rtsp://rtsp-streamer:8554/station_1` |
+
+For multiple stations, increase `WORKERS` (e.g., `WORKERS=3`) to create `station_1`, `station_2`, and `station_3` streams.
+
 
 ---
 
@@ -346,9 +363,6 @@ docker logs oa_ovms_vlm
 # Verify model path exists
 ls -la models/vlm/
 
-# Check GPU availability
-nvidia-smi  # or clinfo for Intel
-```
 
 ### Connection Refused to OVMS
 
@@ -397,9 +411,6 @@ make down && make up
 
 **Solution**:
 ```bash
-# For NVIDIA
-nvidia-smi
-sudo systemctl restart docker
 
 # For Intel
 sudo usermod -aG render $USER

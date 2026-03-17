@@ -24,7 +24,7 @@ This guide walks you through the installation, configuration, and first-run of t
 |-----------|---------|-------------|
 | CPU | Intel Xeon 8 cores | Intel Xeon 16+ cores |
 | RAM | 16GB | 32GB+ |
-| GPU | Intel Arc A770 (8GB) | Intel Arc / NVIDIA RTX 3080+ |
+| GPU | Intel Arc A770 (8GB) | Intel Arc |
 | Storage | 50GB SSD | 200GB NVMe |
 | Network | 1 Gbps | 10 Gbps |
 
@@ -34,7 +34,6 @@ This guide walks you through the installation, configuration, and first-run of t
 |----------|---------|---------|
 | Docker | 24.0+ | Container runtime |
 | Docker Compose | V2+ | Service orchestration |
-| NVIDIA Driver | 535+ | GPU support (if NVIDIA) |
 | Intel GPU Driver | Latest | GPU support (if Intel) |
 | Python | 3.10+ | Local development (optional) |
 
@@ -49,10 +48,6 @@ docker --version
 docker compose version
 # Expected: Docker Compose version v2.x.x
 
-# GPU availability (NVIDIA)
-nvidia-smi
-# OR for Intel
-clinfo | head -20
 ```
 
 ---
@@ -447,8 +442,7 @@ docker logs dinein_ovms_vlm
 ls -la ../ovms-service/models/
 
 # Check GPU availability
-clinfo | head -20  # Intel
-nvidia-smi         # NVIDIA
+clinfo | head -20  # Inte
 ```
 
 ### Connection Refused to OVMS
@@ -486,7 +480,7 @@ netstat -tulpn | grep -E "7861|8083|8002|8081"
 
 **Solution**:
 - Ensure GPU drivers are installed
-- Check GPU utilization: `intel_gpu_top` or `nvidia-smi`
+- Check GPU utilization: `intel_gpu_top`
 - Verify OVMS is using GPU in logs: `docker logs dinein_ovms_vlm | grep -i gpu`
 - Consider reducing image resolution in preprocessing
 
@@ -522,9 +516,6 @@ sudo usermod -aG video $USER
 # Verify GPU access
 ls -la /dev/dri/
 
-# For NVIDIA
-nvidia-smi
-sudo systemctl restart docker
 ```
 
 ### No Scenarios Available in UI

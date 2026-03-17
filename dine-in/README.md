@@ -14,7 +14,7 @@
 ### Prerequisites
 
 - Docker 24.0+ with Compose V2
-- NVIDIA GPU with 8GB+ VRAM (or Intel GPU)
+- Intel GPU
 - 32GB+ RAM recommended
 - Intel Xeon or equivalent CPU
 

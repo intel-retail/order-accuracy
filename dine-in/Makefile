@@ -17,7 +17,7 @@ CONCURRENCY_MAX ?= 10
 REQUESTS_PER_LEVEL ?= 10
 REQUEST_TIMEOUT ?= 30
 RESULTS_DIR ?= results
-METRICS_DIR ?= metrics
+METRICS_DIR ?= results
 OOM_PROTECTION ?= 1
 
 # Performance tools path
@@ -431,10 +431,7 @@ benchmark-metrics:
 		echo "No benchmark metrics found. Run 'make benchmark' first."; \
 	fi
 
-benchmark-stream-density: benchmark-density
-	@echo "Note: benchmark-stream-density is deprecated, use 'make benchmark-density' instead"
-
-benchmark-density: ## Run Dine-In stream density benchmark (image-based latency)
+benchmark-stream-density: ## Run Dine-In stream density benchmark (image-based latency)
 	@if [ "$(OOM_PROTECTION)" = "0" ]; then \
 		echo "╔════════════════════════════════════════════════════════════╗"; \
 		echo "║ WARNING                                                    ║"; \
@@ -558,7 +555,7 @@ plot-metrics: ## Generate plots from benchmark metrics
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║                   Generating Metrics Plots                        ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"
-	@sudo chmod -R ugo+rw $(CURDIR)/$(METRICS_DIR) 2>/dev/null || true
+	@chmod -R ugo+rw $(CURDIR)/$(METRICS_DIR) 2>/dev/null || true
 	cd $(PERF_TOOLS_DIR) && \
 	( \
 		python3 -m venv venv && \

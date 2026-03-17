@@ -321,7 +321,8 @@ services:
         - no_proxy=${NO_PROXY}
     container_name: oa_rtsp_streamer
     profiles:
-      - parallel  # Only start this service in parallel mode
+      - parallel
+      - benchmark
     depends_on:
       order-accuracy:
         condition: service_healthy
@@ -365,7 +366,8 @@ services:
     image: intel/retail-benchmark:2026.0-rc1
     container_name: metrics-collector
     profiles:
-      - benchmark  # Only start during benchmarking, not with regular 'make up'
+      - benchmark
+      - parallel
     privileged: true
     pid: host
     environment:

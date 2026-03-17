@@ -25,7 +25,7 @@ Suitable for development and testing with single worker mode.
 |-----------|---------------|
 | **CPU** | Intel Xeon 8 cores @ 2.4 GHz |
 | **RAM** | 16 GB DDR4 |
-| **GPU** | Intel Arc A770 8GB / NVIDIA RTX 3060 12GB |
+| **GPU** | Intel Arc A770 8GB  |
 | **Storage** | 50 GB SSD |
 | **Network** | 1 Gbps Ethernet |
 
@@ -37,7 +37,7 @@ Suitable for production with 2-4 station workers.
 |-----------|---------------|
 | **CPU** | Intel Xeon 16 cores @ 3.0 GHz |
 | **RAM** | 32 GB DDR4 |
-| **GPU** | Intel Data Center GPU Max / NVIDIA RTX 3080 10GB |
+| **GPU** | Intel Data Center GPU Max|
 | **Storage** | 200 GB NVMe SSD |
 | **Network** | 10 Gbps Ethernet |
 
@@ -49,7 +49,7 @@ Suitable for production with 8+ station workers.
 |-----------|---------------|
 | **CPU** | Intel Xeon 32+ cores @ 3.0 GHz |
 | **RAM** | 64 GB DDR4/DDR5 |
-| **GPU** | 2x NVIDIA RTX 4090 / Intel Data Center GPU Flex |
+| **GPU** | Intel Data Center GPU Flex |
 | **Storage** | 500 GB NVMe SSD RAID |
 | **Network** | 25 Gbps Ethernet |
 
@@ -72,17 +72,9 @@ Suitable for production with 8+ station workers.
 |----------|-----------------|-------------|
 | Docker Engine | 24.0.0 | 25.0+ |
 | Docker Compose | 2.20.0 | 2.24+ |
-| NVIDIA Container Toolkit | 1.14.0 | Latest |
 | containerd | 1.6.0 | 1.7+ |
 
 ### GPU Drivers
-
-#### NVIDIA
-| Driver | Minimum Version |
-|--------|-----------------|
-| NVIDIA Driver | 535.x |
-| CUDA Toolkit | 12.0 |
-| cuDNN | 8.9 |
 
 #### Intel
 | Driver | Minimum Version |
@@ -145,16 +137,6 @@ sudo ufw allow 9001/tcp   # MinIO Console (admin only)
 ---
 
 ## GPU Support
-
-### NVIDIA GPUs
-
-| GPU | VRAM | Workers Supported | Notes |
-|-----|------|-------------------|-------|
-| RTX 3060 | 12 GB | 1-2 | Development |
-| RTX 3080 | 10 GB | 2-4 | Recommended |
-| RTX 4080 | 16 GB | 4-6 | High performance |
-| RTX 4090 | 24 GB | 6-8 | Best performance |
-| A100 | 40/80 GB | 10+ | Data center |
 
 ### Intel GPUs
 
