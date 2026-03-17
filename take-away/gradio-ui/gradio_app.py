@@ -115,12 +115,16 @@ a[href*="gradio.app"] {
     border-radius: 8px;
     background: #000;
     display: block;
+    margin: 0 auto !important;
 }
 #rtsp-stream-image {
     width: 100% !important;
     background: #000;
     border-radius: 8px;
     overflow: hidden;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
 }
 
 /* Upload Video Preview - full video visible with black bars */
@@ -1211,7 +1215,7 @@ def recall_order_fn(order_id: str):
         return (
             f'<div style="background:#f8fafc;border-radius:10px;padding:32px;text-align:center;">'
             f'<div style="font-size:40px;margin-bottom:12px;">🚫</div>'
-            f'<div style="font-weight:600;color:#374151;font-size:15px;">Order <code>{order_id}</code> not found</div>'
+            f'<div style="font-weight:600;color:#374151;font-size:15px;">Order <code style="color:#000000;">{order_id}</code> not found</div>'
             f'<div style="color:#6b7280;font-size:13px;margin-top:8px;">'
             f'This order ID was never processed, or its history has been cleared.</div></div>',
             None
@@ -1527,7 +1531,7 @@ with gr.Blocks(
                     gr.HTML(
                         '<p style="color:#6b7280;font-size:12px;margin-top:6px;">'
                         'Replay is built from all frames captured during the order window '
-                        '(1 fps capture → played back at 2 fps).</p>'
+                        '(10 fps capture).</p>'
                     )
 
             # ── Wire up button and Enter key ─────────────────────────────────
