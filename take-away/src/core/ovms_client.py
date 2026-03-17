@@ -19,8 +19,9 @@ from vlm_metrics_logger import (
 
 logger = logging.getLogger(__name__)
 
-# Directory for saving VLM input frames
+# Directory for saving VLM input frames (debug only)
 VLM_INPUT_DIR = os.environ.get('VLM_INPUT_DIR', '/results/vlm-in')
+SAVE_VLM_INPUT = os.environ.get('SAVE_VLM_INPUT', 'false').lower() in ('true', '1', 'yes')
 
 
 class OVMSVLMClient:
@@ -181,7 +182,7 @@ class OVMSVLMClient:
         }
 
         # Save input frames for debugging (before sending request)
-        if unique_id:
+        if unique_id and SAVE_VLM_INPUT:
             self._save_input_frames(images, unique_id)
 
         # Send request

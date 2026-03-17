@@ -103,13 +103,13 @@ services:
       # VLM Backend (embedded or ovms)
       VLM_BACKEND: ${VLM_BACKEND:-ovms}
       VLM_MODEL_PATH: ${VLM_MODEL_PATH:-/model/Qwen2.5-VL-7B-Instruct}
-      OPENVINO_DEVICE: ${OPENVINO_DEVICE:-GPU}
+      OPENVINO_DEVICE: ${TARGET_DEVICE:-GPU}
       
       # OVMS settings (when VLM_BACKEND=ovms)
       OVMS_ENDPOINT: ${OVMS_ENDPOINT:-http://ovms-vlm:8000}
       OVMS_MODEL_NAME: ${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct}
       VLM_PRECISION: ${VLM_PRECISION:-int8}
-      VLM_DEVICE: ${VLM_DEVICE:-GPU}
+      VLM_DEVICE: ${TARGET_DEVICE:-GPU}
       OVMS_TIMEOUT: ${OVMS_TIMEOUT:-120}
       
       # Semantic service
@@ -281,11 +281,11 @@ services:
       - OVMS_ENDPOINT=http://ovms-vlm:8000
       - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct}
       - VLM_PRECISION=${VLM_PRECISION:-int8}
-      - VLM_DEVICE=${VLM_DEVICE:-GPU}
+      - VLM_DEVICE=${TARGET_DEVICE:-GPU}
       - OVMS_TIMEOUT=${OVMS_TIMEOUT:-60}
       # OpenVINO settings (when VLM_BACKEND=openvino)
       - OPENVINO_MODEL_PATH=${OPENVINO_MODEL_PATH:-/models/Qwen2.5-VL-7B-Instruct}
-      - OPENVINO_DEVICE=${OPENVINO_DEVICE:-GPU}
+      - OPENVINO_DEVICE=${TARGET_DEVICE:-GPU}
       # Cache settings
       - CACHE_ENABLED=true
       - CACHE_BACKEND=memory
@@ -321,7 +321,8 @@ services:
         - no_proxy=${NO_PROXY}
     container_name: oa_rtsp_streamer
     profiles:
-      - parallel  # Only start this service in parallel mode
+      - parallel
+      - benchmark
     depends_on:
       order-accuracy:
         condition: service_healthy
@@ -365,7 +366,8 @@ services:
     image: intel/retail-benchmark:2026.0-rc1
     container_name: metrics-collector
     profiles:
-      - benchmark  # Only start during benchmarking, not with regular 'make up'
+      - benchmark
+      - parallel
     privileged: true
     pid: host
     environment:

@@ -2,6 +2,12 @@
 
 This guide walks you through the installation, configuration, and first-run of the Dine-In Order Accuracy system for image-based plate validation.
 
+> **Note — `TARGET_DEVICE`**: To change the inference device mode, set `TARGET_DEVICE` in your `.env` file to `GPU`, `CPU`, or `AUTO`. After changing the device, re-run the setup script to update the model config:
+> ```bash
+> cd ../ovms-service && ./setup_models.sh --app dine-in
+> ```
+> You can also pass the device explicitly: `./setup_models.sh --device CPU`
+
 ---
 
 ## Table of Contents
@@ -24,7 +30,7 @@ This guide walks you through the installation, configuration, and first-run of t
 |-----------|---------|-------------|
 | CPU | Intel Xeon 8 cores | Intel Xeon 16+ cores |
 | RAM | 16GB | 32GB+ |
-| GPU | Intel Arc A770 (8GB) | Intel Arc / NVIDIA RTX 3080+ |
+| GPU | Intel Arc A770 (8GB) | Intel Arc |
 | Storage | 50GB SSD | 200GB NVMe |
 | Network | 1 Gbps | 10 Gbps |
 
@@ -34,7 +40,6 @@ This guide walks you through the installation, configuration, and first-run of t
 |----------|---------|---------|
 | Docker | 24.0+ | Container runtime |
 | Docker Compose | V2+ | Service orchestration |
-| NVIDIA Driver | 535+ | GPU support (if NVIDIA) |
 | Intel GPU Driver | Latest | GPU support (if Intel) |
 | Python | 3.10+ | Local development (optional) |
 
@@ -49,10 +54,6 @@ docker --version
 docker compose version
 # Expected: Docker Compose version v2.x.x
 
-# GPU availability (NVIDIA)
-nvidia-smi
-# OR for Intel
-clinfo | head -20
 ```
 
 ---
@@ -212,7 +213,7 @@ This starts 4 containers:
 To measure the maximum number of concurrent image validations the system can sustain under a latency target:
 
 ```bash
-make benchmark-density
+make benchmark-stream-density
 ```
 
 This automatically scales concurrent requests up, measuring end-to-end latency at each level, and stops when the target latency (default 15s) is exceeded. Results are saved to `./results/`.
@@ -220,7 +221,7 @@ This automatically scales concurrent requests up, measuring end-to-end latency a
 Override defaults via environment or CLI:
 
 ```bash
-make benchmark-density \
+make benchmark-stream-density \
   BENCHMARK_TARGET_LATENCY_MS=20000 \
   BENCHMARK_INIT_DURATION=30
 ```
@@ -371,19 +372,19 @@ Configuration options:
 |----------|---------|-------------|
 | `BENCHMARK_WORKERS` | 1 | Number of concurrent workers |
 | `BENCHMARK_DURATION` | 180 | Benchmark duration (seconds) |
-| `BENCHMARK_TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
+| `TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
 | `RESULTS_DIR` | results | Output directory |
 
 Example with custom settings:
 
 ```bash
-make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600
+make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600 TARGET_DEVICE=GPU
 ```
 
 ### Stream Density Test
 
 ```bash
-make benchmark-density
+make benchmark-stream-density
 ```
 
 ### Stream Density Configuration
@@ -412,10 +413,10 @@ export BENCHMARK_DENSITY_INCREMENT=2
 export BENCHMARK_LATENCY_METRIC=p95
 
 # Run benchmark (uses env vars)
-make benchmark-density
+make benchmark-stream-density
 
 # Short aliases also work on the CLI:
-make benchmark-density TARGET_LATENCY_MS=20000 DENSITY_INCREMENT=2 LATENCY_METRIC=p95
+make benchmark-stream-density TARGET_LATENCY_MS=20000 DENSITY_INCREMENT=2 LATENCY_METRIC=p95
 ```
 
 **Using CLI Arguments (override env vars):**
@@ -447,8 +448,7 @@ docker logs dinein_ovms_vlm
 ls -la ../ovms-service/models/
 
 # Check GPU availability
-clinfo | head -20  # Intel
-nvidia-smi         # NVIDIA
+clinfo | head -20  # Inte
 ```
 
 ### Connection Refused to OVMS
@@ -486,7 +486,7 @@ netstat -tulpn | grep -E "7861|8083|8002|8081"
 
 **Solution**:
 - Ensure GPU drivers are installed
-- Check GPU utilization: `intel_gpu_top` or `nvidia-smi`
+- Check GPU utilization: `intel_gpu_top`
 - Verify OVMS is using GPU in logs: `docker logs dinein_ovms_vlm | grep -i gpu`
 - Consider reducing image resolution in preprocessing
 
@@ -522,9 +522,6 @@ sudo usermod -aG video $USER
 # Verify GPU access
 ls -la /dev/dri/
 
-# For NVIDIA
-nvidia-smi
-sudo systemctl restart docker
 ```
 
 ### No Scenarios Available in UI
@@ -581,7 +578,7 @@ make clean
 # Run benchmarks
 make benchmark-single IMAGE_ID=MCD-1001  # Quick single image test
 make benchmark                        # Full benchmark
-make benchmark-density                # Stream density test
+make benchmark-stream-density          # Stream density test
 
 # Development
 make shell                     # Shell into container

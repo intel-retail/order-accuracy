@@ -31,7 +31,8 @@ ENV TZ=UTC
 # -------------------------------
 # Install system dependencies
 # -------------------------------
-RUN apt-get update && \
+RUN rm -f /etc/apt/sources.list.d/intel-gpu*.list 2>/dev/null; \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
         tzdata \
         git \
