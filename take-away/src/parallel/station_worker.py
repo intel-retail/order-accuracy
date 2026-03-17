@@ -905,7 +905,7 @@ class StationWorker:
         
         # Capture framerate for the GStreamer pipeline.
         # NOTE: 1fps is the recommended rate for CPU-based EasyOCR + YOLO processing.
-        capture_fps = int(os.environ.get("CAPTURE_FPS", "1"))
+        capture_fps = int(os.environ.get("CAPTURE_FPS", "10"))
         
         # Check if source is RTSP - use optimized low-latency rtspsrc
         if self.rtsp_url.startswith("rtsp://"):

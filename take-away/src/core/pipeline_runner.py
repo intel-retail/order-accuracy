@@ -37,8 +37,8 @@ def build_gstreamer_pipeline(source_type: str, source: str) -> str:
         "! videoconvert "
         "! video/x-raw,format=BGR "
         "! videorate "
-        "! video/x-raw,framerate=1/1 "
-        "! queue max-size-time=0 max-size-bytes=0 max-size-buffers=200 leaky=no "
+        "! video/x-raw,framerate=10/1 "
+        "! queue max-size-time=0 max-size-bytes=0 max-size-buffers=1000 leaky=no "
         "! gvapython module=frame_pipeline function=process_frame "
         "! fakesink sync=true"  # sync=true ensures real-time playback so OCR can keep up
     )

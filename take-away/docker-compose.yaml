@@ -125,11 +125,11 @@ services:
 
       
       # GStreamer capture settings
-      CAPTURE_FPS: ${CAPTURE_FPS:-1}  # Frames per second for pipeline (1fps for multi-station)
+      CAPTURE_FPS: ${CAPTURE_FPS:-10}  # Frames per second for pipeline (10fps)
       
       # Frame pipeline tuning (order 384 fix: OCR models take ~30s to load)
       # Pre-buffer must hold frames until OCR is ready to detect orders
-      PRE_BUFFER_FRAMES: ${PRE_BUFFER_FRAMES:-100}  # Frames to hold in buffer (100 @ 1fps = 100s)
+      PRE_BUFFER_FRAMES: ${PRE_BUFFER_FRAMES:-1000}  # Frames to hold in buffer (1000 @ 10fps = 100s)
       OCR_WARMUP_FRAMES: ${OCR_WARMUP_FRAMES:-2}    # Frames to wait before OCR ready signal (reduced for faster startup)
       
       # Performance tuning
@@ -140,6 +140,11 @@ services:
       # Metrics logging
       CONTAINER_RESULTS_PATH: ${CONTAINER_RESULTS_PATH:-/results}
       USECASE_1: ${USECASE_1:-take-away-order-accuracy}
+
+      # Order Recall - path where frame-selector writes debug frames
+      FRAME_SELECTOR_DEBUG_DIR: ${FRAME_SELECTOR_DEBUG_DIR:-/results/frame-selector-in}
+      # Playback FPS for stitched recall replay video
+      RECALL_REPLAY_FPS: ${RECALL_REPLAY_FPS:-10}
       
       # RabbitMQ disabled for simplicity (direct HTTP calls used)
       USE_RABBITMQ: ${USE_RABBITMQ:-false}

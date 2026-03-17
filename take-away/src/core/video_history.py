@@ -7,7 +7,7 @@ import json
 import logging
 from collections import deque
 from threading import Lock
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass, field, asdict
@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 RESULTS_DIR = Path(os.environ.get('RESULTS_DIR', '/results'))
 HISTORY_FILE = RESULTS_DIR / 'video_history.json'
 MAX_HISTORY = 50  # Keep last 50 videos
+MAX_RECALL_AGE_HOURS = 24  # Orders older than this cannot be recalled
 
 
 @dataclass
@@ -202,6 +203,68 @@ class VideoHistoryTracker:
                 return self._video_map[video_id].to_dict()
             return None
     
+    def get_video_by_order_id(self, order_id: str, max_age_hours: int = MAX_RECALL_AGE_HOURS) -> Dict:
+        """
+        Look up video history by order ID with a TTL check.
+
+        Returns a dict with one of three shapes:
+          {'status': 'not_found'}  — order ID never seen in history
+          {'status': 'expired',  'order_id': ..., 'upload_time': ...}  — outside TTL window
+          {'status': 'found',    'order_id': ..., 'video_id': ...,
+           'station_id': ..., 'upload_time': ..., 'completed_time': ...,
+           'source': ..., 'result': {...}}  — full details
+        """
+        with self._lock:
+            cutoff = datetime.now() - timedelta(hours=max_age_hours)
+
+            matched_entry: Optional[VideoEntry] = None
+            matched_result: Optional[Dict] = None
+
+            # Walk history (newest first — history is appendleft)
+            for entry in self._history:
+                if order_id in entry.orders_detected:
+                    matched_entry = entry
+                    # Find the specific result for this order inside the entry
+                    for r in entry.results:
+                        if str(r.get('order_id')) == str(order_id):
+                            matched_result = r
+                            break
+                    break
+
+            if matched_entry is None:
+                logger.info(f"[VIDEO-HISTORY] Recall: order {order_id} not found in history")
+                return {'status': 'not_found', 'order_id': order_id}
+
+            # Parse upload_time for TTL check
+            try:
+                upload_dt = datetime.strptime(matched_entry.upload_time, '%Y-%m-%d %H:%M:%S')
+            except Exception:
+                upload_dt = datetime.now()  # Fallback: treat as fresh
+
+            if upload_dt < cutoff:
+                logger.info(
+                    f"[VIDEO-HISTORY] Recall: order {order_id} expired "
+                    f"(processed at {matched_entry.upload_time}, cutoff {cutoff.strftime('%Y-%m-%d %H:%M:%S')})"
+                )
+                return {
+                    'status': 'expired',
+                    'order_id': order_id,
+                    'upload_time': matched_entry.upload_time,
+                    'max_age_hours': max_age_hours,
+                }
+
+            logger.info(f"[VIDEO-HISTORY] Recall: order {order_id} found in video {matched_entry.video_id}")
+            return {
+                'status': 'found',
+                'order_id': order_id,
+                'video_id': matched_entry.video_id,
+                'station_id': matched_entry.station_id,
+                'upload_time': matched_entry.upload_time,
+                'completed_time': matched_entry.completed_time,
+                'source': matched_entry.filename,
+                'result': matched_result,
+            }
+
     def get_current_video_id(self) -> Optional[str]:
         """Get the current processing video ID"""
         return self._current_video_id
@@ -312,3 +375,12 @@ def get_current_video_id() -> Optional[str]:
 def clear_video_history() -> Dict:
     """Clear all video history"""
     return get_video_tracker().clear_history()
+
+
+def get_video_by_order_id(order_id: str, max_age_hours: int = MAX_RECALL_AGE_HOURS) -> Dict:
+    """Look up a video entry by order ID, with a 24-hour TTL check by default.
+
+    Returns:
+        dict with 'status' = 'found' | 'not_found' | 'expired'
+    """
+    return get_video_tracker().get_video_by_order_id(order_id, max_age_hours)
