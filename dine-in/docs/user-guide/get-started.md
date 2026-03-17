@@ -207,7 +207,7 @@ This starts 4 containers:
 To measure the maximum number of concurrent image validations the system can sustain under a latency target:
 
 ```bash
-make benchmark-density
+make benchmark-stream-density
 ```
 
 This automatically scales concurrent requests up, measuring end-to-end latency at each level, and stops when the target latency (default 15s) is exceeded. Results are saved to `./results/`.
@@ -215,7 +215,7 @@ This automatically scales concurrent requests up, measuring end-to-end latency a
 Override defaults via environment or CLI:
 
 ```bash
-make benchmark-density \
+make benchmark-stream-density \
   BENCHMARK_TARGET_LATENCY_MS=20000 \
   BENCHMARK_INIT_DURATION=30
 ```
@@ -378,7 +378,7 @@ make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600
 ### Stream Density Test
 
 ```bash
-make benchmark-density
+make benchmark-stream-density
 ```
 
 ### Stream Density Configuration
@@ -407,10 +407,10 @@ export BENCHMARK_DENSITY_INCREMENT=2
 export BENCHMARK_LATENCY_METRIC=p95
 
 # Run benchmark (uses env vars)
-make benchmark-density
+make benchmark-stream-density
 
 # Short aliases also work on the CLI:
-make benchmark-density TARGET_LATENCY_MS=20000 DENSITY_INCREMENT=2 LATENCY_METRIC=p95
+make benchmark-stream-density TARGET_LATENCY_MS=20000 DENSITY_INCREMENT=2 LATENCY_METRIC=p95
 ```
 
 **Using CLI Arguments (override env vars):**
@@ -572,7 +572,7 @@ make clean
 # Run benchmarks
 make benchmark-single IMAGE_ID=MCD-1001  # Quick single image test
 make benchmark                        # Full benchmark
-make benchmark-density                # Stream density test
+make benchmark-stream-density          # Stream density test
 
 # Development
 make shell                     # Shell into container

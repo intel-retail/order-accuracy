@@ -277,7 +277,7 @@ make down                   # Stop services
 make logs                   # View logs
 make update-submodules      # Initialize performance-tools (required before benchmarking)
 make benchmark              # Run benchmark
-make benchmark-density      # Run stream density test
+make benchmark-stream-density      # Run stream density test
 make benchmark-density-results  # View density benchmark results
 ```
 

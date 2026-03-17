@@ -199,7 +199,7 @@ make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600 BENCHMARK_TARGET_DEVIC
 Tests maximum concurrent validations within latency target.
 
 ```bash
-make benchmark-density
+make benchmark-stream-density
 ```
 
 Output:
