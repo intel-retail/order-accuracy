@@ -110,7 +110,7 @@ a[href*="gradio.app"] {
 #rtsp-stream-image img {
     width: 100% !important;
     height: auto !important;
-    min-height: 360px !important;
+    max-height: 380px !important;
     object-fit: contain !important;
     border-radius: 8px;
     background: #000;
@@ -121,6 +121,46 @@ a[href*="gradio.app"] {
     background: #000;
     border-radius: 8px;
     overflow: hidden;
+}
+
+/* Upload Video Preview - full video visible with black bars */
+#upload-video-preview,
+#upload-video-preview > div,
+#upload-video-preview > div > div {
+    background: #000 !important;
+    border-radius: 8px !important;
+    height: 340px !important;
+    max-height: 340px !important;
+    overflow: hidden !important;
+}
+#upload-video-preview video {
+    object-fit: contain !important;
+    width: 100% !important;
+    height: 340px !important;
+    max-height: 340px !important;
+    background: #000 !important;
+    border-radius: 8px !important;
+    display: block !important;
+}
+
+/* Order Recall Replay - full video visible with black bars */
+#recall-video-player,
+#recall-video-player > div,
+#recall-video-player > div > div {
+    background: #000 !important;
+    border-radius: 8px !important;
+    height: 420px !important;
+    max-height: 420px !important;
+    overflow: hidden !important;
+}
+#recall-video-player video {
+    object-fit: contain !important;
+    width: 100% !important;
+    height: 420px !important;
+    max-height: 420px !important;
+    background: #000 !important;
+    border-radius: 8px !important;
+    display: block !important;
 }
 
 /* Primary Button - Intel Blue */
@@ -1283,7 +1323,7 @@ with gr.Blocks(
                         interactive=False,
                         show_label=False,
                         show_download_button=False,
-                        height=340,
+                        elem_id="upload-video-preview",
                     )
                 
                 with gr.Column(scale=1):
@@ -1482,7 +1522,7 @@ with gr.Blocks(
                         interactive=False,
                         show_download_button=True,
                         show_label=False,
-                        height=420
+                        elem_id="recall-video-player",
                     )
                     gr.HTML(
                         '<p style="color:#6b7280;font-size:12px;margin-top:6px;">'
