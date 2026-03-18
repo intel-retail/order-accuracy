@@ -2,12 +2,6 @@
 
 This guide walks you through the installation, configuration, and first-run of the Dine-In Order Accuracy system for image-based plate validation.
 
-> **Note — `TARGET_DEVICE`**: To change the inference device mode, set `TARGET_DEVICE` in your `.env` file to `GPU`, `CPU`, or `AUTO`. After changing the device, re-run the setup script to update the model config:
-> ```bash
-> cd ../ovms-service && ./setup_models.sh --app dine-in
-> ```
-> You can also pass the device explicitly: `./setup_models.sh --device CPU`
-
 ---
 
 ## Table of Contents
@@ -84,6 +78,11 @@ cd dine-in
 ### Step 3: Setup OVMS Models (First Time Only)
 
 The VLM model must be downloaded before running the application:
+> **Note — `TARGET_DEVICE`**: To change the inference device mode, set `TARGET_DEVICE` in your `.env` file to `GPU`, `CPU`, or `AUTO`. After changing the device, re-run the setup script to update the model config:
+> ```bash
+> cd ../ovms-service && ./setup_models.sh --app dine-in
+> ```
+> You can also pass the device explicitly: `./setup_models.sh --device CPU`
 
 ```bash
 cd ../ovms-service
@@ -91,9 +90,9 @@ cd ../ovms-service
 ```
 
 This script:
-- Downloads Qwen2.5-VL-7B-Instruct from HuggingFace (~7GB)
-- Converts to OpenVINO format with INT8 quantization
-- Creates model files in `ovms-service/models/`
+- Downloads Qwen2.5-VL-7B-Instruct-ov-int8 from HuggingFace
+- Generates `graph.pbtxt` from `graph_options.json`
+- Generates OVMS `config.json` (mediapipe serving config)
 
 > **Note**: This only needs to be done once. The model files are shared between dine-in and take-away applications.
 

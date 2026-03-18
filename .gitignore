@@ -2,7 +2,8 @@
 ovms-service/models_vlm
 ovms-service/venv
 ovms-service/cache/
-ovms-service/models/
+ovms-service/models/*
+!ovms-service/models/graph_options.json
 take-away/models
 take-away/model
 take-away/datasets/

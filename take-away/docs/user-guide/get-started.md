@@ -2,12 +2,6 @@
 
 This guide walks you through the installation, configuration, and first-run of the Take-Away Order Accuracy system.
 
-> **Note — `TARGET_DEVICE`**: To change the inference device mode, set `TARGET_DEVICE` in your `.env` file to `GPU`, `CPU`, or `AUTO`. After changing the device, re-run the setup script to update the model config:
-> ```bash
-> cd ../ovms-service && ./setup_models.sh --app take-away
-> ```
-> You can also pass the device explicitly: `./setup_models.sh --device CPU`
-
 ---
 
 ## Table of Contents
@@ -87,6 +81,13 @@ cd take-away
 
 The VLM model and EasyOCR models must be downloaded before running the application:
 
+> **Note — `TARGET_DEVICE`**: To change the inference device mode, set `TARGET_DEVICE` in your `.env` file to `GPU`, `CPU`, or `AUTO`. After changing the device, re-run the setup script to update the model config:
+> ```bash
+> cd ../ovms-service && ./setup_models.sh --app take-away
+> ```
+> You can also pass the device explicitly: `./setup_models.sh --device CPU`
+
+
 ```bash
 cd ../ovms-service
 ./setup_models.sh
@@ -94,6 +95,7 @@ cd ../ovms-service
 
 This script:
 - Downloads Qwen2.5-VL-7B-Instruct-ov-int8 from HuggingFace
+- Downloads and quantizes YOLOv11 model (INT8 OpenVINO)
 - Downloads EasyOCR detection and recognition models
 - Generates `graph.pbtxt` from `config.json` graph_options
 

@@ -686,51 +686,7 @@ openvino_int8_path = model_dir / "yolo11n_int8_openvino_model"
 logger.info(f"Model directory: {model_dir}")
 logger.info(f"Dataset directory: {dataset_dir}")
 
-# Step 1: Download YOLOv11 model (if not exists)
-if not yolo_model.exists():
-    logger.info(f"Downloading YOLOv11 model to {yolo_model}")
-    model_pt = YOLO(str(yolo_model))
-    logger.info("YOLOv11 model downloaded successfully")
-else:
-    logger.info(f"YOLOv11 model already exists: {yolo_model}")
-
-# Step 2: Convert to OpenVINO FP32 format (if not exists)
-if not openvino_fp32_path.exists():
-    logger.info("Converting YOLOv11 to OpenVINO FP32 format")
-    # Change to model directory before export
-    original_dir = os.getcwd()
-    os.chdir(str(model_dir))
-    
-    model_pt = YOLO(str(yolo_model))
-    model_pt.export(format="openvino", half=False)
-    
-    os.chdir(original_dir)
-    logger.info("OpenVINO FP32 conversion complete")
-else:
-    logger.info(f"OpenVINO FP32 model already exists: {openvino_fp32_path}")
-
-# Step 3: Quantize to INT8 (if not exists)
-if not openvino_int8_path.exists():
-    logger.info("Quantizing model to INT8")
-    
-    # Change to model directory before export
-    original_dir = os.getcwd()
-    os.chdir(str(model_dir))
-    
-    model_pt = YOLO(str(yolo_model))
-    model_pt.export(format="openvino", int8=True, data="coco128.yaml")
-    
-    # Rename from default to int8 path
-    default_output = Path("yolo11n_openvino_model")
-    if default_output.exists() and not openvino_int8_path.exists():
-        default_output.rename(openvino_int8_path.name)
-    
-    os.chdir(original_dir)
-    logger.info("INT8 quantization complete")
-else:
-    logger.info(f"INT8 model already exists: {openvino_int8_path}")
-
-# Step 4: Load the INT8 OpenVINO model
+# Load the INT8 OpenVINO model (must be pre-downloaded into model_dir)
 logger.info("Loading INT8 OpenVINO model")
 model = YOLO(str(openvino_int8_path), task="detect")
 logger.info("INT8 OpenVINO model loaded successfully")
