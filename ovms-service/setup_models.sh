@@ -7,32 +7,6 @@ PROJECT_ROOT="$(dirname "${SCRIPT_DIR}")"
 MODELS_DIR="${SCRIPT_DIR}/models"
 
 ###############################################
-# TARGET DEVICE CONFIGURATION
-# Override via: TARGET_DEVICE=CPU ./setup_models.sh
-# or:           ./setup_models.sh --device CPU
-###############################################
-# Parse CLI flags: --device <DEV> and --app <dine-in|take-away>
-for arg in "$@"; do
-    case "$arg" in
-        --device=*) TARGET_DEVICE="${arg#*=}"; TARGET_DEVICE_FROM_CLI=true ;;
-        --device)   _shift_device=true ;;
-        --app=*)    SETUP_APP="${arg#*=}" ;;
-        --app)      _shift_app=true ;;
-        *)
-            if [ "${_shift_device:-}" = true ]; then
-                TARGET_DEVICE="$arg"; TARGET_DEVICE_FROM_CLI=true; _shift_device=false
-            elif [ "${_shift_app:-}" = true ]; then
-                SETUP_APP="$arg"; _shift_app=false
-            fi
-            ;;
-    esac
-done
-# If set via environment variable (not CLI), mark it so .env doesn't override
-if [ -n "${TARGET_DEVICE:-}" ] && [ -z "${TARGET_DEVICE_FROM_CLI:-}" ]; then
-    TARGET_DEVICE_FROM_CLI=true
-fi
-
-###############################################
 # HARD CODED MODEL REGISTRY
 ###############################################
 declare -A MODEL_SOURCES
@@ -45,48 +19,14 @@ POTENTIAL_SOURCE_DIRS=(
 )
 
 ###############################################
-# LOAD OVMS_MODEL_NAME AND TARGET_DEVICE FROM .env
+# LOAD OVMS_MODEL_NAME FROM take-away/.env
 ###############################################
-# Determine which .env file(s) to read based on --app flag
-if [ "${SETUP_APP:-}" = "take-away" ]; then
-    _env_files=("${PROJECT_ROOT}/take-away/.env")
-elif [ "${SETUP_APP:-}" = "dine-in" ]; then
-    _env_files=("${PROJECT_ROOT}/dine-in/.env")
-else
-    # No --app specified: check both (take-away first, then dine-in)
-    _env_files=("${PROJECT_ROOT}/take-away/.env" "${PROJECT_ROOT}/dine-in/.env")
+ENV_FILE="${PROJECT_ROOT}/take-away/.env"
+if [ -f "${ENV_FILE}" ]; then
+    OVMS_MODEL_NAME_ENV=$(grep -E '^OVMS_MODEL_NAME=' "${ENV_FILE}" | head -1 | cut -d'=' -f2- | tr -d '"\r')
 fi
-
-TARGET_DEVICE_SOURCE=""
-for _env_file in "${_env_files[@]}"; do
-    if [ -f "${_env_file}" ]; then
-        _model=$(grep -E '^OVMS_MODEL_NAME=' "${_env_file}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
-        [ -n "${_model}" ] && OVMS_MODEL_NAME_ENV="${_model}"
-        # Read TARGET_DEVICE from .env if not already set via CLI/env
-        if [ -z "${TARGET_DEVICE_FROM_CLI:-}" ]; then
-            _device=$(grep -E '^TARGET_DEVICE=' "${_env_file}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
-            if [ -n "${_device}" ]; then
-                TARGET_DEVICE="${_device}"
-                TARGET_DEVICE_SOURCE="${_env_file}"
-            fi
-        fi
-    fi
-done
-
-TARGET_DEVICE="${TARGET_DEVICE:-GPU}"
-
 # Fall back to the hard-coded source model if .env is missing or unset
 OVMS_MODEL_NAME_ENV="${OVMS_MODEL_NAME_ENV:-Qwen/Qwen2.5-VL-7B-Instruct}"
-
-# Print source of TARGET_DEVICE so user knows exactly where it came from
-if [ "${TARGET_DEVICE_FROM_CLI:-}" = true ]; then
-    echo "Target device: ${TARGET_DEVICE}  (from CLI / environment variable)"
-elif [ -n "${TARGET_DEVICE_SOURCE}" ]; then
-    echo "Target device: ${TARGET_DEVICE}  (from ${TARGET_DEVICE_SOURCE})"
-else
-    echo "Target device: ${TARGET_DEVICE}  (default — no .env found)"
-fi
-echo ""
 
 ###############################################
 echo "=========================================="
@@ -195,7 +135,7 @@ export_model() {
       --source_model "${SOURCE_MODEL}" \
       --weight-format int8 \
       --pipeline_type VLM_CB \
-      --target_device "${TARGET_DEVICE}" \
+      --target_device GPU \
       --cache_size 32 \
       --max_num_seqs 1 \
       --enable_prefix_caching \
@@ -301,9 +241,7 @@ apply_graph_config() {
     local GRAPH_FILE="${MODELS_DIR}/Qwen/${MODEL_NAME}/graph.pbtxt"
 
     if [ ! -f "${GRAPH_OPTIONS_FILE}" ]; then
-        echo "  No graph_options.json found, updating device to ${TARGET_DEVICE} in graph.pbtxt"
-        sed -i "s/device: \"[A-Z]*\"/device: \"${TARGET_DEVICE}\"/g" "${GRAPH_FILE}"
-        echo "  ✓ graph.pbtxt device set to ${TARGET_DEVICE}"
+        echo "  No graph_options.json found, keeping existing graph.pbtxt"
         return 0
     fi
 
@@ -312,8 +250,8 @@ apply_graph_config() {
     echo "Applying graph_options.json to graph.pbtxt"
     echo "------------------------------------------"
 
-    TARGET_DEVICE="${TARGET_DEVICE}" python3 - "${GRAPH_OPTIONS_FILE}" "${GRAPH_FILE}" << 'PYEOF'
-import json, sys, os
+    python3 - "${GRAPH_OPTIONS_FILE}" "${GRAPH_FILE}" << 'PYEOF'
+import json, sys
 
 graph_options_file = sys.argv[1]
 graph_file = sys.argv[2]
@@ -331,7 +269,7 @@ dynamic_split = 'true' if opts.get('dynamic_split_fuse', False) else 'false'
 max_num_seqs = opts.get('max_num_seqs', 4)
 cache_size = opts.get('cache_size', 10)
 max_num_batched_tokens = opts.get('max_num_batched_tokens', 4096)
-device = opts.get('device', os.environ.get('TARGET_DEVICE', 'GPU'))
+device = opts.get('device', 'GPU')
 
 graph = f'''input_stream: "HTTP_REQUEST_PAYLOAD:input"
 output_stream: "HTTP_RESPONSE_PAYLOAD:output"
@@ -515,3 +453,152 @@ print('Done.')
         echo "Skipped EasyOCR download."
     fi
 fi
+
+###############################################
+# YOLO MODEL DOWNLOAD AND QUANTIZATION
+# YOLO11n is used by the frame-selector service for frame quality scoring.
+# Three artifacts are pre-built here so the container starts instantly:
+#   take-away/model/yolo11n.pt                    — base PyTorch weights
+#   take-away/model/yolo11n_openvino_model/        — FP32 OpenVINO IR
+#   take-away/model/yolo11n_int8_openvino_model/   — INT8 quantized OpenVINO IR
+# docker-compose mounts take-away/model/ → /app/models inside the container.
+###############################################
+YOLO_MODEL_DIR="${TAKEAWAY_DIR}/model"
+YOLO_DATASETS_DIR="${TAKEAWAY_DIR}/datasets"
+YOLO_PT="${YOLO_MODEL_DIR}/yolo11n.pt"
+YOLO_FP32_DIR="${YOLO_MODEL_DIR}/yolo11n_openvino_model"
+YOLO_INT8_DIR="${YOLO_MODEL_DIR}/yolo11n_int8_openvino_model"
+YOLO_VENV="${SCRIPT_DIR}/yolo-venv"
+
+echo ""
+echo "=========================================="
+echo "YOLO Model Setup (Frame Selector)"
+echo "=========================================="
+echo "Target: ${YOLO_MODEL_DIR}"
+echo ""
+
+_yolo_all_present() {
+    [ -f "${YOLO_PT}" ] && [ -d "${YOLO_FP32_DIR}" ] && [ -d "${YOLO_INT8_DIR}" ]
+}
+
+if _yolo_all_present; then
+    echo "✓ YOLO models already present, skipping."
+else
+    echo "One or more YOLO model artifacts are missing:"
+    [ ! -f "${YOLO_PT}" ]       && echo "  - yolo11n.pt"
+    [ ! -d "${YOLO_FP32_DIR}" ] && echo "  - yolo11n_openvino_model/  (FP32 OpenVINO)"
+    [ ! -d "${YOLO_INT8_DIR}" ] && echo "  - yolo11n_int8_openvino_model/  (INT8 OpenVINO)"
+    echo ""
+    read -p "Download and quantize YOLO models (~50MB + COCO128 ~7MB)? (y/N): " -n 1 -r
+    echo
+
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        mkdir -p "${YOLO_MODEL_DIR}" "${YOLO_DATASETS_DIR}"
+
+        # Use a dedicated venv so ultralytics/torch-cpu don't conflict with the OVMS venv
+        echo "[1/3] Setting up Python environment for YOLO..."
+        if [ ! -d "${YOLO_VENV}" ] || [ ! -f "${YOLO_VENV}/bin/pip" ]; then
+            python3 -m venv "${YOLO_VENV}" --clear
+        fi
+        source "${YOLO_VENV}/bin/activate"
+        pip install -q --upgrade pip
+        # CPU-only torch (mirrors the frame-selector Dockerfile)
+        pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cpu
+        pip install -q ultralytics openvino
+        echo "  ✓ Dependencies installed"
+
+        echo "[2/3] Downloading yolo11n.pt and exporting OpenVINO models..."
+        YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" YOLO_DATASETS_DIR="${YOLO_DATASETS_DIR}" \
+        python3 - << 'PYEOF'
+import os, sys
+from pathlib import Path
+from ultralytics import YOLO
+
+model_dir    = Path(os.environ["YOLO_MODEL_DIR"])
+datasets_dir = Path(os.environ["YOLO_DATASETS_DIR"])
+
+# Tell ultralytics where to store datasets (needed for INT8 calibration)
+os.environ["YOLO_DATASETS_DIR"] = str(datasets_dir)
+
+yolo_pt   = model_dir / "yolo11n.pt"
+fp32_dir  = model_dir / "yolo11n_openvino_model"
+int8_dir  = model_dir / "yolo11n_int8_openvino_model"
+
+# ── Step 1: Download base weights ────────────────────────────────────────────
+if not yolo_pt.exists():
+    print("  Downloading yolo11n.pt ...")
+    orig = os.getcwd()
+    os.chdir(str(model_dir))
+    YOLO("yolo11n.pt")   # ultralytics downloads to CWD when the file is absent
+    os.chdir(orig)
+    print(f"  ✓ Downloaded: {yolo_pt}")
+else:
+    print(f"  yolo11n.pt already exists: {yolo_pt}")
+
+# ── Step 2: FP32 OpenVINO export ─────────────────────────────────────────────
+if not fp32_dir.exists():
+    print("  Exporting to OpenVINO FP32 ...")
+    orig = os.getcwd()
+    os.chdir(str(model_dir))
+    YOLO(str(yolo_pt)).export(format="openvino", half=False)
+    os.chdir(orig)
+    print(f"  ✓ FP32 export: {fp32_dir}")
+else:
+    print(f"  FP32 model already exists: {fp32_dir}")
+
+# ── Step 3: INT8 quantization ────────────────────────────────────────────────
+if not int8_dir.exists():
+    print("  Quantizing to OpenVINO INT8 (downloads COCO128 ~7 MB if needed) ...")
+    orig = os.getcwd()
+    os.chdir(str(model_dir))
+    YOLO(str(yolo_pt)).export(format="openvino", int8=True, data="coco128.yaml")
+    # ultralytics exports INT8 to "yolo11n_openvino_model/" in CWD;
+    # rename it so it doesn't overwrite the FP32 export.
+    default_out = Path("yolo11n_openvino_model")
+    if default_out.exists() and not int8_dir.exists():
+        default_out.rename(int8_dir.name)
+    os.chdir(orig)
+    print(f"  ✓ INT8 quantization: {int8_dir}")
+else:
+    print(f"  INT8 model already exists: {int8_dir}")
+
+print("YOLO export complete.")
+PYEOF
+
+        deactivate 2>/dev/null || true
+
+        echo "[3/3] Verifying YOLO artifacts..."
+        _ok=1
+        if [ -f "${YOLO_PT}" ]; then
+            echo "  ✓ yolo11n.pt"
+        else
+            echo "  ✗ yolo11n.pt missing"
+            _ok=0
+        fi
+        if [ -d "${YOLO_FP32_DIR}" ]; then
+            echo "  ✓ yolo11n_openvino_model/"
+        else
+            echo "  ✗ yolo11n_openvino_model/ missing"
+            _ok=0
+        fi
+        if [ -d "${YOLO_INT8_DIR}" ]; then
+            echo "  ✓ yolo11n_int8_openvino_model/"
+        else
+            echo "  ✗ yolo11n_int8_openvino_model/ missing"
+            _ok=0
+        fi
+
+        if [ "${_ok}" -eq 1 ]; then
+            echo "✓ YOLO models ready"
+        else
+            echo "✗ Some YOLO artifacts are missing — check ${YOLO_MODEL_DIR}"
+        fi
+    else
+        echo "Skipped YOLO model setup."
+    fi
+fi
+
+echo ""
+echo "=========================================="
+echo "✓ All Setup Complete!"
+echo "=========================================="
