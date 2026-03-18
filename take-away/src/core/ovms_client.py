@@ -74,10 +74,10 @@ class OVMSVLMClient:
 
         pil_img = Image.fromarray(image_rgb.astype('uint8'))
         buffer = BytesIO()
-        pil_img.save(buffer, format="PNG")
+        pil_img.save(buffer, format="JPEG", quality=82, optimize=True)
         img_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
         
-        return f"data:image/png;base64,{img_b64}"
+        return f"data:image/jpeg;base64,{img_b64}"
 
     def _save_input_frames(self, images: List, unique_id: str) -> str:
         """

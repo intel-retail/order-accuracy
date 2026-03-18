@@ -82,9 +82,8 @@ check_model() {
 ###############################################
 ask_user_model() {
     local model_name="$1"
-    read -p "Do you want to setup ${model_name}? (y/N): " -n 1 -r
-    echo
-    [[ $REPLY =~ ^[Yy]$ ]]
+    echo "Setting up ${model_name}..."
+    return 0
 }
 
 ###############################################
@@ -147,11 +146,17 @@ export_model() {
 ###############################################
 mkdir -p "${MODELS_DIR}"
 
-echo "Setting up Python environment..."
-echo ""
-setup_python_env
-echo ""
-echo "✓ Python environment ready"
+_PYTHON_ENV_READY=0
+ensure_python_env() {
+    if [ "${_PYTHON_ENV_READY}" -eq 0 ]; then
+        echo "Setting up Python environment..."
+        echo ""
+        setup_python_env
+        echo ""
+        echo "✓ Python environment ready"
+        _PYTHON_ENV_READY=1
+    fi
+}
 
 ###############################################
 # MAIN MODEL LOOP
@@ -199,21 +204,14 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
     done
 
     ###########################################
-    # Ask before downloading/export
+    # Download/export automatically
     ###########################################
     echo ""
     echo "Model not found locally."
-    echo "Will download and export from HuggingFace."
+    echo "Downloading and exporting from HuggingFace..."
     echo ""
 
-    read -p "Continue export for ${MODEL_NAME}? (y/N): " -n 1 -r
-    echo
-
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        echo "Skipped export for ${MODEL_NAME}"
-        continue
-    fi
-
+    ensure_python_env
     export_model "${MODEL_NAME}" "${SOURCE_MODEL}"
 
     ###########################################
@@ -409,13 +407,50 @@ echo "✓ All Model Setup Complete!"
 echo "=========================================="
 
 ###############################################
-# EASYOCR MODEL DOWNLOAD
-# EasyOCR models are used by the frame_pipeline for OCR-based order detection.
-# Pre-downloading avoids a 60-90s delay on first container start.
+# SHARED VENV FOR EASYOCR + YOLO DOWNLOADS
+# Ubuntu 24.04 (PEP 668) blocks pip install on system Python.
+# A single shared venv is used to download both EasyOCR and YOLO
+# model weights to disk. The containers never use this venv —
+# they have their own Python environments.
 ###############################################
 TAKEAWAY_DIR="$(dirname "${SCRIPT_DIR}")/take-away"
 EASYOCR_DIR="${TAKEAWAY_DIR}/models/easyocr"
+YOLO_MODEL_DIR="${TAKEAWAY_DIR}/model"
+YOLO_DATASETS_DIR="${TAKEAWAY_DIR}/datasets"
+YOLO_PT="${YOLO_MODEL_DIR}/yolo11n.pt"
+YOLO_FP32_DIR="${YOLO_MODEL_DIR}/yolo11n_openvino_model"
+YOLO_INT8_DIR="${YOLO_MODEL_DIR}/yolo11n_int8_openvino_model"
+MODEL_TOOLS_VENV="${SCRIPT_DIR}/model-tools-venv"
 
+_easyocr_present() {
+    [ -f "${EASYOCR_DIR}/craft_mlt_25k.pth" ] && [ -f "${EASYOCR_DIR}/english_g2.pth" ]
+}
+
+_yolo_all_present() {
+    [ -f "${YOLO_PT}" ] && [ -d "${YOLO_FP32_DIR}" ] && [ -d "${YOLO_INT8_DIR}" ]
+}
+
+# Only create the venv if at least one model set is missing
+if _easyocr_present && _yolo_all_present; then
+    echo ""
+    echo "✓ EasyOCR and YOLO models already present, skipping."
+else
+    echo ""
+    echo "Setting up shared Python environment for model downloads..."
+    if [ ! -d "${MODEL_TOOLS_VENV}" ] || [ ! -f "${MODEL_TOOLS_VENV}/bin/pip" ]; then
+        python3 -m venv "${MODEL_TOOLS_VENV}" --clear
+    fi
+    source "${MODEL_TOOLS_VENV}/bin/activate"
+    pip install -q --upgrade pip
+    # CPU-only torch (mirrors the frame-selector Dockerfile)
+    pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cpu
+    pip install -q ultralytics openvino easyocr
+    echo "  ✓ Dependencies installed"
+fi
+
+###############################################
+# EASYOCR MODEL DOWNLOAD
+###############################################
 echo ""
 echo "=========================================="
 echo "EasyOCR Model Setup"
@@ -423,34 +458,25 @@ echo "=========================================="
 echo "Target: ${EASYOCR_DIR}"
 echo ""
 
-if [ -f "${EASYOCR_DIR}/craft_mlt_25k.pth" ] && [ -f "${EASYOCR_DIR}/english_g2.pth" ]; then
+if _easyocr_present; then
     echo "✓ EasyOCR models already present, skipping download."
 else
-    read -p "Download EasyOCR models (~200MB)? (y/N): " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        mkdir -p "${EASYOCR_DIR}"
-        echo "Downloading EasyOCR models to ${EASYOCR_DIR} ..."
-        echo "  (detection model ~90MB + recognition model ~100MB)"
-        EASYOCR_DIR="${EASYOCR_DIR}" python3 -c "
-import sys, os
+    mkdir -p "${EASYOCR_DIR}"
+    echo "Downloading EasyOCR models to ${EASYOCR_DIR} ..."
+    echo "  (detection model ~90MB + recognition model ~100MB)"
+
+    EASYOCR_DIR="${EASYOCR_DIR}" python3 -c "
+import os
+import easyocr
 easyocr_dir = os.environ['EASYOCR_DIR']
-try:
-    import easyocr
-except ImportError:
-    import subprocess
-    subprocess.check_call([sys.executable, '-m', 'pip', 'install', '-q', 'easyocr'])
-    import easyocr
 easyocr.Reader(['en'], gpu=False, verbose=True, model_storage_directory=easyocr_dir)
 print('Done.')
 "
-        if [ -f "${EASYOCR_DIR}/craft_mlt_25k.pth" ] && [ -f "${EASYOCR_DIR}/english_g2.pth" ]; then
-            echo "✓ EasyOCR models downloaded to ${EASYOCR_DIR}"
-        else
-            echo "✗ EasyOCR download may have failed — check ${EASYOCR_DIR}"
-        fi
+
+    if _easyocr_present; then
+        echo "✓ EasyOCR models downloaded to ${EASYOCR_DIR}"
     else
-        echo "Skipped EasyOCR download."
+        echo "✗ EasyOCR download may have failed — check ${EASYOCR_DIR}"
     fi
 fi
 
@@ -463,23 +489,12 @@ fi
 #   take-away/model/yolo11n_int8_openvino_model/   — INT8 quantized OpenVINO IR
 # docker-compose mounts take-away/model/ → /app/models inside the container.
 ###############################################
-YOLO_MODEL_DIR="${TAKEAWAY_DIR}/model"
-YOLO_DATASETS_DIR="${TAKEAWAY_DIR}/datasets"
-YOLO_PT="${YOLO_MODEL_DIR}/yolo11n.pt"
-YOLO_FP32_DIR="${YOLO_MODEL_DIR}/yolo11n_openvino_model"
-YOLO_INT8_DIR="${YOLO_MODEL_DIR}/yolo11n_int8_openvino_model"
-YOLO_VENV="${SCRIPT_DIR}/yolo-venv"
-
 echo ""
 echo "=========================================="
 echo "YOLO Model Setup (Frame Selector)"
 echo "=========================================="
 echo "Target: ${YOLO_MODEL_DIR}"
 echo ""
-
-_yolo_all_present() {
-    [ -f "${YOLO_PT}" ] && [ -d "${YOLO_FP32_DIR}" ] && [ -d "${YOLO_INT8_DIR}" ]
-}
 
 if _yolo_all_present; then
     echo "✓ YOLO models already present, skipping."
@@ -489,25 +504,11 @@ else
     [ ! -d "${YOLO_FP32_DIR}" ] && echo "  - yolo11n_openvino_model/  (FP32 OpenVINO)"
     [ ! -d "${YOLO_INT8_DIR}" ] && echo "  - yolo11n_int8_openvino_model/  (INT8 OpenVINO)"
     echo ""
-    read -p "Download and quantize YOLO models (~50MB + COCO128 ~7MB)? (y/N): " -n 1 -r
-    echo
+    echo "Downloading and quantizing YOLO models..."
 
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        mkdir -p "${YOLO_MODEL_DIR}" "${YOLO_DATASETS_DIR}"
+    mkdir -p "${YOLO_MODEL_DIR}" "${YOLO_DATASETS_DIR}"
 
-        # Use a dedicated venv so ultralytics/torch-cpu don't conflict with the OVMS venv
-        echo "[1/3] Setting up Python environment for YOLO..."
-        if [ ! -d "${YOLO_VENV}" ] || [ ! -f "${YOLO_VENV}/bin/pip" ]; then
-            python3 -m venv "${YOLO_VENV}" --clear
-        fi
-        source "${YOLO_VENV}/bin/activate"
-        pip install -q --upgrade pip
-        # CPU-only torch (mirrors the frame-selector Dockerfile)
-        pip install -q torch torchvision --index-url https://download.pytorch.org/whl/cpu
-        pip install -q ultralytics openvino
-        echo "  ✓ Dependencies installed"
-
-        echo "[2/3] Downloading yolo11n.pt and exporting OpenVINO models..."
+        echo "[1/2] Downloading yolo11n.pt and exporting OpenVINO models..."
         YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" YOLO_DATASETS_DIR="${YOLO_DATASETS_DIR}" \
         python3 - << 'PYEOF'
 import os, sys
@@ -565,9 +566,7 @@ else:
 print("YOLO export complete.")
 PYEOF
 
-        deactivate 2>/dev/null || true
-
-        echo "[3/3] Verifying YOLO artifacts..."
+        echo "[2/2] Verifying YOLO artifacts..."
         _ok=1
         if [ -f "${YOLO_PT}" ]; then
             echo "  ✓ yolo11n.pt"
@@ -593,10 +592,10 @@ PYEOF
         else
             echo "✗ Some YOLO artifacts are missing — check ${YOLO_MODEL_DIR}"
         fi
-    else
-        echo "Skipped YOLO model setup."
-    fi
 fi
+
+# Deactivate the shared venv if it was activated
+deactivate 2>/dev/null || true
 
 echo ""
 echo "=========================================="
