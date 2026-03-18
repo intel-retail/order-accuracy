@@ -345,7 +345,7 @@ def _format_validation_result(validation: Dict[str, object], has_result: bool = 
         <div style="padding: 16px 20px;">
             {missing_html}
             {extra_html}
-            {'' if missing or extra else '<div style="text-align: center; color: #10b981; padding: 10px;">All items matched correctly! 🎉</div>'}
+            {'' if not is_complete else '<div style="text-align: center; color: #10b981; padding: 10px;">All items matched correctly!</div>'}
         </div>
     </div>
     '''
