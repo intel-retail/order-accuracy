@@ -17,7 +17,8 @@ import threading
 import logging
 import sys
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Tuple
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import numpy as np
 import requests
 import json
@@ -314,69 +315,78 @@ class VLMScheduler:
     
     def _process_batch(self, batch: List[VLMRequest]):
         """
-        Process batch of VLM requests.
+        Process batch of VLM requests IN PARALLEL.
         
-        For simplicity, this implementation sends requests individually
-        to OVMS. OVMS will batch them internally if they arrive concurrently.
-        
-        For true batching, modify to use OVMS batch inference API.
+        Sends all requests concurrently using a thread pool so OVMS can
+        leverage its continuous batching (max_num_seqs) instead of
+        processing them sequentially.
         """
         batch_start = time.time()
+        batch_size = len(batch)
         
-        logger.debug(f"Processing batch of {len(batch)} requests")
+        logger.info(f"Processing batch of {batch_size} requests IN PARALLEL")
         
-        # Process each request in batch
-        # Note: OVMS handles internal batching if requests arrive together
-        for request in batch:
+        def _process_single(request: VLMRequest) -> Tuple[VLMRequest, Optional[VLMResponse], Optional[Exception]]:
+            """Send a single request to OVMS. Returns (request, response, error)."""
             try:
                 response = self._send_to_ovms(request)
-                
-                # Log response details
-                unique_id = f"{request.station_id}_{request.order_id}"
-                logger.info(
-                    f"[VLM-RESPONSE] unique_id={unique_id} "
-                    f"items={len(response.detected_items)} "
-                    f"time={response.inference_time:.2f}s "
-                    f"success={response.success}"
-                )
-                if response.detected_items:
-                    logger.info(f"[VLM-ITEMS] unique_id={unique_id} items={response.detected_items}")
-                
-                # Route response back to station
-                response_queue = self.queue_manager.get_response_queue(
-                    request.station_id
-                )
-                logger.debug(f"[VLM-ROUTE] Routing response {response.request_id} to {request.station_id}")
-                response_queue.put(response.to_dict())
-                logger.debug(f"[VLM-ROUTE] Response queued successfully")
-            
+                return (request, response, None)
             except Exception as e:
-                logger.error(
-                    f"Error processing request {request.request_id} "
-                    f"for station {request.station_id}: {e}"
-                )
-                self._total_errors += 1
+                return (request, None, e)
+        
+        # Send ALL requests in the batch concurrently
+        # Thread count matches batch size (capped by OVMS max_num_seqs)
+        with ThreadPoolExecutor(max_workers=batch_size) as executor:
+            futures = {executor.submit(_process_single, req): req for req in batch}
+            
+            for future in as_completed(futures):
+                request, response, error = future.result()
+                unique_id = f"{request.station_id}_{request.order_id}"
                 
-                # Send error response
-                error_response = VLMResponse(
-                    request_id=request.request_id,
-                    station_id=request.station_id,
-                    order_id=request.order_id,
-                    detected_items=[],
-                    inference_time=0.0,
-                    success=False,
-                    error=str(e)
-                )
-                
-                response_queue = self.queue_manager.get_response_queue(
-                    request.station_id
-                )
-                response_queue.put(error_response.to_dict())
+                if error is None and response is not None:
+                    # Success - log and route response
+                    logger.info(
+                        f"[VLM-RESPONSE] unique_id={unique_id} "
+                        f"items={len(response.detected_items)} "
+                        f"time={response.inference_time:.2f}s "
+                        f"success={response.success}"
+                    )
+                    if response.detected_items:
+                        logger.info(f"[VLM-ITEMS] unique_id={unique_id} items={response.detected_items}")
+                    
+                    response_queue = self.queue_manager.get_response_queue(
+                        request.station_id
+                    )
+                    logger.debug(f"[VLM-ROUTE] Routing response {response.request_id} to {request.station_id}")
+                    response_queue.put(response.to_dict())
+                    logger.debug(f"[VLM-ROUTE] Response queued successfully")
+                else:
+                    # Error - send error response
+                    logger.error(
+                        f"Error processing request {request.request_id} "
+                        f"for station {request.station_id}: {error}"
+                    )
+                    self._total_errors += 1
+                    
+                    error_response = VLMResponse(
+                        request_id=request.request_id,
+                        station_id=request.station_id,
+                        order_id=request.order_id,
+                        detected_items=[],
+                        inference_time=0.0,
+                        success=False,
+                        error=str(error)
+                    )
+                    
+                    response_queue = self.queue_manager.get_response_queue(
+                        request.station_id
+                    )
+                    response_queue.put(error_response.to_dict())
         
         batch_time = time.time() - batch_start
-        logger.debug(
-            f"Batch completed: {len(batch)} requests in {batch_time*1000:.1f}ms "
-            f"({batch_time/len(batch)*1000:.1f}ms per request)"
+        logger.info(
+            f"Batch completed: {batch_size} requests in {batch_time*1000:.1f}ms "
+            f"({batch_time/batch_size*1000:.1f}ms per request, PARALLEL)"
         )
     
     def _send_to_ovms(self, request: VLMRequest) -> VLMResponse:
