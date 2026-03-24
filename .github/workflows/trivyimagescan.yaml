@@ -3,7 +3,7 @@
 # separate terms of service, privacy policy, and support
 # documentation.
 
-name: trivy
+name: trivy image scan
 
 on:
   push:
@@ -28,22 +28,81 @@ jobs:
         uses: actions/checkout@v4
         with:
             ref: main
-
-      - name: Build an image from Dockerfile
+      - name: Read dine in TAG from Makefile
+        id: vars
+        run: |
+          TAG=$(grep -E '^TAG\s*[:?]?=' dine-in/Makefile | head -n1 | sed -E 's/^TAG\s*[:?]?=\s*//')
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Using tag $TAG"
+          
+      - name: Read take away in TAG from Makefile
+        id: take-away-vars
+        run: |
+          TAG=$(grep -E '^TAG\s*[:?]?=' take-away/Makefile | head -n1 | sed -E 's/^TAG\s*[:?]?=\s*//')
+          echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Using tag $TAG"
+           
+      - name: Build dine in image from Dockerfile
         run: |
             echo "running make build benchmark"
+            cd dine-in
+            cp .env.example .env
             make build REGISTRY=false
             
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@915b19bbe73b92a6cf82a1bc12b087c9a19a5fe2
+      - name: Run Trivy dine in vulnerability scanner
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
         with:
-            image-ref: 'pipeline-runner-oa:1.2.2'
+            image-ref: "intel/order-accuracy-dine-in:${{ steps.vars.outputs.tag }}"
             format: 'table'
             severity: 'CRITICAL,HIGH'
-            output: 'trivy-oa-results.txt'
+            output: 'trivy-oa-dine-in-results.txt'
+            
+      - name: Build take away image from Dockerfile
+        run: |
+            echo "running make build benchmark"
+            cd take-away
+            cp .env.example .env
+            make build REGISTRY=false
+            
+      - name: Run Trivy take away vulnerability scanner
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+            image-ref: "intel/order-accuracy-take-away:${{ steps.take-away-vars.outputs.tag }}"
+            format: 'table'
+            severity: 'CRITICAL,HIGH'
+            output: 'trivy-oa-take-away-results.txt'
+            
+      - name: Run Trivy frame selector vulnerability scanner
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+            image-ref: "intel/order-accuracy-take-away:${{ steps.take-away-vars.outputs.tag }}"
+            format: 'table'
+            severity: 'CRITICAL,HIGH'
+            output: 'trivy-oa-take-away-frame-selector-results.txt'
 
-      - name: Upload Trivy scan results to GitHub Security tab
+      - name: Run Trivy gradio ui vulnerability scanner
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+            image-ref: "intel/order-accuracy-take-away-ui:${{ steps.take-away-vars.outputs.tag }}"
+            format: 'table'
+            severity: 'CRITICAL,HIGH'
+            output: 'trivy-oa-take-away-ui-results.txt'
+            
+      - name: Run Trivy rtsp streamer vulnerability scanner
+        uses: aquasecurity/trivy-action@57a97c7e7821a5776cebc9bb87c984fa69cba8f1
+        with:
+            image-ref: "intel/order-accuracy-take-away-rtsp:${{ steps.take-away-vars.outputs.tag }}"
+            format: 'table'
+            severity: 'CRITICAL,HIGH'
+            output: 'trivy-oa-take-away-rtsp-streamer-results.txt'
+            
+      - name: Upload Trivy scan results
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-order-accuracy-html-report
-          path: trivy-oa-results.txt
+          name: trivy-order-accuracy-report
+          path: |
+            trivy-oa-dine-in-results.txt
+            trivy-oa-take-away-results.txt
+            trivy-oa-take-away-frame-selector-results.txt
+            trivy-oa-take-away-ui-results.txt
+            trivy-oa-take-away-rtsp-streamer-results.txt

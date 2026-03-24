@@ -54,7 +54,7 @@ OOM_PROTECTION ?= 1
 PERF_TOOLS_DIR ?= ../performance-tools/benchmark-scripts
 
 # Version tag for registry images
-TAG ?= 2026.0-rc1
+TAG ?= 2026.0-rc2
 
 # Sample video for quick-start testing (orders 384 → 651 → 925)
 # Hosted on the upstream repo's GitHub Releases. Override via env if needed:
@@ -314,14 +314,14 @@ help:
 # Build & Run
 # =============================================================================
 
-build: check-env
+build: check-env setup-dirs
 	@echo "$(BLUE)Building Take-Away Docker images...$(NC)"
 	@if [ "$(REGISTRY)" = "false" ] || [ "$(REGISTRY)" = "FALSE" ]; then \
 		echo "$(YELLOW)REGISTRY=false → Building images locally...$(NC)"; \
-		docker compose -f $(COMPOSE_FILE) build; \
+		docker compose -f $(COMPOSE_FILE) $(TAG) build; \
 	else \
 		echo "$(YELLOW)REGISTRY=true → Pulling images from registry...$(NC)"; \
-		docker compose -f $(COMPOSE_FILE) pull order-accuracy frame-selector gradio-ui rtsp-streamer; \
+		docker compose -f $(COMPOSE_FILE) $(DINEIN_IMAGE) pull order-accuracy frame-selector gradio-ui rtsp-streamer; \
 	fi
 	@echo "$(GREEN)✓ Build complete$(NC)"
 

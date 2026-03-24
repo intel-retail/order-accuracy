@@ -60,7 +60,7 @@ services:
   # SINGLE Station (per-container): docker compose up -d --scale order-accuracy=4
   # MULTI Station (multi-process in one container): Set SERVICE_MODE=parallel
   order-accuracy:
-    image: intel/order-accuracy-take-away:2026.0-rc2
+    image: intel/order-accuracy-take-away:${TAG}
     build:
       context: .
       args:
@@ -184,7 +184,7 @@ services:
       - order-accuracy-net
 
   frame-selector:
-    image: intel/order-accuracy-frame-selector:2026.0-rc2
+    image: intel/order-accuracy-frame-selector:${TAG}
     build:
       context: ./frame-selector-service
       args:
@@ -232,7 +232,7 @@ services:
       - order-accuracy-net
 
   gradio-ui:
-    image: intel/order-accuracy-take-away-ui:2026.0-rc2
+    image: intel/order-accuracy-take-away-ui:${TAG}
     build:
       context: ./gradio-ui
       args:
@@ -311,7 +311,7 @@ services:
   # RTSP Streamer - Converts video files to RTSP streams
   # Starts AFTER order-accuracy and frame-selector are healthy to ensure pipelines are ready
   rtsp-streamer:
-    image: intel/order-accuracy-take-away-rtsp:2026.0-rc1
+    image: intel/order-accuracy-take-away-rtsp:${TAG}
     build:
       context: ./rtsp-streamer
       args:
@@ -365,7 +365,7 @@ services:
       - order-accuracy-net
 
   metrics-collector:
-    image: intel/retail-benchmark:2026.0-rc1
+    image: intel/retail-benchmark:${TAG}
     container_name: metrics-collector
     profiles:
       - benchmark
