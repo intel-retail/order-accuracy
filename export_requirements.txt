@@ -8,7 +8,7 @@ numpy==2.2.6
 openvino-tokenizers==2025.4.1.0
 openvino==2025.4.1
 #optimum is in dependency list of optimum-intel
-pillow==12.0.0
+pillow==12.2.0
 sentence_transformers==5.1.2
 sentencepiece==0.2.1  # Required by: transformers
 timm==1.0.22
