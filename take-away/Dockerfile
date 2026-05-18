@@ -1,4 +1,4 @@
-FROM intel/dlstreamer:2025.2.0-ubuntu22
+FROM intel/dlstreamer:2026.1.0-ubuntu24-rc1
 
 USER root
 
@@ -35,8 +35,8 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
-RUN python3 -m pip install --upgrade pip setuptools wheel && \
-    pip3 install --no-cache-dir -r requirements.txt
+RUN python3 -m pip install  --break-system-packages --ignore-installed --upgrade pip setuptools wheel && \
+    pip3 install  --break-system-packages --no-cache-dir -r requirements.txt
 
 # -------------------------------
 # Copy application code
