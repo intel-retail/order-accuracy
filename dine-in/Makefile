@@ -245,7 +245,7 @@ init-env:
 	fi
 	@echo "Edit .env to customize your configuration."
 
-check-device: ## Verify graph.pbtxt device matches TARGET_DEVICE
+check-device: ## Check that graph.pbtxt device matches TARGET_DEVICE (auto-updates on mismatch)
 	@GRAPH="$(OVMS_MODELS_DIR)/$(OVMS_MODEL_NAME)/graph.pbtxt"; \
 	if [ ! -f "$$GRAPH" ]; then \
 		echo "$(YELLOW)Warning: graph.pbtxt not found at $$GRAPH (model not yet exported?)$(NC)"; \
@@ -255,9 +255,9 @@ check-device: ## Verify graph.pbtxt device matches TARGET_DEVICE
 	if [ "$$GRAPH_DEVICE" = "$(TARGET_DEVICE)" ]; then \
 		echo "$(GREEN)✓ graph.pbtxt device matches TARGET_DEVICE ($(TARGET_DEVICE))$(NC)"; \
 	else \
-		echo "$(RED)✗ Device mismatch: graph.pbtxt has \"$$GRAPH_DEVICE\" but TARGET_DEVICE=$(TARGET_DEVICE)$(NC)"; \
-		echo "$(YELLOW)  Fix: run  cd ../ovms-service && ./setup_models.sh --app dine-in$(NC)"; \
-		exit 1; \
+		echo "$(YELLOW)⚙ Auto-updating graph.pbtxt: $$GRAPH_DEVICE → $(TARGET_DEVICE)$(NC)"; \
+		sed -i "s/device: \"$$GRAPH_DEVICE\"/device: \"$(TARGET_DEVICE)\"/" "$$GRAPH"; \
+		echo "$(GREEN)✓ graph.pbtxt updated to TARGET_DEVICE ($(TARGET_DEVICE))$(NC)"; \
 	fi
 
 

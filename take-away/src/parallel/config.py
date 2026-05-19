@@ -12,6 +12,22 @@ from typing import Dict, Any
 from dataclasses import dataclass, asdict
 
 
+def _default_yolo_model_path() -> str:
+    """Return the YOLO model path appropriate for the configured device.
+
+    Reads YOLO_MODEL_PATH first (explicit override), then falls back to a
+    device-specific default: INT8 for CPU (best CPU throughput), FP32 for
+    GPU/NPU (avoids INT8 op fall-backs that degrade GPU utilisation).
+    """
+    explicit = os.environ.get("YOLO_MODEL_PATH", "")
+    if explicit:
+        return explicit
+    device = (os.environ.get("TARGET_DEVICE") or os.environ.get("OPENVINO_DEVICE", "CPU")).upper()
+    if device == "CPU":
+        return "./models/yolo11n_int8_openvino_model"
+    return "./models/yolo11n_openvino_model"
+
+
 @dataclass
 class ScalingConfig:
     """Autoscaling configuration"""
@@ -57,7 +73,7 @@ class SystemConfig:
     rtsp_urls: list = None
     
     # Model paths
-    yolo_model_path: str = "./models/yolo11n_openvino_model"
+    yolo_model_path: str = None  # type: ignore  # resolved in __post_init__
     
     # Data paths
     inventory_path: str = "/config/inventory.json"
@@ -83,6 +99,8 @@ class SystemConfig:
     def __post_init__(self):
         if self.rtsp_urls is None:
             self.rtsp_urls = []
+        if self.yolo_model_path is None:
+            self.yolo_model_path = _default_yolo_model_path()
         if self.scaling is None:
             self.scaling = ScalingConfig()
         if self.vlm is None:
@@ -117,7 +135,7 @@ class SystemConfig:
         
         return cls(
             rtsp_urls=data.get('rtsp_urls', []),
-            yolo_model_path=data.get('yolo_model_path', './models/yolo11n_openvino_model'),
+            yolo_model_path=data.get('yolo_model_path') or _default_yolo_model_path(),
             inventory_path=data.get('inventory_path', '/config/inventory.json'),
             orders_path=data.get('orders_path', '/config/orders.json'),
             queue_backend=data.get('queue_backend', 'multiprocessing'),
@@ -188,7 +206,7 @@ def create_default_config() -> SystemConfig:
     
     return SystemConfig(
         rtsp_urls=rtsp_urls,
-        yolo_model_path='./models/yolo11n_openvino_model',
+        yolo_model_path=_default_yolo_model_path(),
         inventory_path='/config/inventory.json',
         orders_path='/config/orders.json',
         queue_backend='multiprocessing'

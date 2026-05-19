@@ -35,6 +35,9 @@ OVMS_MODEL_NAME ?= Qwen/Qwen2.5-VL-7B-Instruct
 OPENVINO_DEVICE ?= $(TARGET_DEVICE)
 # Automatically select CPU-only OVMS image when TARGET_DEVICE=CPU
 OVMS_IMAGE ?= $(if $(filter CPU,$(TARGET_DEVICE)),openvino/model_server:latest,openvino/model_server:latest-gpu)
+# Select YOLO model: INT8 for CPU (fast integer ops), FP32 for GPU/NPU (avoids INT8 op fall-backs
+# that degrade GPU utilisation). Honoured by docker-compose via ${YOLO_MODEL_PATH}.
+YOLO_MODEL_PATH ?= $(if $(filter CPU,$(TARGET_DEVICE)),/models/yolo11n_int8_openvino_model,/models/yolo11n_openvino_model)
 
 # Semantic Service
 SEMANTIC_VLM_BACKEND ?= ovms

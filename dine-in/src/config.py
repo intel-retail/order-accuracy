@@ -85,7 +85,7 @@ class ConfigManager:
             vlm_precision=os.getenv("VLM_PRECISION") or "int8",
             vlm_device=os.getenv("VLM_DEVICE") or "GPU",
             semantic_service_endpoint=os.getenv("SEMANTIC_SERVICE_ENDPOINT") or "http://semantic-service:8080",
-            metrics_collector_endpoint=os.getenv("METRICS_COLLECTOR_ENDPOINT") or "http://metrics-collector:8084",
+            metrics_collector_endpoint=os.getenv("METRICS_COLLECTOR_ENDPOINT") or "http://metrics-collector:9000",
             api_timeout=int(os.getenv("API_TIMEOUT") or "300")  # Extended for 7B model with inventory
         )
         

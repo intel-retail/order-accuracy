@@ -11,6 +11,7 @@ Features:
 - CSV/JSON output for analysis
 """
 
+import os
 import time
 import logging
 import json
@@ -488,7 +489,7 @@ if __name__ == "__main__":
         'minio_bucket': 'orders',
         'inventory_path': '/config/inventory.json',
         'orders_path': '/config/orders.json',
-        'yolo_model_path': './models/yolo11n_openvino_model'
+        'yolo_model_path': os.environ.get('YOLO_MODEL_PATH', './models/yolo11n_openvino_model')
     }
     
     # Run standard benchmark

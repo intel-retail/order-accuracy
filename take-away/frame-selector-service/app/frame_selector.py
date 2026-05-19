@@ -686,10 +686,57 @@ openvino_int8_path = model_dir / "yolo11n_int8_openvino_model"
 logger.info(f"Model directory: {model_dir}")
 logger.info(f"Dataset directory: {dataset_dir}")
 
-# Load the INT8 OpenVINO model (must be pre-downloaded into model_dir)
-logger.info("Loading INT8 OpenVINO model")
-model = YOLO(str(openvino_int8_path), task="detect")
-logger.info("INT8 OpenVINO model loaded successfully")
+# Load the OpenVINO model for YOLO frame selection.
+# Select model path based on TARGET_DEVICE/OPENVINO_DEVICE env var.
+#
+# IMPORTANT — Ultralytics 8.3.0 + OpenVINO backend device handling:
+#   AutoBackend.__init__() hardcodes device_name="AUTO" in core.compile_model()
+#   for .xml models. model.overrides["device"] only affects the PyTorch tensor
+#   device path, not the OpenVINO execution device. OpenVINO AUTO automatically
+#   selects the best available device (GPU when present, CPU otherwise).
+#   Using "intel:CPU" or "intel:GPU" raises "Invalid CUDA device" in
+#   select_device() (Ultralytics 8.3.0) because those strings lack the early
+#   return added in 8.4+. Use "cpu" to satisfy select_device() on Intel systems.
+_target_device = (
+    os.environ.get("TARGET_DEVICE")
+    or os.environ.get("OPENVINO_DEVICE", "CPU")
+).upper()
+# "cpu" satisfies select_device() on Intel-only (no CUDA) systems.
+# Actual OpenVINO execution device is controlled via the monkey-patch below.
+_yolo_device = "cpu"
+
+# ── Force OpenVINO to respect TARGET_DEVICE ───────────────────────────────
+# Ultralytics 8.3.0 hardcodes device_name="AUTO" in core.compile_model()
+# for OpenVINO .xml models, ignoring model.overrides["device"] entirely.
+# Intercept compile_model() before YOLO loads to pin the device.
+_ov_device = _target_device  # e.g. "CPU" or "GPU"
+try:
+    # Try openvino (canonical) then openvino.runtime (legacy alias)
+    import openvino as _ov
+    _orig_compile = _ov.Core.compile_model
+
+    def _patched_compile(self, model_or_path, device_name=None, config=None, **kwargs):
+        if device_name == "AUTO" or device_name is None:
+            device_name = _ov_device
+        if config is not None:
+            return _orig_compile(self, model_or_path, device_name, config=config, **kwargs)
+        return _orig_compile(self, model_or_path, device_name, **kwargs)
+
+    _ov.Core.compile_model = _patched_compile
+    logger.info(f"OpenVINO compile_model patched: AUTO → {_ov_device}")
+except Exception as _e:
+    logger.warning(f"Could not patch OpenVINO compile_model ({_e}); device selection relies on AUTO")
+
+if _target_device == "CPU":
+    _yolo_model_path = openvino_int8_path
+    logger.info("Loading INT8 OpenVINO model (CPU)")
+else:
+    _yolo_model_path = openvino_fp32_path
+    logger.info(f"Loading FP32 OpenVINO model ({_target_device})")
+
+model = YOLO(str(_yolo_model_path), task="detect")
+model.overrides["device"] = _yolo_device
+logger.info(f"YOLO model loaded: {_yolo_model_path} (pytorch_device={_yolo_device}, ov_device={_ov_device})")
 
 client = Minio(
     MINIO_ENDPOINT,

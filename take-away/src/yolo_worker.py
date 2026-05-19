@@ -41,23 +41,63 @@ def run_worker(input_q, output_q, model_path: str, conf_threshold: float = 0.25)
         format="yolo-worker - %(levelname)s - %(message)s",
     )
     log = logging.getLogger("yolo-worker")
+    
+    
 
     # ── Load model ────────────────────────────────────────────────────────
     # Read TARGET_DEVICE from the environment (set in .env / docker-compose).
     # OPENVINO_DEVICE is used as a fallback in case TARGET_DEVICE is absent.
-    # model.overrides['device'] must be set BEFORE the first predict() call
-    # because Ultralytics compiles the OpenVINO model on first inference and
-    # ignores device= changes thereafter.
+    #
+    # IMPORTANT — Ultralytics 8.3.0 + OpenVINO backend device handling:
+    #   AutoBackend.__init__() hardcodes device_name="AUTO" when calling
+    #   core.compile_model() for .xml models. This means model.overrides['device']
+    #   has NO effect on which OpenVINO device executes inference; OpenVINO's
+    #   AUTO plugin automatically selects the best available device (GPU when
+    #   present, CPU otherwise).
+    #
+    #   model.overrides['device'] only controls the PyTorch tensor device used
+    #   outside the OpenVINO inference path. It must be a value that
+    #   select_device() accepts. On Intel-only systems (no CUDA) the only valid
+    #   string is "cpu". Using "gpu", "intel:GPU", or "intel:CPU" all raise
+    #   "Invalid CUDA device" errors in select_device() in 8.3.0, causing every
+    #   inference call to throw and fall through to the has_objects=True fallback.
     target_device = (
         os.environ.get('TARGET_DEVICE')
         or os.environ.get('OPENVINO_DEVICE', 'CPU')
-    )
+    ).upper()
+    # "cpu" is the only device string select_device() accepts on Intel-only systems.
+    # Actual OpenVINO execution device is controlled via the monkey-patch below.
+    yolo_device = "cpu"
+
+    # ── Force OpenVINO to respect TARGET_DEVICE ───────────────────────────
+    # Ultralytics 8.3.0 hardcodes device_name="AUTO" in core.compile_model()
+    # for OpenVINO .xml models, ignoring model.overrides['device'] entirely.
+    # We intercept compile_model() before YOLO loads and substitute the actual
+    # target device so inference runs on CPU or GPU as configured.
+    ov_device = target_device  # e.g. "CPU" or "GPU"
+    try:
+        # DLStreamer container has 'openvino' but not 'openvino.runtime'
+        import openvino as _ov
+        _orig_compile = _ov.Core.compile_model
+
+        def _patched_compile(self, model_or_path, device_name=None, config=None, **kwargs):
+            if device_name == "AUTO" or device_name is None:
+                device_name = ov_device
+            if config is not None:
+                return _orig_compile(self, model_or_path, device_name, config=config, **kwargs)
+            return _orig_compile(self, model_or_path, device_name, **kwargs)
+
+        _ov.Core.compile_model = _patched_compile
+        log.info(f"OpenVINO compile_model patched: AUTO → {ov_device}")
+    except Exception as e:
+        log.warning(f"Could not patch OpenVINO compile_model ({e}); device selection relies on AUTO")
+
     model = None
     try:
         from ultralytics import YOLO
         model = YOLO(model_path, task="detect")
-        model.overrides['device'] = target_device.lower()  # Ultralytics normalises to lowercase
-        log.info(f"YOLO model loaded: {model_path} (device={target_device})")
+        model.overrides['device'] = yolo_device
+        log.info(f"YOLO model loaded: {model_path} (pytorch_device={yolo_device}, ov_device={ov_device})")
     except Exception as e:
         log.error(f"Failed to load YOLO model ({e}) — will return has_objects=True for all frames")
         traceback.print_exc(file=sys.stderr)
