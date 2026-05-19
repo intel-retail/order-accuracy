@@ -43,11 +43,21 @@ def run_worker(input_q, output_q, model_path: str, conf_threshold: float = 0.25)
     log = logging.getLogger("yolo-worker")
 
     # ── Load model ────────────────────────────────────────────────────────
+    # Read TARGET_DEVICE from the environment (set in .env / docker-compose).
+    # OPENVINO_DEVICE is used as a fallback in case TARGET_DEVICE is absent.
+    # model.overrides['device'] must be set BEFORE the first predict() call
+    # because Ultralytics compiles the OpenVINO model on first inference and
+    # ignores device= changes thereafter.
+    target_device = (
+        os.environ.get('TARGET_DEVICE')
+        or os.environ.get('OPENVINO_DEVICE', 'CPU')
+    )
     model = None
     try:
         from ultralytics import YOLO
         model = YOLO(model_path, task="detect")
-        log.info(f"YOLO model loaded: {model_path}")
+        model.overrides['device'] = target_device.lower()  # Ultralytics normalises to lowercase
+        log.info(f"YOLO model loaded: {model_path} (device={target_device})")
     except Exception as e:
         log.error(f"Failed to load YOLO model ({e}) — will return has_objects=True for all frames")
         traceback.print_exc(file=sys.stderr)
