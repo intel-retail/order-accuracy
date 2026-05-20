@@ -166,6 +166,16 @@ def create_app() -> FastAPI:
                 logger.info(f"Returning results for order_id={order_id}")
                 return result
         
+        # Check if this video_id is still being processed
+        video = get_video(order_id)
+        if video and video.get("status") == "processing":
+            logger.info(f"Video {order_id} is still processing")
+            return {
+                "status": "processing",
+                "video_id": order_id,
+                "message": "Video is still being processed. Please check back shortly."
+            }
+
         logger.warning(f"No results found for order_id={order_id}")
         return {
             "status": "not_found",
