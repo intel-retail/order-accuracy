@@ -101,6 +101,12 @@ def run_worker(input_q, output_q, model_path: str, conf_threshold: float = 0.25)
     except Exception as e:
         log.error(f"Failed to load YOLO model ({e}) — will return has_objects=True for all frames")
         traceback.print_exc(file=sys.stderr)
+    finally:
+        # Restore original compile_model to avoid side-effects on other OV models in this process
+        try:
+            _ov.Core.compile_model = _orig_compile
+        except NameError:
+            pass
 
     # Signal parent that we're ready (model loaded or load failed)
     try:

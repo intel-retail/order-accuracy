@@ -711,8 +711,10 @@ _yolo_device = "cpu"
 # Intercept compile_model() before YOLO loads to pin the device.
 _ov_device = _target_device  # e.g. "CPU" or "GPU"
 try:
-    # Try openvino (canonical) then openvino.runtime (legacy alias)
+try:
     import openvino as _ov
+except ImportError:
+    import openvino.runtime as _ov
     _orig_compile = _ov.Core.compile_model
 
     def _patched_compile(self, model_or_path, device_name=None, config=None, **kwargs):
@@ -734,9 +736,16 @@ else:
     _yolo_model_path = openvino_fp32_path
     logger.info(f"Loading FP32 OpenVINO model ({_target_device})")
 
-model = YOLO(str(_yolo_model_path), task="detect")
-model.overrides["device"] = _yolo_device
-logger.info(f"YOLO model loaded: {_yolo_model_path} (pytorch_device={_yolo_device}, ov_device={_ov_device})")
+try:
+    model = YOLO(str(_yolo_model_path), task="detect")
+    model.overrides["device"] = _yolo_device
+    logger.info(f"YOLO model loaded: {_yolo_model_path} (pytorch_device={_yolo_device}, ov_device={_ov_device})")
+finally:
+    # Restore original compile_model to avoid side-effects on other OV models in this process
+    try:
+        _ov.Core.compile_model = _orig_compile
+    except NameError:
+        pass
 
 client = Minio(
     MINIO_ENDPOINT,

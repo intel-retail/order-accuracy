@@ -86,8 +86,15 @@ def create_app() -> FastAPI:
                 "reason": "unsupported_file_type"
             }
 
-        internal_id = video_id if video_id else str(uuid.uuid4())
-        save_path = f"/uploads/{internal_id}_{file.filename}"
+        # Sanitize video_id to safe alphanumeric/underscore/hyphen characters only
+        if video_id:
+            safe_video_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", video_id)
+        else:
+            safe_video_id = str(uuid.uuid4())
+        internal_id = safe_video_id
+        # Use only the basename of the filename to prevent path traversal
+        safe_filename = Path(file.filename).name
+        save_path = f"/uploads/{internal_id}_{safe_filename}"
         logger.debug(f"video_id={internal_id}, save_path={save_path}")
 
         with open(save_path, "wb") as buffer:
@@ -96,7 +103,7 @@ def create_app() -> FastAPI:
         logger.info(f"Video saved successfully: video_id={internal_id}, path={save_path}")
 
         # Register video in history tracker
-        start_video(internal_id, file.filename, save_path)
+        start_video(internal_id, safe_filename, save_path)
         logger.info(f"Video registered in history: video_id={internal_id}")
 
         # Trigger pipeline
@@ -111,7 +118,7 @@ def create_app() -> FastAPI:
             "status": "started",
             "video_id": internal_id,
             "path": save_path,
-            "filename": file.filename,
+            "filename": safe_filename,
             "note": "Use GET /results/{order_id} with the OCR order number once processing completes, or use GET /results/{video_id} to look up by this video_id."
         }
 
