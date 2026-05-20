@@ -35,6 +35,9 @@ OVMS_MODEL_NAME ?= Qwen/Qwen2.5-VL-7B-Instruct
 OPENVINO_DEVICE ?= $(TARGET_DEVICE)
 # Automatically select CPU-only OVMS image when TARGET_DEVICE=CPU
 OVMS_IMAGE ?= $(if $(filter CPU,$(TARGET_DEVICE)),openvino/model_server:latest,openvino/model_server:latest-gpu)
+# Select YOLO model: INT8 for CPU (fast integer ops), FP32 for GPU/NPU (avoids INT8 op fall-backs
+# that degrade GPU utilisation). Honoured by docker-compose via ${YOLO_MODEL_PATH}.
+YOLO_MODEL_PATH ?= $(if $(filter CPU,$(TARGET_DEVICE)),/models/yolo11n_int8_openvino_model,/models/yolo11n_openvino_model)
 
 # Semantic Service
 SEMANTIC_VLM_BACKEND ?= ovms
@@ -77,8 +80,10 @@ BENCHMARK_DURATION ?= 200
 
 # OCR warmup - reduced from 5 to 2 for faster startup (~10s vs ~25s)
 OCR_WARMUP_FRAMES ?= 2
-BENCHMARK_WORKER_INCREMENT ?= 1
-BENCHMARK_MIN_TRANSACTIONS ?= 1
+# Accept user-friendly aliases from the command line
+BENCHMARK_WORKER_INCREMENT ?= $(or $(BENCHMARK_DENSITY_INCREMENT),1)
+BENCHMARK_MIN_TRANSACTIONS ?= $(or $(BENCHMARK_MIN_REQUESTS),1)
+BENCHMARK_REQUEST_TIMEOUT ?= 600
 BENCHMARK_CONTAINER ?= oa_service
 
 # Docker compose file
@@ -142,7 +147,7 @@ REQUIRED_OPENVINO_VARS := OPENVINO_DEVICE VLM_MODEL_PATH
 # Path to the exported OVMS model directory (relative to take-away/)
 OVMS_MODELS_DIR ?= ../ovms-service/models
 
-check-device: ## Check that graph.pbtxt device matches TARGET_DEVICE
+check-device: ## Check that graph.pbtxt device matches TARGET_DEVICE (auto-updates on mismatch)
 	@GRAPH="$(OVMS_MODELS_DIR)/$(OVMS_MODEL_NAME)/graph.pbtxt"; \
 	if [ ! -f "$$GRAPH" ]; then \
 		echo "$(YELLOW)Warning: graph.pbtxt not found at $$GRAPH (model not yet exported?)$(NC)"; \
@@ -152,9 +157,9 @@ check-device: ## Check that graph.pbtxt device matches TARGET_DEVICE
 	if [ "$$GRAPH_DEVICE" = "$(TARGET_DEVICE)" ]; then \
 		echo "$(GREEN)✓ graph.pbtxt device matches TARGET_DEVICE ($(TARGET_DEVICE))$(NC)"; \
 	else \
-		echo "$(RED)✗ Device mismatch: graph.pbtxt has \"$$GRAPH_DEVICE\" but TARGET_DEVICE=$(TARGET_DEVICE)$(NC)"; \
-		echo "$(YELLOW)  Fix: run  cd ../ovms-service && ./setup_models.sh --app take-away$(NC)"; \
-		exit 1; \
+		echo "$(YELLOW)⚙ Auto-updating graph.pbtxt: $$GRAPH_DEVICE → $(TARGET_DEVICE)$(NC)"; \
+		sed -i "s/device: \"$$GRAPH_DEVICE\"/device: \"$(TARGET_DEVICE)\"/" "$$GRAPH"; \
+		echo "$(GREEN)✓ graph.pbtxt updated to TARGET_DEVICE ($(TARGET_DEVICE))$(NC)"; \
 	fi
 
 check-env:
@@ -535,7 +540,7 @@ benchmark-stream-density: check-env setup-dirs ## Run Order Accuracy stream dens
 		python3 -m venv venv && \
 		. venv/bin/activate && \
 		pip3 install -r requirements.txt && \
-		OOM_PROTECTION=$(OOM_PROTECTION) python3 stream_density_latency_oa.py \
+		OOM_PROTECTION=$(OOM_PROTECTION) MAX_WAIT_SEC=$(BENCHMARK_REQUEST_TIMEOUT) python3 stream_density_latency_oa.py \
 			--compose_file $(CURDIR)/$(COMPOSE_FILE) \
 			--target_latency_ms $(BENCHMARK_TARGET_LATENCY_MS) \
 			--latency_metric $(BENCHMARK_LATENCY_METRIC) \

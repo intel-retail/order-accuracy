@@ -194,11 +194,13 @@ def add_result(result: dict, station_id: Optional[str] = None):
     _update_summary(station_snapshot)
     _update_readable_report(station_snapshot)
 
-    # Track in video history (also outside lock)
+    # Track in video history and stamp the result with the active video_id
+    # so /results/{video_id} lookups work in addition to /results/{order_id}.
     try:
         vh = _get_video_history()
         current_video_id = vh['get_current']()
         if current_video_id:
+            result['video_id'] = current_video_id
             vh['add_result'](current_video_id, result)
             logger.debug(f"[RESULTS] Result added to video history for order_id={order_id}, video_id={current_video_id}")
     except Exception as e:

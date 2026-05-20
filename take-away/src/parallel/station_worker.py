@@ -683,8 +683,8 @@ class StationWorker:
                 from frame_selector import FrameSelector  # type: ignore
                 self._frame_selector = FrameSelector(
                     yolo_model_path=self.config.get(
-                        'yolo_model_path', './models/yolo11n_openvino_model'
-                    )
+                        'yolo_model_path'
+                    ) or os.environ.get("YOLO_MODEL_PATH", "./models/yolo11n_openvino_model")
                 )
                 logger.info(
                     f"[{self.station_id}][PID:{os.getpid()}] Frame selector loaded (YOLO-based)"

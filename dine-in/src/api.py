@@ -187,8 +187,7 @@ async def call_metrics_collector() -> Dict:
     try:
         import httpx
         
-        # Metrics collector serves on port 9000, not 8084
-        metrics_url = "http://metrics-collector:9000/metrics"
+        metrics_url = f"{config_manager.config.service.metrics_collector_endpoint}/metrics"
         logger.info(f"[METRICS] Calling metrics collector at {metrics_url}")
         
         # Call metrics collector service

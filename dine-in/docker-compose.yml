@@ -98,7 +98,7 @@ services:
       - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct}
       - VLM_PRECISION=${VLM_PRECISION:-int8}
       - VLM_DEVICE=${TARGET_DEVICE:-GPU}
-      - METRICS_COLLECTOR_ENDPOINT=http://metrics-collector:8084
+      - METRICS_COLLECTOR_ENDPOINT=http://metrics-collector:9000
       - CONTAINER_RESULTS_PATH=/app/results
       - USECASE_1=dine-in-order-accuracy
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
@@ -168,7 +168,7 @@ services:
       privileged: true
       pid: host
       ports:
-        - "8084:8084"  # Metrics API
+        - "9000:9000"  # Metrics API
       environment:
         - HTTP_PROXY=${HTTP_PROXY}
         - HTTPS_PROXY=${HTTPS_PROXY}

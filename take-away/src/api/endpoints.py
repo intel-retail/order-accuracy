@@ -8,7 +8,7 @@ import logging
 import uuid
 import shutil
 from pathlib import Path
-from fastapi import FastAPI, Body, UploadFile, File, Query, HTTPException
+from fastapi import FastAPI, Body, Form, UploadFile, File, Query, HTTPException
 from fastapi.responses import FileResponse
 from typing import Dict, Any, Optional, List
 import cv2
@@ -66,8 +66,17 @@ def create_app() -> FastAPI:
         }
 
     @app.post("/upload-video")
-    async def upload_and_run_video(file: UploadFile = File(...)):
-        """Upload video file and start processing pipeline"""
+    async def upload_and_run_video(
+        file: UploadFile = File(...),
+        video_id: Optional[str] = Form(None),
+    ):
+        """Upload video file and start processing pipeline.
+        
+        The optional ``video_id`` form field lets callers tag the upload with
+        their own identifier.  If omitted, a UUID is generated.  The same ID
+        can later be used with ``GET /results/{order_id}`` to retrieve the
+        validated result once processing completes.
+        """
         logger.info(f"Received video upload request: filename={file.filename}")
         
         if not file.filename.lower().endswith((".mp4", ".avi", ".mkv", ".mov")):
@@ -77,32 +86,40 @@ def create_app() -> FastAPI:
                 "reason": "unsupported_file_type"
             }
 
-        video_id = str(uuid.uuid4())
-        save_path = f"/uploads/{video_id}_{file.filename}"
-        logger.debug(f"Generated video_id={video_id}, save_path={save_path}")
+        # Sanitize video_id to safe alphanumeric/underscore/hyphen characters only
+        if video_id:
+            safe_video_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", video_id)
+        else:
+            safe_video_id = str(uuid.uuid4())
+        internal_id = safe_video_id
+        # Use only the basename of the filename to prevent path traversal
+        safe_filename = Path(file.filename).name
+        save_path = f"/uploads/{internal_id}_{safe_filename}"
+        logger.debug(f"video_id={internal_id}, save_path={save_path}")
 
         with open(save_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
         
-        logger.info(f"Video saved successfully: video_id={video_id}, path={save_path}")
+        logger.info(f"Video saved successfully: video_id={internal_id}, path={save_path}")
 
         # Register video in history tracker
-        start_video(video_id, file.filename, save_path)
-        logger.info(f"Video registered in history: video_id={video_id}")
+        start_video(internal_id, safe_filename, save_path)
+        logger.info(f"Video registered in history: video_id={internal_id}")
 
         # Trigger pipeline
-        logger.info(f"Triggering GStreamer pipeline for video_id={video_id}")
+        logger.info(f"Triggering GStreamer pipeline for video_id={internal_id}")
         run_pipeline_async(
             source_type="file",
             source=save_path
         )
 
-        logger.info(f"Pipeline started for video_id={video_id}")
+        logger.info(f"Pipeline started for video_id={internal_id}")
         return {
             "status": "started",
-            "video_id": video_id,
+            "video_id": internal_id,
             "path": save_path,
-            "filename": file.filename
+            "filename": safe_filename,
+            "note": "Use GET /results/{order_id} with the OCR order number once processing completes, or use GET /results/{video_id} to look up by this video_id."
         }
 
     @app.post("/run-video")
@@ -142,16 +159,30 @@ def create_app() -> FastAPI:
 
     @app.get("/results/{order_id}")
     def get_order_results(order_id: str):
-        """Get validation results for a specific order"""
+        """Get validation results for a specific order.
+
+        ``order_id`` may be either the OCR-extracted order number (e.g. ``651``)
+        **or** the ``video_id`` returned by ``POST /upload-video``.
+        """
         logger.info(f"Fetching results for order_id={order_id}")
         all_results = get_results()
         
-        # Find result for this order_id
+        # Search by order_id first, then fall back to video_id tag stored in result
         for result in all_results:
-            if result.get("order_id") == order_id:
+            if result.get("order_id") == order_id or result.get("video_id") == order_id:
                 logger.info(f"Returning results for order_id={order_id}")
                 return result
         
+        # Check if this video_id is still being processed
+        video = get_video(order_id)
+        if video and video.get("status") == "processing":
+            logger.info(f"Video {order_id} is still processing")
+            return {
+                "status": "processing",
+                "video_id": order_id,
+                "message": "Video is still being processed. Please check back shortly."
+            }
+
         logger.warning(f"No results found for order_id={order_id}")
         return {
             "status": "not_found",
