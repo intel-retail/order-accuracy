@@ -8,7 +8,7 @@
     },
     {
       "id": "002",
-      "name": "apple",
+      "name": "red apple",
       "category": "fruit",
       "aliases": ["red apple", "gala apple"]
     },
@@ -41,6 +41,30 @@
       "name": "pepsi can",
       "category": "beverage",
       "aliases": ["pepsi", "pepsi cola can"]
+    },
+    {
+      "id": "007",
+      "name": "pepsi can",
+      "category": "beverage",
+      "aliases": ["pepsi", "pepsi cola can"]
+    },
+    {
+      "id": "007",
+      "name": "pepsi can",
+      "category": "beverage",
+      "aliases": ["pepsi", "pepsi cola can"]
+    },
+    {
+      "id": "008",
+      "name": "tomato local",
+      "category": "fruit",
+      "aliases": ["tomato local"]
+    },
+    {
+      "id": "009",
+      "name": "tomato hybrid",
+      "category": "fruit",
+      "aliases": ["tomato hybrid"]
     }
   ]
 }
