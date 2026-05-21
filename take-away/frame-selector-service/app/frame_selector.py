@@ -711,7 +711,6 @@ _yolo_device = "cpu"
 # Intercept compile_model() before YOLO loads to pin the device.
 _ov_device = _target_device  # e.g. "CPU" or "GPU"
 try:
-try:
     import openvino as _ov
 except ImportError:
     import openvino.runtime as _ov
