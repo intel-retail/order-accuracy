@@ -729,7 +729,7 @@ Hardware, software, and network requirements for deploying Take-Away Order Accur
 | Component | Specification |
 |-----------|---------------|
 | **CPU** | 8+ cores |
-| **RAM** | 16 GB |
+| **RAM** | 64 GB (for first-time model export); 32 GB for inference only |
 | **GPU** | Intel Arc A770 (16 GB) or equivalent Intel GPU |
 | **Storage** | 50 GB SSD |
 
@@ -738,11 +738,13 @@ Hardware, software, and network requirements for deploying Take-Away Order Accur
 | Component | Specification |
 |-----------|---------------|
 | **CPU** | 16+ cores |
-| **RAM** | 32 GB |
+| **RAM** | 64 GB |
 | **GPU** | Intel Data Center GPU Max (48 GB) — for 4+ concurrent stations |
 | **Storage** | 200 GB NVMe SSD |
 
 **GPU VRAM guidance:** The Qwen2.5-VL-7B INT8 model requires ~6–8 GB of VRAM. Reserve at least 8 GB for the VLM; additional VRAM headroom allows more concurrent requests.
+
+> **⚠ Model Export RAM Requirement:** The initial `setup_models.sh` run performs INT8 quantization of the Qwen2.5-VL-7B model, which can temporarily require up to 64 GB of system RAM. Running this on platforms with 32 GB RAM (e.g. Wildcat Lake, Meteor Lake with 32 GB) may result in corrupt model files that cannot be loaded by OVMS. If the model was already exported on a capable machine, 32 GB RAM is sufficient for inference.
 
 ---
 
@@ -804,6 +806,7 @@ Expected output includes `GPU`.
 - [ ] Intel GPU drivers installed and GPU visible to Docker
 - [ ] Required ports available (8000, 7860, 8001, 9000, 9001, 8080)
 - [ ] At least 50 GB free disk space
+- [ ] **64 GB RAM available** (required for `setup_models.sh` model export; 32 GB RAM platforms such as Wildcat Lake / Meteor Lake may produce corrupt model files)
 - [ ] VLM model downloaded (`setup_models.sh` completed)
 - [ ] `.env` file configured
 - [ ] Camera RTSP URLs accessible from host (parallel mode)

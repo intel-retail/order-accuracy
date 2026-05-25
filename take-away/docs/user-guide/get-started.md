@@ -23,9 +23,11 @@ This guide walks you through the installation, configuration, and first-run of t
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
 | CPU | Intel Xeon 8 cores | Intel Xeon 16+ cores |
-| RAM | 16GB | 32GB+ |
+| RAM | 64 GB (model export); 32 GB (inference only) | 64 GB+ |
 | GPU | Intel Arc A770 (8GB) | Intel Arc |
 | Storage | 50GB SSD | 200GB NVMe |
+
+> **⚠ RAM note:** The first-time `setup_models.sh` run quantizes the Qwen2.5-VL-7B model to INT8, which can temporarily require up to 64 GB of system RAM. Systems with 32 GB RAM (e.g. Wildcat Lake or Meteor Lake platforms) may produce corrupt model files silently. If you encounter an unhealthy `oa_ovms_vlm` container or an "Unable to read the model" error after setup, re-run `setup_models.sh` on a system with at least 64 GB RAM.
 
 ### Software Requirements
 

@@ -218,7 +218,7 @@ Access MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
 | Component | Specification |
 |-----------|---------------|
 | CPU | Intel Xeon 8+ cores |
-| RAM | 16 GB |
+| RAM | 64 GB (required for first-time model export); 32 GB for inference only |
 | GPU | Intel Arc A770 8GB / NVIDIA RTX 3060 |
 | Storage | 50 GB SSD |
 | Docker | 24.0+ with Compose V2 |
@@ -228,10 +228,12 @@ Access MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
 | Component | Specification |
 |-----------|---------------|
 | CPU | Intel Xeon 16+ cores |
-| RAM | 32 GB |
+| RAM | 64 GB |
 | GPU | NVIDIA RTX 3080+ / Intel Data Center GPU |
 | Storage | 200 GB NVMe SSD |
 | Network | 10 Gbps (for Take-Away RTSP) |
+
+> **⚠ Model Export RAM Requirement:** `setup_models.sh` performs INT8 quantization of Qwen2.5-VL-7B, which temporarily requires up to 64 GB of system RAM. On platforms with 32 GB RAM (e.g. Wildcat Lake, Meteor Lake), the export may silently produce corrupt model files, causing the `oa_ovms_vlm` container to fail at startup. Always run `setup_models.sh` on a system with at least 64 GB RAM. The exported model files can then be copied to lower-memory systems for inference-only deployments.
 
 ---
 

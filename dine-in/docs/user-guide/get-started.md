@@ -8,7 +8,7 @@ This guide walks you through installation, configuration, and first run of the D
 
 - Docker 24.0+ with Compose V2
 - Intel GPU with drivers installed
-- 16 GB RAM minimum (32 GB recommended)
+- 64 GB RAM (for first-time model export); 32 GB RAM minimum for inference-only use
 - 50 GB free disk space
 
 ```bash

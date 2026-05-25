@@ -71,6 +71,74 @@ echo "=========================================="
 echo ""
 
 ###############################################
+# Validate that the OpenVINO IR XML files in a model directory are non-empty
+# and have a valid XML header.  A system running out of memory during export
+# (e.g. WCL / MTL platforms with 32 GB RAM) can write a partial, corrupt XML
+# file that passes a file-existence check but fails when OpenVINO tries to
+# load it (ITEP-90866 / ITEP-91499).
+###############################################
+validate_model_xml() {
+    local model_path="$1"
+    local found_valid=0
+
+    for xml_file in "${model_path}"/*.xml; do
+        [ -e "${xml_file}" ] || continue
+
+        if [ ! -s "${xml_file}" ]; then
+            echo "  ✗ Model XML file is empty: ${xml_file}"
+            return 1
+        fi
+
+        # OpenVINO IR XML files must start with the '<?xml' processing instruction.
+        # A truncated/corrupt export will typically start with binary garbage or
+        # be missing this header entirely.
+        local header
+        header=$(head -c 5 "${xml_file}" 2>/dev/null || true)
+        if [ "${header}" != "<?xml" ]; then
+            echo "  ✗ Model XML appears corrupt (invalid header in ${xml_file##*/})"
+            echo "    This often happens when the export ran out of memory and wrote an"
+            echo "    incomplete file. Re-run setup_models.sh on a system with at least"
+            echo "    64 GB RAM, or delete ${model_path} and retry."
+            return 1
+        fi
+
+        found_valid=1
+    done
+
+    if [ "${found_valid}" -eq 0 ]; then
+        return 1
+    fi
+
+    return 0
+}
+
+###############################################
+# Warn when available system RAM is below the threshold needed for a safe
+# model export.  The Qwen2.5-VL-7B INT8 quantisation step can temporarily
+# require >32 GB of RAM; running it on a 32 GB platform can cause partial /
+# corrupt writes without an obvious error (ITEP-90866 / ITEP-91499).
+###############################################
+check_memory_for_export() {
+    local recommended_gb=64
+    local total_gb=0
+
+    if [ -f /proc/meminfo ]; then
+        total_gb=$(awk '/MemTotal/ {printf "%.0f", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)
+    fi
+
+    if [ "${total_gb}" -gt 0 ] && [ "${total_gb}" -lt "${recommended_gb}" ]; then
+        echo ""
+        echo "  ⚠ WARNING: System RAM is ${total_gb} GB (${recommended_gb} GB recommended for model export)."
+        echo "    On platforms with less than ${recommended_gb} GB RAM (e.g. Wildcat Lake / Meteor Lake"
+        echo "    with 32 GB RAM), the INT8 quantisation step may exhaust memory and produce"
+        echo "    corrupt model files that cannot be loaded by OVMS."
+        echo "    If export fails or OVMS reports 'Unable to read the model', re-run"
+        echo "    setup_models.sh on a system with at least ${recommended_gb} GB RAM."
+        echo ""
+    fi
+}
+
+###############################################
 check_model() {
     local model_path="$1"
 
@@ -83,8 +151,14 @@ check_model() {
     #   - at least one .xml file (OpenVINO IR; name varies by model architecture)
     if [ -f "${model_path}/graph.pbtxt" ] && \
        ls "${model_path}"/*.xml > /dev/null 2>&1; then
-        echo "  ✓ Model found at ${model_path}"
-        return 0
+        # Also validate the XML files are not corrupt (ITEP-90866)
+        if validate_model_xml "${model_path}"; then
+            echo "  ✓ Model found at ${model_path}"
+            return 0
+        else
+            echo "  ✗ Model at ${model_path} has corrupt XML files — will re-export"
+            return 1
+        fi
     else
         echo "  ✗ Model not ready at ${model_path} (missing graph.pbtxt or .xml files)"
         return 1
@@ -318,6 +392,9 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
     echo "Model not found locally."
     echo "Downloading and exporting from HuggingFace..."
     echo ""
+
+    # Warn if system RAM is below recommended threshold (ITEP-91499)
+    check_memory_for_export
 
     ensure_python_env
     export_model "${MODEL_NAME}" "${SOURCE_MODEL}"
