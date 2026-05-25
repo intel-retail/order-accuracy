@@ -407,7 +407,7 @@ Target: < 15 s end-to-end for operational efficiency.
 | Component | Requirement |
 |-----------|-------------|
 | CPU | 8+ cores |
-| RAM | 64 GB (for first-time model export); 32 GB for inference only |
+| RAM | 48 GB min, 64 GB recommended (for first-time model export); 16 GB for inference only |
 | GPU | Intel Arc A770 (16 GB) or equivalent Intel GPU |
 | Storage | 50 GB SSD |
 
@@ -420,9 +420,9 @@ Target: < 15 s end-to-end for operational efficiency.
 | GPU | Intel Data Center GPU (for concurrent validation) |
 | Storage | 200 GB NVMe SSD |
 
-**GPU VRAM guidance:** The Qwen2.5-VL-7B INT8 model requires ~6–8 GB of VRAM.
+**GPU VRAM guidance:** The Qwen2.5-VL-7B INT8 model requires ~8 GB of VRAM. The default `cache_size=4` reserves an additional 4 GB VRAM for the KV cache. Total VRAM needed ≈ 12 GB — fits in Intel Arc A770 16 GB. Set `export CACHE_SIZE=<N>` before running `setup_models.sh` to adjust (keep model + cache_size ≤ available VRAM).
 
-> **⚠ Model Export RAM Requirement:** The initial `setup_models.sh` run performs INT8 quantization of the Qwen2.5-VL-7B model, which can temporarily require up to 64 GB of system RAM. Running this on platforms with 32 GB RAM (e.g. Wildcat Lake, Meteor Lake with 32 GB) may result in corrupt model files that cannot be loaded by OVMS. If you only need to run inference and the model was already exported on a capable machine, 32 GB RAM is sufficient.
+> **⚠ Model Export RAM Requirement:** The initial `setup_models.sh` run performs INT8 quantization of the Qwen2.5-VL-7B model, which can temporarily require approximately 30–40 GB of peak system RAM (FP16 model ~15 GB + INT8 compressed ~8 GB + calibration buffers). Running this on 32 GB platforms (e.g. Wildcat Lake, Meteor Lake) causes OOM and corrupt model XML files. Use a system with at least 48 GB RAM for export. For inference-only, 16 GB system RAM is sufficient with the default cache_size=4 GB setting.
 
 ### Software Requirements
 
@@ -471,7 +471,7 @@ Expected output includes `GPU`.
 - [ ] Intel GPU drivers installed and GPU visible to Docker
 - [ ] Required ports available (7861, 8083, 8002, 8081, 8084)
 - [ ] At least 50 GB free disk space
-- [ ] **64 GB RAM available** (required for `setup_models.sh` model export; 32 GB RAM platforms may produce corrupt model files)
+- [ ] **48 GB+ RAM available** (required for `setup_models.sh` model export; 32 GB RAM platforms produce corrupt model files — use 48 GB min, 64 GB recommended)
 - [ ] VLM model downloaded (`setup_models.sh` completed)
 - [ ] `.env` file created (`make init-env`)
 - [ ] Plate images placed in `images/` and `configs/orders.json` updated

@@ -41,7 +41,7 @@ python export_model.py text_generation \
   --weight-format int8 \
   --target_device GPU \
   --model_repository_path models \
-  --cache_size 32 \
+  --cache_size 4 \
   --max_num_seqs 1 \
   --enable_prefix_caching
 ```
@@ -133,7 +133,7 @@ node: {
   node_options: {
     [type.googleapis.com /mediapipe.LLMNodeOptions]: {
       max_num_seqs: 1              # Single request processing
-      cache_size: 32               # 32GB KV cache for inventory prompts
+      cache_size: 4                # 4 GB KV cache (adequate for max_num_seqs=4; raise via CACHE_SIZE env var if needed)
       block_size: 32
       max_num_batched_tokens: 256
       enable_prefix_caching: true  # Cache repeated inventory lists
@@ -201,9 +201,10 @@ docker logs dinein_ovms_vlm
 
 ### Out of memory
 ```bash
-# Model uses int8 quantization (~7.8GB)
-# Reduce cache_size in graph.pbtxt if needed (default: 32GB)
-# Ensure sufficient system memory (16GB+ recommended)
+# Model uses int8 quantization (~7.8 GB VRAM on GPU)
+# KV cache default is 4 GB (CACHE_SIZE env var); raise if needed but ensure VRAM headroom
+# Intel Arc A770 16 GB: model (~8 GB) + cache_size should stay ≤ 14 GB
+# Ensure sufficient system memory (32 GB recommended for export, 16 GB for inference-only)
 ```
 
 ### Permission errors

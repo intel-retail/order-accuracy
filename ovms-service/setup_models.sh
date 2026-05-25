@@ -64,6 +64,15 @@ TARGET_DEVICE_ENV="${TARGET_DEVICE:-${_TARGET_DEVICE_FILE:-GPU}}"
 _VLM_PRECISION_FILE=$(grep -E '^VLM_PRECISION=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
 VLM_PRECISION_ENV="${VLM_PRECISION:-${_VLM_PRECISION_FILE:-int8}}"
 
+# Read CACHE_SIZE: KV cache size in GB for OVMS.  Default is 4 GB which is
+# adequate for a single-station app (max_num_seqs=4).  On GPU the KV cache
+# occupies VRAM; Intel Arc A770 has 8–16 GB VRAM and the INT8 model already
+# consumes ~8 GB, so values above 8 will overflow to system RAM and can cause
+# OOM on 32 GB platforms (ITEP-91499).  Users with more VRAM/RAM can raise
+# this via `export CACHE_SIZE=8` before running setup_models.sh.
+_CACHE_SIZE_FILE=$(grep -E '^CACHE_SIZE=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+CACHE_SIZE_ENV="${CACHE_SIZE:-${_CACHE_SIZE_FILE:-4}}"
+
 ###############################################
 echo "=========================================="
 echo "OVMS Model Setup for Order Accuracy"
@@ -291,7 +300,7 @@ export_model() {
     local SOURCE_MODEL="$2"
 
     echo ""
-    echo "Exporting ${MODEL_NAME} (device: ${TARGET_DEVICE_ENV}, precision: ${VLM_PRECISION_ENV})"
+    echo "Exporting ${MODEL_NAME} (device: ${TARGET_DEVICE_ENV}, precision: ${VLM_PRECISION_ENV}, cache_size: ${CACHE_SIZE_ENV} GB)"
     echo ""
 
     # Build optional --target_device argument; CPU is the default so omit it
@@ -305,7 +314,7 @@ export_model() {
       --weight-format "${VLM_PRECISION_ENV}" \
       --pipeline_type VLM_CB \
       "${target_device_args[@]}" \
-      --cache_size 32 \
+      --cache_size "${CACHE_SIZE_ENV}" \
       --max_num_seqs 4 \
       --max_num_batched_tokens 8192 \
       --enable_prefix_caching True \
