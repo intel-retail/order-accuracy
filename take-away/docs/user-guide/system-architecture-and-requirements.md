@@ -742,7 +742,7 @@ Hardware, software, and network requirements for deploying Take-Away Order Accur
 | **GPU** | Intel Data Center GPU Max (48 GB) — for 4+ concurrent stations |
 | **Storage** | 200 GB NVMe SSD |
 
-**GPU VRAM guidance:** The Qwen2.5-VL-7B INT8 model requires ~8 GB of VRAM. The default `cache_size=4` reserves an additional 4 GB VRAM for the KV cache. Total VRAM needed ≈ 12 GB — fits in Intel Arc A770 16 GB. Set `export CACHE_SIZE=<N>` before running `setup_models.sh` to adjust (keep model + cache_size ≤ available VRAM).
+**GPU VRAM guidance:** The Qwen2.5-VL-7B INT8 model requires ~8 GB of VRAM. The default `cache_size=4` reserves an additional 4 GB VRAM for the KV cache. Total VRAM needed ≈ 12 GB — fits in Intel Arc A770 16 GB. On **integrated GPU** (iGPU) platforms such as Wildcat Lake and Meteor Lake, the KV cache is drawn from **system RAM** instead of dedicated VRAM — use a smaller value (e.g. `CACHE_SIZE=2`) to avoid exhausting system RAM. Set `export CACHE_SIZE=<N>` before running `setup_models.sh`. For a full per-platform sizing table and step-by-step instructions see [ovms-service/README.md — Tuning the KV Cache Size](../../ovms-service/README.md#tuning-the-kv-cache-size).
 
 > **⚠ Model Export RAM Requirement:** The initial `setup_models.sh` run performs INT8 quantization of the Qwen2.5-VL-7B model, which can temporarily require approximately 30–40 GB of peak system RAM (FP16 model ~15 GB + INT8 compressed ~8 GB + calibration buffers). Running this on 32 GB platforms (e.g. Wildcat Lake, Meteor Lake) causes OOM and corrupt model XML files. Use a system with at least 48 GB RAM for export. For inference-only, 16 GB system RAM is sufficient with the default cache_size=4 GB setting.
 

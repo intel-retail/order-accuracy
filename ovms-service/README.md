@@ -200,11 +200,20 @@ docker logs dinein_ovms_vlm
 ```
 
 ### Out of memory
+
+See [Tuning the KV Cache Size](#tuning-the-kv-cache-size) for the full sizing guide.
+
 ```bash
-# Model uses int8 quantization (~7.8 GB VRAM on GPU)
-# KV cache default is 4 GB (CACHE_SIZE env var); raise if needed but ensure VRAM headroom
-# Intel Arc A770 16 GB: model (~8 GB) + cache_size should stay ≤ 14 GB
-# Ensure sufficient system memory (32 GB recommended for export, 16 GB for inference-only)
+# Quick fix: lower CACHE_SIZE before re-running setup_models.sh
+export CACHE_SIZE=2
+bash setup_models.sh --app take-away
+
+# Or edit graph.pbtxt directly (no re-export needed)
+# Find: cache_size: <N>
+# Change to a value that keeps model (~8 GB) + cache_size ≤ available VRAM
+sed -i 's/cache_size: [0-9]*/cache_size: 2/' \
+    models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt
+docker restart oa_ovms_vlm
 ```
 
 ### Permission errors
@@ -229,12 +238,138 @@ curl http://localhost:8002/v1/config | jq
 
 ## Performance
 
-- **Model Size**: ~7.8GB (int8 quantization)
-- **Inference Device**: Intel Meteor Lake iGPU
-- **Latency**: ~5-15s per image with inventory-aware prompts (depends on prompt length)
-- **Memory**: ~8-12GB total OVMS footprint (model + KV cache)
-- **Configuration**: Optimized for single-request processing (max_num_seqs=1)
-- **Cache**: 32GB KV cache with prefix caching enabled for repeated inventory lists
+- **Model Size**: ~7.8 GB (int8 quantization)
+- **Inference Device**: Intel Arc GPU (GPU) or CPU fallback
+- **Latency**: ~5–15 s per image on GPU; ~60–120 s on CPU
+- **Memory**: model (~8 GB VRAM) + KV cache (default 4 GB) ≈ 12 GB VRAM total
+- **Configuration**: Optimized for single-station use (max_num_seqs=4, prefix caching enabled)
+
+---
+
+## Tuning the KV Cache Size
+
+The `cache_size` parameter in `graph.pbtxt` controls how much memory OVMS pre-allocates for the KV (key-value attention) cache. Choosing the right value depends on your GPU VRAM and system RAM.
+
+### How memory is used
+
+| Component | Where | Approximate size |
+|---|---|---|
+| INT8 model weights | GPU VRAM (or system RAM on CPU) | ~8 GB |
+| KV cache (`cache_size`) | GPU VRAM (discrete GPU) | configurable |
+| KV cache (`cache_size`) | **System RAM** (integrated iGPU, WCL/MTL) | configurable |
+| OVMS process overhead | System RAM | ~1–2 GB |
+
+> **⚠ Integrated GPU warning (Wildcat Lake / Meteor Lake):** On platforms with an integrated Intel GPU (iGPU), the KV cache is allocated from **system RAM** — not dedicated VRAM. A `cache_size=32` on a 32 GB system will consume all available RAM and cause OVMS to crash. Always use a small `cache_size` on iGPU platforms.
+
+### Recommended values by platform
+
+| Platform | VRAM | Recommended `cache_size` | Total VRAM used | Notes |
+|---|---|---|---|---|
+| Intel Arc A770 16 GB | 16 GB | **4–6 GB** | ~12–14 GB | Default; leaves headroom for OS |
+| Intel Arc A770 8 GB | 8 GB | **0** (dynamic) | ~8 GB + dynamic | Model alone fills VRAM; use dynamic |
+| Intel Arc A380 6 GB | 6 GB | **0** (dynamic) | ~6 GB | Run model on CPU instead |
+| Intel iGPU / WCL / MTL (32 GB system RAM) | shared | **2–4 GB** | uses system RAM | Keep total ≤ 24 GB system RAM |
+| Intel iGPU / WCL / MTL (16 GB system RAM) | shared | **1–2 GB** | uses system RAM | Keep total ≤ 12 GB system RAM |
+| CPU only | N/A | **2–4 GB** | system RAM | Slower inference; cache from RAM |
+
+> `cache_size: 0` enables **dynamic allocation** — OVMS grows the cache as needed up to available memory. This avoids OOM at startup but may consume all available VRAM/RAM under load. Use for unknown or constrained hardware.
+
+### How to change `cache_size`
+
+**Option A — Before export** (recommended, bakes the value into `graph.pbtxt`):
+```bash
+# Set CACHE_SIZE env var before running setup_models.sh
+export CACHE_SIZE=2          # e.g. 2 GB for a 16 GB iGPU system
+bash setup_models.sh --app take-away
+```
+
+**Option B — After export** (no re-export needed, edit `graph.pbtxt` directly):
+```bash
+# Edit graph.pbtxt
+sed -i 's/cache_size: [0-9]*/cache_size: 2/' \
+    ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt
+
+# Verify the change
+grep cache_size ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt
+
+# Restart OVMS to pick up the new value
+docker restart oa_ovms_vlm
+
+# Confirm the model reloads as AVAILABLE
+curl -sf http://localhost:8001/v1/config | grep -o '"state":"[^"]*"'
+```
+
+**Option C — Persistent via `.env`** (survives re-runs of `setup_models.sh`):
+```bash
+# Add CACHE_SIZE to your app .env file
+echo "CACHE_SIZE=2" >> take-away/.env
+
+# Re-run setup to apply
+bash ovms-service/setup_models.sh --app take-away
+```
+
+### How to pick the right value
+
+Run this helper to get a recommendation for your system:
+```bash
+python3 - << 'EOF'
+import subprocess, re
+
+# Total system RAM
+with open('/proc/meminfo') as f:
+    mem = int(re.search(r'MemTotal:\s+(\d+)', f.read()).group(1)) // 1024 // 1024
+
+# Try to detect VRAM (discrete GPU)
+vram = None
+try:
+    out = subprocess.check_output(['lspci', '-v'], text=True, stderr=subprocess.DEVNULL)
+    if 'Arc' in out:
+        # Rough heuristic from lspci memory regions
+        pass
+except Exception:
+    pass
+
+model_gb = 8   # INT8 Qwen2.5-VL-7B
+overhead_gb = 2
+
+# Check for render node (discrete GPU)
+import os
+has_render = os.path.exists('/dev/dri/renderD128')
+
+print(f"System RAM  : {mem} GB")
+print(f"Render node : {'yes (discrete GPU likely)' if has_render else 'no (iGPU or CPU only)'}")
+print()
+
+if has_render:
+    # Assume Arc A770 16 GB as most common discrete target
+    available_vram = 16 - model_gb - overhead_gb
+    rec = max(1, min(available_vram, 6))
+    print(f"Recommended cache_size (discrete GPU, ~16 GB VRAM): {rec} GB")
+else:
+    # iGPU or CPU: KV cache comes from system RAM
+    budget = mem - model_gb - overhead_gb - 4   # leave 4 GB for OS
+    rec = max(1, min(budget // 4, 4))
+    print(f"Recommended cache_size (iGPU/CPU, {mem} GB RAM): {rec} GB")
+    if mem < 16:
+        print("  ⚠ Very low RAM — consider cache_size=1 or cache_size=0 (dynamic)")
+EOF
+```
+
+### Effect on performance
+
+| `cache_size` | Behaviour |
+|---|---|
+| Too small (< 1 GB) | Long prompts or concurrent requests get terminated early |
+| **4 GB (default)** | **Handles up to 4 simultaneous requests with ~4 K token context** |
+| 8+ GB | Better for long menu/inventory prompts or higher concurrency |
+| 0 (dynamic) | Grows as needed; safest on unknown hardware; may consume all RAM under load |
+
+Monitor actual cache usage in the OVMS logs:
+```bash
+docker logs oa_ovms_vlm 2>&1 | grep "Cache usage"
+# Example: Cache usage 23.9%  →  cache_size is well-sized
+# Example: Cache usage 95%+   →  increase cache_size or reduce max_num_seqs
+```
 
 ## References
 
