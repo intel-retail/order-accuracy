@@ -15,8 +15,10 @@
 
 - Docker 24.0+ with Compose V2
 - Intel GPU
-- 32GB+ RAM recommended
+- 16 GB RAM minimum (64 GB recommended for production)
 - Intel Xeon or equivalent CPU
+
+> **ℹ iGPU / low-RAM systems:** Set `export CACHE_SIZE=2` before running `setup_models.sh` to keep KV cache at 2 GB (default is 4 GB). On iGPU platforms the KV cache uses system RAM. See [ovms-service/README.md](ovms-service/README.md#tuning-the-kv-cache-size) for details.
 
 ### Setup Test Data (Required)
 

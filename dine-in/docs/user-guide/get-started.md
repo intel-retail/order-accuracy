@@ -8,8 +8,10 @@ This guide walks you through installation, configuration, and first run of the D
 
 - Docker 24.0+ with Compose V2
 - Intel GPU with drivers installed
-- 64 GB RAM (for first-time model export); 32 GB RAM minimum for inference-only use
+- 16 GB RAM minimum (64 GB recommended for production)
 - 50 GB free disk space
+
+> **ℹ KV Cache on iGPU / low-RAM systems:** On integrated GPU (iGPU) platforms, the KV cache is allocated from **system RAM**. The default `cache_size=4` (4 GB) may be too high for a 16 GB system. Set `export CACHE_SIZE=2` before running `setup_models.sh` to reduce KV cache to 2 GB. See [ovms-service/README.md — Tuning the KV Cache Size](../../ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
 
 ```bash
 docker --version
