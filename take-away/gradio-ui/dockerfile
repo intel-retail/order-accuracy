@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir --upgrade pip
 # pillow>=11.1.0 fixes CVE-2023-50447
 # All other versions are resolved by pip to ensure gradio compatibility
 RUN pip install --no-cache-dir \
+    "numpy>=1.26.4,<2" \
     pillow==11.1.0 \
     opencv-python-headless==4.8.1.78 \
     requests==2.31.0 \
