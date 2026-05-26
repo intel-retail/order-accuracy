@@ -21,16 +21,14 @@ RUN apt-get update && apt-get install -y \
 # Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip
 
-# Install dependencies - versions pinned to fix known CVEs:
+# Install dependencies - only CVE-critical packages are pinned:
 # gradio>=5.0.0 fixes CVE-2023-6572, CVE-2024-1728, CVE-2025-23042
 # pillow>=11.1.0 fixes CVE-2023-50447
+# All other versions are resolved by pip to ensure gradio compatibility
 RUN pip install --no-cache-dir \
-    numpy==1.26.4 \
     pillow==11.1.0 \
     opencv-python-headless==4.8.1.78 \
     requests==2.31.0 \
-    huggingface_hub==0.23.0 \
-    fastapi==0.115.2 \
     gradio==5.31.0
 
 # Copy the application file
