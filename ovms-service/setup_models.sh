@@ -112,7 +112,7 @@ validate_model_xml() {
             echo "  ✗ Model XML appears corrupt (invalid header in ${xml_file##*/})"
             echo "    This often happens when the export ran out of memory and wrote an"
             echo "    incomplete file. Re-run setup_models.sh on a system with at least"
-            echo "    64 GB RAM, or delete ${model_path} and retry."
+            echo "    48 GB RAM (64 GB recommended), or delete ${model_path} and retry."
             return 1
         fi
 

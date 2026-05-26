@@ -21,51 +21,27 @@ ovms-service/
 
 ### Prerequisites
 
-1. **Python environment** with model export dependencies:
-   ```bash
-   pip install -r export_requirements.txt
-   ```
-
-2. **Disk space**: ~8GB for Qwen2.5-VL-7B-Instruct-ov-int8 model (int8 quantization)
+1. **Disk space**: ~8 GB for Qwen2.5-VL-7B-Instruct-ov-int8 model (int8 quantization)
 
 ### Export Model
 
-The model needs to be exported once before running OVMS:
+The model is exported by running `setup_models.sh` from the **repo root** — this is the only supported export path. The script downloads `export_model.py` and its dependencies on demand, so no manual `pip install` step is needed:
 
 ```bash
-cd ovms-service
-
-# Export Qwen2.5-VL-7B-Instruct with int8 quantization for GPU
-python export_model.py text_generation \
-  --source_model Qwen/Qwen2.5-VL-7B-Instruct \
-  --weight-format int8 \
-  --target_device GPU \
-  --model_repository_path models \
-  --cache_size 4 \
-  --max_num_seqs 1 \
-  --enable_prefix_caching
+# From repo root — run for take-away (default) or dine-in
+bash ovms-service/setup_models.sh --app take-away
+# or
+bash ovms-service/setup_models.sh --app dine-in
 ```
 
 This will:
+- Download `export_model.py` and install its dependencies automatically
 - Download the model from HuggingFace
-- Convert to OpenVINO IR format
-- Apply int8 quantization for optimal quality/performance balance
-- Save to `models/Qwen/Qwen2.5-VL-7B-Instruct-ov-int8/`
-- Generate graph.pbtxt for MediaPipe configuration
+- Convert to OpenVINO IR format with int8 quantization
+- Save to `ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/`
+- Generate `graph.pbtxt` for OVMS configuration
 
-### Alternative: Use Setup Script
-
-Use the automated setup script that handles export or copying automatically:
-
-```bash
-cd ovms-service
-./setup_models.sh
-```
-
-This script will:
-- Check if models already exist in `models/` directory
-- Offer to copy from existing installations if found
-- Otherwise, automatically export from HuggingFace
+> **ℹ Low-RAM systems:** Set `export CACHE_SIZE=2` before running `setup_models.sh` if you are on a 16 GB system. For first-time export, a 48–64 GB host is recommended to avoid OOM. See [Tuning the KV Cache Size](#tuning-the-kv-cache-size).
 
 ## Running OVMS
 
@@ -285,6 +261,7 @@ bash setup_models.sh --app take-away
 
 **Option B — After export** (no re-export needed, edit `graph.pbtxt` directly):
 ```bash
+# Run from repo root
 # Edit graph.pbtxt
 sed -i 's/cache_size: [0-9]*/cache_size: 2/' \
     ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt

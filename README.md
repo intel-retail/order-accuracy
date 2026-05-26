@@ -219,7 +219,7 @@ Access MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
 |-----------|---------------|
 | CPU | Intel Xeon 8+ cores |
 | RAM | 64 GB (required for first-time model export); 16 GB for inference only |
-| GPU | Intel Arc A770 8GB / NVIDIA RTX 3060 |
+| GPU | Intel Arc A770 16 GB (8 GB requires `CACHE_SIZE=2` or lower) |
 | Storage | 50 GB SSD |
 | Docker | 24.0+ with Compose V2 |
 
