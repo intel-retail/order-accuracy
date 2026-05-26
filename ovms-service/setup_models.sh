@@ -72,6 +72,11 @@ VLM_PRECISION_ENV="${VLM_PRECISION:-${_VLM_PRECISION_FILE:-int8}}"
 # this via `export CACHE_SIZE=8` before running setup_models.sh.
 _CACHE_SIZE_FILE=$(grep -E '^CACHE_SIZE=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
 CACHE_SIZE_ENV="${CACHE_SIZE:-${_CACHE_SIZE_FILE:-4}}"
+# Validate CACHE_SIZE_ENV is a non-negative integer (0 = dynamic allocation)
+if ! echo "${CACHE_SIZE_ENV}" | grep -qE '^[0-9]+$'; then
+    echo "ERROR: CACHE_SIZE must be a non-negative integer (got '${CACHE_SIZE_ENV}'). Defaulting to 4."
+    CACHE_SIZE_ENV=4
+fi
 
 ###############################################
 echo "=========================================="

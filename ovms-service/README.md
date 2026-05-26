@@ -133,7 +133,7 @@ node: {
   node_options: {
     [type.googleapis.com /mediapipe.LLMNodeOptions]: {
       max_num_seqs: 1              # Single request processing
-      cache_size: 4                # 4 GB KV cache (adequate for max_num_seqs=4; raise via CACHE_SIZE env var if needed)
+      cache_size: 4                # 4 GB KV cache (adequate for max_num_seqs=1; raise via CACHE_SIZE env var for higher concurrency)
       block_size: 32
       max_num_batched_tokens: 256
       enable_prefix_caching: true  # Cache repeated inventory lists
@@ -319,28 +319,29 @@ import subprocess, re
 with open('/proc/meminfo') as f:
     mem = int(re.search(r'MemTotal:\s+(\d+)', f.read()).group(1)) // 1024 // 1024
 
-# Try to detect VRAM (discrete GPU)
-vram = None
-try:
-    out = subprocess.check_output(['lspci', '-v'], text=True, stderr=subprocess.DEVNULL)
-    if 'Arc' in out:
-        # Rough heuristic from lspci memory regions
-        pass
-except Exception:
-    pass
-
 model_gb = 8   # INT8 Qwen2.5-VL-7B
 overhead_gb = 2
 
-# Check for render node (discrete GPU)
-import os
-has_render = os.path.exists('/dev/dri/renderD128')
-
 print(f"System RAM  : {mem} GB")
-print(f"Render node : {'yes (discrete GPU likely)' if has_render else 'no (iGPU or CPU only)'}")
 print()
 
-if has_render:
+# Detect discrete vs integrated GPU via lspci memory (more reliable than /dev/dri)
+has_discrete = False
+try:
+    lspci_out = subprocess.check_output(['lspci', '-v'], text=True, stderr=subprocess.DEVNULL)
+    # Intel Arc dGPUs report large BAR memory regions (>= 8 GB); iGPUs do not
+    for line in lspci_out.splitlines():
+        if 'Arc' in line or 'Display' in line or 'VGA' in line:
+            import re as _re
+            bars = _re.findall(r'Memory.*\[size=(\d+)([MG])\]', lspci_out)
+            for size, unit in bars:
+                gb = int(size) if unit == 'G' else int(size) // 1024
+                if gb >= 8:
+                    has_discrete = True
+except Exception:
+    pass
+
+if has_discrete:
     # Assume Arc A770 16 GB as most common discrete target
     available_vram = 16 - model_gb - overhead_gb
     rec = max(1, min(available_vram, 6))

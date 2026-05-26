@@ -422,7 +422,7 @@ Target: < 15 s end-to-end for operational efficiency.
 
 **GPU VRAM guidance:** The Qwen2.5-VL-7B INT8 model requires ~8 GB of VRAM. The default `cache_size=4` reserves an additional 4 GB VRAM for the KV cache. Total VRAM needed ≈ 12 GB — fits in Intel Arc A770 16 GB. On **integrated GPU** (iGPU) platforms such as Wildcat Lake and Meteor Lake, the KV cache is drawn from **system RAM** instead of dedicated VRAM — use a smaller value (e.g. `CACHE_SIZE=2`) to avoid exhausting system RAM. Set `export CACHE_SIZE=<N>` before running `setup_models.sh`. For a full per-platform sizing table and step-by-step instructions see [ovms-service/README.md — Tuning the KV Cache Size](../../ovms-service/README.md#tuning-the-kv-cache-size).
 
-> **ℹ Model Export RAM Note:** The initial `setup_models.sh` run performs INT8 quantization of the Qwen2.5-VL-7B model. A minimum of 16 GB system RAM is sufficient for both model export and inference. 64 GB is recommended for production or multi-station deployments.
+> **ℹ Model Export RAM Note:** 16 GB system RAM is sufficient for **inference-only** deployments. For first-time model export (`setup_models.sh` INT8 quantization), a higher-memory host (48–64 GB recommended) avoids potential OOM and corrupt IR files — export once there and copy `ovms-service/models/` to the target system. If you must export on 16 GB, set `export CACHE_SIZE=2` first. See [ovms-service/README.md — Tuning the KV Cache Size](../../ovms-service/README.md#tuning-the-kv-cache-size) for details.
 
 ### Software Requirements
 
@@ -471,7 +471,7 @@ Expected output includes `GPU`.
 - [ ] Intel GPU drivers installed and GPU visible to Docker
 - [ ] Required ports available (7861, 8083, 8002, 8081, 8084)
 - [ ] At least 50 GB free disk space
-- [ ] **16 GB+ RAM available** (minimum for model export and inference; 64 GB recommended for production)
+- [ ] **16 GB+ RAM available** (sufficient for inference; for first-time model export 48–64 GB recommended — export on a high-RAM host and copy `ovms-service/models/` to the target system)
 - [ ] VLM model downloaded (`setup_models.sh` completed)
 - [ ] `.env` file created (`make init-env`)
 - [ ] Plate images placed in `images/` and `configs/orders.json` updated
