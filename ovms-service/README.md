@@ -21,51 +21,27 @@ ovms-service/
 
 ### Prerequisites
 
-1. **Python environment** with model export dependencies:
-   ```bash
-   pip install -r export_requirements.txt
-   ```
-
-2. **Disk space**: ~8GB for Qwen2.5-VL-7B-Instruct-ov-int8 model (int8 quantization)
+1. **Disk space**: ~8 GB for Qwen2.5-VL-7B-Instruct-ov-int8 model (int8 quantization)
 
 ### Export Model
 
-The model needs to be exported once before running OVMS:
+The model is exported by running `setup_models.sh` from the **repo root** — this is the only supported export path. The script downloads `export_model.py` and its dependencies on demand, so no manual `pip install` step is needed:
 
 ```bash
-cd ovms-service
-
-# Export Qwen2.5-VL-7B-Instruct with int8 quantization for GPU
-python export_model.py text_generation \
-  --source_model Qwen/Qwen2.5-VL-7B-Instruct \
-  --weight-format int8 \
-  --target_device GPU \
-  --model_repository_path models \
-  --cache_size 32 \
-  --max_num_seqs 1 \
-  --enable_prefix_caching
+# From repo root — run for take-away (default) or dine-in
+bash ovms-service/setup_models.sh --app take-away
+# or
+bash ovms-service/setup_models.sh --app dine-in
 ```
 
 This will:
+- Download `export_model.py` and install its dependencies automatically
 - Download the model from HuggingFace
-- Convert to OpenVINO IR format
-- Apply int8 quantization for optimal quality/performance balance
-- Save to `models/Qwen/Qwen2.5-VL-7B-Instruct-ov-int8/`
-- Generate graph.pbtxt for MediaPipe configuration
+- Convert to OpenVINO IR format with int8 quantization
+- Save to `ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/`
+- Generate `graph.pbtxt` for OVMS configuration
 
-### Alternative: Use Setup Script
-
-Use the automated setup script that handles export or copying automatically:
-
-```bash
-cd ovms-service
-./setup_models.sh
-```
-
-This script will:
-- Check if models already exist in `models/` directory
-- Offer to copy from existing installations if found
-- Otherwise, automatically export from HuggingFace
+> **ℹ Low-RAM systems:** Set `export CACHE_SIZE=2` before running `setup_models.sh` if you are on a 16 GB system. For first-time export, a 48–64 GB host is recommended to avoid OOM. See [Tuning the KV Cache Size](#tuning-the-kv-cache-size).
 
 ## Running OVMS
 
@@ -133,7 +109,7 @@ node: {
   node_options: {
     [type.googleapis.com /mediapipe.LLMNodeOptions]: {
       max_num_seqs: 1              # Single request processing
-      cache_size: 32               # 32GB KV cache for inventory prompts
+      cache_size: 4                # 4 GB KV cache (adequate for max_num_seqs=1; raise via CACHE_SIZE env var for higher concurrency)
       block_size: 32
       max_num_batched_tokens: 256
       enable_prefix_caching: true  # Cache repeated inventory lists
@@ -200,10 +176,20 @@ docker logs dinein_ovms_vlm
 ```
 
 ### Out of memory
+
+See [Tuning the KV Cache Size](#tuning-the-kv-cache-size) for the full sizing guide.
+
 ```bash
-# Model uses int8 quantization (~7.8GB)
-# Reduce cache_size in graph.pbtxt if needed (default: 32GB)
-# Ensure sufficient system memory (16GB+ recommended)
+# Quick fix: lower CACHE_SIZE before re-running setup_models.sh (run from repo root)
+export CACHE_SIZE=2
+bash ovms-service/setup_models.sh --app take-away
+
+# Or edit graph.pbtxt directly (no re-export needed, run from repo root)
+# Find: cache_size: <N>
+# Change to a value that keeps model (~8 GB) + cache_size ≤ available VRAM
+sed -i 's/cache_size: [0-9]*/cache_size: 2/' \
+    ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt
+docker restart oa_ovms_vlm
 ```
 
 ### Permission errors
@@ -228,12 +214,140 @@ curl http://localhost:8002/v1/config | jq
 
 ## Performance
 
-- **Model Size**: ~7.8GB (int8 quantization)
-- **Inference Device**: Intel Meteor Lake iGPU
-- **Latency**: ~5-15s per image with inventory-aware prompts (depends on prompt length)
-- **Memory**: ~8-12GB total OVMS footprint (model + KV cache)
-- **Configuration**: Optimized for single-request processing (max_num_seqs=1)
-- **Cache**: 32GB KV cache with prefix caching enabled for repeated inventory lists
+- **Model Size**: ~7.8 GB (int8 quantization)
+- **Inference Device**: Intel Arc GPU (GPU) or CPU fallback
+- **Latency**: ~5–15 s per image on GPU; ~60–120 s on CPU
+- **Memory**: model (~8 GB VRAM) + KV cache (default 4 GB) ≈ 12 GB VRAM total
+- **Configuration**: Optimized for single-station use (max_num_seqs=4, prefix caching enabled)
+
+---
+
+## Tuning the KV Cache Size
+
+The `cache_size` parameter in `graph.pbtxt` controls how much memory OVMS pre-allocates for the KV (key-value attention) cache. Choosing the right value depends on your GPU VRAM and system RAM.
+
+### How memory is used
+
+| Component | Where | Approximate size |
+|---|---|---|
+| INT8 model weights | GPU VRAM (or system RAM on CPU) | ~8 GB |
+| KV cache (`cache_size`) | GPU VRAM (discrete GPU) | configurable |
+| KV cache (`cache_size`) | **System RAM** (integrated iGPU, WCL/MTL) | configurable |
+| OVMS process overhead | System RAM | ~1–2 GB |
+
+> **⚠ Integrated GPU warning (Wildcat Lake / Meteor Lake):** On platforms with an integrated Intel GPU (iGPU), the KV cache is allocated from **system RAM** — not dedicated VRAM. A `cache_size=32` on a 32 GB system will consume all available RAM and cause OVMS to crash. Always use a small `cache_size` on iGPU platforms.
+
+### Recommended values by platform
+
+| Platform | VRAM | Recommended `cache_size` | Total VRAM used | Notes |
+|---|---|---|---|---|
+| Intel Arc A770 16 GB | 16 GB | **4–6 GB** | ~12–14 GB | Default; leaves headroom for OS |
+| Intel Arc A770 8 GB | 8 GB | **0** (dynamic) | ~8 GB + dynamic | Model alone fills VRAM; use dynamic |
+| Intel Arc A380 6 GB | 6 GB | **0** (dynamic) | ~6 GB | Run model on CPU instead |
+| Intel iGPU / WCL / MTL (32 GB system RAM) | shared | **2–4 GB** | uses system RAM | Keep total ≤ 24 GB system RAM |
+| Intel iGPU / WCL / MTL (16 GB system RAM) | shared | **1–2 GB** | uses system RAM | Keep total ≤ 12 GB system RAM |
+| CPU only | N/A | **2–4 GB** | system RAM | Slower inference; cache from RAM |
+
+> `cache_size: 0` enables **dynamic allocation** — OVMS grows the cache as needed up to available memory. This avoids OOM at startup but may consume all available VRAM/RAM under load. Use for unknown or constrained hardware.
+
+### How to change `cache_size`
+
+**Option A — Before export** (recommended, bakes the value into `graph.pbtxt`):
+```bash
+# Set CACHE_SIZE env var before running setup_models.sh (run from repo root)
+export CACHE_SIZE=2          # e.g. 2 GB for a 16 GB iGPU system
+bash ovms-service/setup_models.sh --app take-away
+```
+
+**Option B — After export** (no re-export needed, edit `graph.pbtxt` directly):
+```bash
+# Run from repo root
+# Edit graph.pbtxt
+sed -i 's/cache_size: [0-9]*/cache_size: 2/' \
+    ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt
+
+# Verify the change
+grep cache_size ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt
+
+# Restart OVMS to pick up the new value
+docker restart oa_ovms_vlm
+
+# Confirm the model reloads as AVAILABLE
+curl -sf http://localhost:8002/v1/config | grep -o '"state":"[^"]*"'
+```
+
+**Option C — Persistent via `.env`** (survives re-runs of `setup_models.sh`):
+```bash
+# Add CACHE_SIZE to your app .env file
+echo "CACHE_SIZE=2" >> take-away/.env
+
+# Re-run setup to apply
+bash ovms-service/setup_models.sh --app take-away
+```
+
+### How to pick the right value
+
+Run this helper to get a recommendation for your system:
+```bash
+python3 - << 'EOF'
+import subprocess, re
+
+# Total system RAM
+with open('/proc/meminfo') as f:
+    mem = int(re.search(r'MemTotal:\s+(\d+)', f.read()).group(1)) // 1024 // 1024
+
+model_gb = 8   # INT8 Qwen2.5-VL-7B
+overhead_gb = 2
+
+print(f"System RAM  : {mem} GB")
+print()
+
+# Detect discrete vs integrated GPU via lspci memory (more reliable than /dev/dri)
+has_discrete = False
+try:
+    lspci_out = subprocess.check_output(['lspci', '-v'], text=True, stderr=subprocess.DEVNULL)
+    # Intel Arc dGPUs report large BAR memory regions (>= 8 GB); iGPUs do not
+    for line in lspci_out.splitlines():
+        if 'Arc' in line or 'Display' in line or 'VGA' in line:
+            import re as _re
+            bars = _re.findall(r'Memory.*\[size=(\d+)([MG])\]', lspci_out)
+            for size, unit in bars:
+                gb = int(size) if unit == 'G' else int(size) // 1024
+                if gb >= 8:
+                    has_discrete = True
+except Exception:
+    pass
+
+if has_discrete:
+    # Assume Arc A770 16 GB as most common discrete target
+    available_vram = 16 - model_gb - overhead_gb
+    rec = max(1, min(available_vram, 6))
+    print(f"Recommended cache_size (discrete GPU, ~16 GB VRAM): {rec} GB")
+else:
+    # iGPU or CPU: KV cache comes from system RAM
+    budget = mem - model_gb - overhead_gb - 4   # leave 4 GB for OS
+    rec = max(1, min(budget // 4, 4))
+    print(f"Recommended cache_size (iGPU/CPU, {mem} GB RAM): {rec} GB")
+    if mem < 16:
+        print("  ⚠ Very low RAM — consider cache_size=1 or cache_size=0 (dynamic)")
+EOF
+```
+
+### Effect on performance
+
+| `cache_size` | Behaviour |
+|---|---|
+| Too small (< 1 GB) | Long prompts or concurrent requests get terminated early |
+| **4 GB (default)** | **Handles up to 4 simultaneous requests with ~4 K token context** |
+| 8+ GB | Better for long menu/inventory prompts or higher concurrency |
+| 0 (dynamic) | Grows as needed; safest on unknown hardware; may consume all RAM under load |
+
+Monitor actual cache usage in the OVMS logs:
+```bash
+docker logs oa_ovms_vlm 2>&1 | grep "Cache usage"
+# Example: Cache usage 23.9%  →  cache_size is well-sized
+# Example: Cache usage 95%+   →  increase cache_size or reduce max_num_seqs
+```
 
 ## References
 

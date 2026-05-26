@@ -21,16 +21,16 @@ RUN apt-get update && apt-get install -y \
 # Upgrade pip
 RUN pip install --no-cache-dir --upgrade pip
 
-# Install compatible versions to avoid conflicts
+# Install dependencies - only CVE-critical packages are pinned:
+# gradio>=5.0.0 fixes CVE-2023-6572, CVE-2024-1728, CVE-2025-23042
+# pillow>=11.1.0 fixes CVE-2023-50447
+# All other versions are resolved by pip to ensure gradio compatibility
 RUN pip install --no-cache-dir \
-    numpy==1.24.3 \
-    pillow==10.0.0 \
+    "numpy>=1.26.4,<2" \
+    pillow==11.1.0 \
     opencv-python-headless==4.8.1.78 \
     requests==2.31.0 \
-    huggingface_hub==0.17.3 \
-    fastapi==0.109.1 \
-    starlette==0.35.0 \
-    gradio==3.50.2
+    gradio==5.31.0
 
 # Copy the application file
 COPY gradio_app.py /app/gradio_app.py

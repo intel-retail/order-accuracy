@@ -23,9 +23,13 @@ This guide walks you through the installation, configuration, and first-run of t
 | Component | Minimum | Recommended |
 |-----------|---------|-------------|
 | CPU | Intel Xeon 8 cores | Intel Xeon 16+ cores |
-| RAM | 16GB | 32GB+ |
+| RAM | 16 GB | 64 GB+ |
 | GPU | Intel Arc A770 (8GB) | Intel Arc |
 | Storage | 50GB SSD | 200GB NVMe |
+
+> **ℹ RAM note:** 16 GB system RAM is sufficient for **inference**. For first-time model export (`setup_models.sh`), a higher-memory host (48–64 GB recommended) avoids potential OOM — export there and copy `ovms-service/models/` to the target system. 64 GB+ is recommended for production or multi-station deployments.
+
+> **ℹ KV Cache on iGPU / low-RAM systems:** On iGPU platforms the KV cache is allocated from **system RAM**. Set `export CACHE_SIZE=2` before running `setup_models.sh` to reduce KV cache to 2 GB (default is 4 GB). See [ovms-service/README.md — Tuning the KV Cache Size](../../../ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
 
 ### Software Requirements
 

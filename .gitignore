@@ -45,3 +45,10 @@ ENV/
 # OS
 .DS_Store
 Thumbs.db
+
+# OVMS model export venv and downloaded models
+ovms-service/venv/
+ovms-service/model-tools-venv/
+ovms-service/models/
+ovms-service/export_model.py
+ovms-service/export_requirements.txt

@@ -1,7 +1,7 @@
 # ================================
 # Stage 1: grab MediaMTX binaries
 # ================================
-FROM bluenviron/mediamtx:1.15.6 AS mediamtx
+FROM bluenviron/mediamtx:1.18.2 AS mediamtx
 
 
 # ================================

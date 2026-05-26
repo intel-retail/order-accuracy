@@ -39,11 +39,13 @@ Take-Away Order Accuracy is an AI-powered vision system that validates drive-thr
 
 - Docker 24.0+ with Compose V2
 - Intel hardware (CPU, iGPU, dGPU, NPU)
-- 32GB+ RAM recommended
+- 16 GB RAM minimum (64 GB recommended for production)
 - [Docker](https://docs.docker.com/engine/install/)
 - [Make](https://www.gnu.org/software/make/) (`sudo apt install make`)
 - **Python 3** (`sudo apt install python3`) - required for video download and validation scripts
 - Sufficient disk space for models, videos, and results
+
+> **ℹ iGPU / low-RAM systems:** 16 GB RAM is sufficient for **inference**. For first-time model export (`setup_models.sh`), a higher-memory host (48–64 GB) is recommended — export the models there and copy the `ovms-service/models/` directory to your 16 GB system. If exporting on 16 GB, set `export CACHE_SIZE=2` first to reduce KV cache to 2 GB (default is 4 GB). On iGPU platforms the KV cache uses system RAM. See [ovms-service/README.md](../ovms-service/README.md#tuning-the-kv-cache-size) for details.
 
 ### 1. Configure
 

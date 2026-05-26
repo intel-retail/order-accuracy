@@ -218,8 +218,8 @@ Access MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
 | Component | Specification |
 |-----------|---------------|
 | CPU | Intel Xeon 8+ cores |
-| RAM | 16 GB |
-| GPU | Intel Arc A770 8GB / NVIDIA RTX 3060 |
+| RAM | 64 GB (required for first-time model export); 16 GB for inference only |
+| GPU | Intel Arc A770 16 GB (8 GB requires `CACHE_SIZE=2` or lower) |
 | Storage | 50 GB SSD |
 | Docker | 24.0+ with Compose V2 |
 
@@ -228,10 +228,14 @@ Access MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
 | Component | Specification |
 |-----------|---------------|
 | CPU | Intel Xeon 16+ cores |
-| RAM | 32 GB |
+| RAM | 64 GB |
 | GPU | NVIDIA RTX 3080+ / Intel Data Center GPU |
 | Storage | 200 GB NVMe SSD |
 | Network | 10 Gbps (for Take-Away RTSP) |
+
+> **⚠ Model Export RAM Requirement:** `setup_models.sh` performs INT8 quantization of Qwen2.5-VL-7B, which temporarily requires up to 40 GB of system RAM (FP16 model ~15 GB + INT8 compressed ~8 GB + calibration buffers ~8–15 GB). On platforms with 32 GB RAM (e.g. Wildcat Lake, Meteor Lake), the export OOMs and writes partial, corrupt XML files, causing the `oa_ovms_vlm` container to fail at startup with "Unable to read the model" errors. Always run `setup_models.sh` on a system with at least 48 GB RAM (64 GB recommended). The exported model files can then be copied to lower-memory systems for inference-only deployments.
+>
+> **ℹ OVMS KV Cache (`cache_size`):** The default `CACHE_SIZE=4` reserves 4 GB of VRAM for the KV cache. The INT8 model itself uses ~8 GB VRAM, so total VRAM ≈ 12 GB (fits in Intel Arc A770 16 GB). On **integrated GPU** platforms (Wildcat Lake, Meteor Lake), the KV cache is allocated from **system RAM** — on a 32 GB system this can exhaust all available memory. Use a smaller value (`CACHE_SIZE=2`) on iGPU platforms. Set `export CACHE_SIZE=<N>` before running `setup_models.sh`, or edit `graph.pbtxt` directly after export. See [OVMS Service README — Tuning the KV Cache Size](ovms-service/README.md#tuning-the-kv-cache-size) for a full sizing guide and per-platform recommendations.
 
 ---
 

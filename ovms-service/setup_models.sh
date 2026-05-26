@@ -64,11 +64,93 @@ TARGET_DEVICE_ENV="${TARGET_DEVICE:-${_TARGET_DEVICE_FILE:-GPU}}"
 _VLM_PRECISION_FILE=$(grep -E '^VLM_PRECISION=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
 VLM_PRECISION_ENV="${VLM_PRECISION:-${_VLM_PRECISION_FILE:-int8}}"
 
+# Read CACHE_SIZE: KV cache size in GB for OVMS.  Default is 4 GB which is
+# adequate for a single-station app (max_num_seqs=4).  On GPU the KV cache
+# occupies VRAM; Intel Arc A770 has 8–16 GB VRAM and the INT8 model already
+# consumes ~8 GB, so values above 8 will overflow to system RAM and can cause
+# OOM on 32 GB platforms (ITEP-91499).  Users with more VRAM/RAM can raise
+# this via `export CACHE_SIZE=8` before running setup_models.sh.
+_CACHE_SIZE_FILE=$(grep -E '^CACHE_SIZE=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+CACHE_SIZE_ENV="${CACHE_SIZE:-${_CACHE_SIZE_FILE:-4}}"
+# Validate CACHE_SIZE_ENV is a non-negative integer (0 = dynamic allocation)
+if ! echo "${CACHE_SIZE_ENV}" | grep -qE '^[0-9]+$'; then
+    echo "ERROR: CACHE_SIZE must be a non-negative integer (got '${CACHE_SIZE_ENV}'). Defaulting to 4."
+    CACHE_SIZE_ENV=4
+fi
+
 ###############################################
 echo "=========================================="
 echo "OVMS Model Setup for Order Accuracy"
 echo "=========================================="
 echo ""
+
+###############################################
+# Validate that the OpenVINO IR XML files in a model directory are non-empty
+# and have a valid XML header.  A system running out of memory during export
+# (e.g. WCL / MTL platforms with 32 GB RAM) can write a partial, corrupt XML
+# file that passes a file-existence check but fails when OpenVINO tries to
+# load it (ITEP-90866 / ITEP-91499).
+###############################################
+validate_model_xml() {
+    local model_path="$1"
+    local found_valid=0
+
+    for xml_file in "${model_path}"/*.xml; do
+        [ -e "${xml_file}" ] || continue
+
+        if [ ! -s "${xml_file}" ]; then
+            echo "  ✗ Model XML file is empty: ${xml_file}"
+            return 1
+        fi
+
+        # OpenVINO IR XML files must start with the '<?xml' processing instruction.
+        # A truncated/corrupt export will typically start with binary garbage or
+        # be missing this header entirely.
+        local header
+        header=$(head -c 5 "${xml_file}" 2>/dev/null || true)
+        if [ "${header}" != "<?xml" ]; then
+            echo "  ✗ Model XML appears corrupt (invalid header in ${xml_file##*/})"
+            echo "    This often happens when the export ran out of memory and wrote an"
+            echo "    incomplete file. Re-run setup_models.sh on a system with at least"
+            echo "    48 GB RAM (64 GB recommended), or delete ${model_path} and retry."
+            return 1
+        fi
+
+        found_valid=1
+    done
+
+    if [ "${found_valid}" -eq 0 ]; then
+        return 1
+    fi
+
+    return 0
+}
+
+###############################################
+# Warn when available system RAM is below the threshold needed for a safe
+# model export.  The Qwen2.5-VL-7B INT8 quantisation step can temporarily
+# require >32 GB of RAM; running it on a 32 GB platform can cause partial /
+# corrupt writes without an obvious error (ITEP-90866 / ITEP-91499).
+###############################################
+check_memory_for_export() {
+    local recommended_gb=64
+    local total_gb=0
+
+    if [ -f /proc/meminfo ]; then
+        total_gb=$(awk '/MemTotal/ {printf "%.0f", $2/1024/1024}' /proc/meminfo 2>/dev/null || echo 0)
+    fi
+
+    if [ "${total_gb}" -gt 0 ] && [ "${total_gb}" -lt "${recommended_gb}" ]; then
+        echo ""
+        echo "  ⚠ WARNING: System RAM is ${total_gb} GB (${recommended_gb} GB recommended for model export)."
+        echo "    On platforms with less than ${recommended_gb} GB RAM (e.g. Wildcat Lake / Meteor Lake"
+        echo "    with 32 GB RAM), the INT8 quantisation step may exhaust memory and produce"
+        echo "    corrupt model files that cannot be loaded by OVMS."
+        echo "    If export fails or OVMS reports 'Unable to read the model', re-run"
+        echo "    setup_models.sh on a system with at least ${recommended_gb} GB RAM."
+        echo ""
+    fi
+}
 
 ###############################################
 check_model() {
@@ -83,8 +165,14 @@ check_model() {
     #   - at least one .xml file (OpenVINO IR; name varies by model architecture)
     if [ -f "${model_path}/graph.pbtxt" ] && \
        ls "${model_path}"/*.xml > /dev/null 2>&1; then
-        echo "  ✓ Model found at ${model_path}"
-        return 0
+        # Also validate the XML files are not corrupt (ITEP-90866)
+        if validate_model_xml "${model_path}"; then
+            echo "  ✓ Model found at ${model_path}"
+            return 0
+        else
+            echo "  ✗ Model at ${model_path} has corrupt XML files — will re-export"
+            return 1
+        fi
     else
         echo "  ✗ Model not ready at ${model_path} (missing graph.pbtxt or .xml files)"
         return 1
@@ -217,7 +305,7 @@ export_model() {
     local SOURCE_MODEL="$2"
 
     echo ""
-    echo "Exporting ${MODEL_NAME} (device: ${TARGET_DEVICE_ENV}, precision: ${VLM_PRECISION_ENV})"
+    echo "Exporting ${MODEL_NAME} (device: ${TARGET_DEVICE_ENV}, precision: ${VLM_PRECISION_ENV}, cache_size: ${CACHE_SIZE_ENV} GB)"
     echo ""
 
     # Build optional --target_device argument; CPU is the default so omit it
@@ -231,7 +319,7 @@ export_model() {
       --weight-format "${VLM_PRECISION_ENV}" \
       --pipeline_type VLM_CB \
       "${target_device_args[@]}" \
-      --cache_size 32 \
+      --cache_size "${CACHE_SIZE_ENV}" \
       --max_num_seqs 4 \
       --max_num_batched_tokens 8192 \
       --enable_prefix_caching True \
@@ -318,6 +406,9 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
     echo "Model not found locally."
     echo "Downloading and exporting from HuggingFace..."
     echo ""
+
+    # Warn if system RAM is below recommended threshold (ITEP-91499)
+    check_memory_for_export
 
     ensure_python_env
     export_model "${MODEL_NAME}" "${SOURCE_MODEL}"
