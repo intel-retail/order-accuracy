@@ -180,15 +180,15 @@ docker logs dinein_ovms_vlm
 See [Tuning the KV Cache Size](#tuning-the-kv-cache-size) for the full sizing guide.
 
 ```bash
-# Quick fix: lower CACHE_SIZE before re-running setup_models.sh
+# Quick fix: lower CACHE_SIZE before re-running setup_models.sh (run from repo root)
 export CACHE_SIZE=2
-bash setup_models.sh --app take-away
+bash ovms-service/setup_models.sh --app take-away
 
-# Or edit graph.pbtxt directly (no re-export needed)
+# Or edit graph.pbtxt directly (no re-export needed, run from repo root)
 # Find: cache_size: <N>
 # Change to a value that keeps model (~8 GB) + cache_size ≤ available VRAM
 sed -i 's/cache_size: [0-9]*/cache_size: 2/' \
-    models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt
+    ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt
 docker restart oa_ovms_vlm
 ```
 
@@ -254,9 +254,9 @@ The `cache_size` parameter in `graph.pbtxt` controls how much memory OVMS pre-al
 
 **Option A — Before export** (recommended, bakes the value into `graph.pbtxt`):
 ```bash
-# Set CACHE_SIZE env var before running setup_models.sh
+# Set CACHE_SIZE env var before running setup_models.sh (run from repo root)
 export CACHE_SIZE=2          # e.g. 2 GB for a 16 GB iGPU system
-bash setup_models.sh --app take-away
+bash ovms-service/setup_models.sh --app take-away
 ```
 
 **Option B — After export** (no re-export needed, edit `graph.pbtxt` directly):
@@ -273,7 +273,7 @@ grep cache_size ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/graph.pbtxt
 docker restart oa_ovms_vlm
 
 # Confirm the model reloads as AVAILABLE
-curl -sf http://localhost:8001/v1/config | grep -o '"state":"[^"]*"'
+curl -sf http://localhost:8002/v1/config | grep -o '"state":"[^"]*"'
 ```
 
 **Option C — Persistent via `.env`** (survives re-runs of `setup_models.sh`):
