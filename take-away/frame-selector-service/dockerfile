@@ -9,7 +9,7 @@ WORKDIR /app
 COPY app/requirements.txt .
 # Install CPU-only torch 2.6.0+ (fixes CVE-2025-32434) first
 # torch>=2.6.0 must be installed before nncf to prevent nncf pulling an older version
-RUN pip install --no-cache-dir torch==2.6.0+cpu torchvision --index-url https://download.pytorch.org/whl/cpu && \
+RUN pip install --no-cache-dir torch==2.6.0+cpu torchvision==0.21.0+cpu --index-url https://download.pytorch.org/whl/cpu && \
     pip install --no-cache-dir -r requirements.txt
 
 COPY app /app
