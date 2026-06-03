@@ -2,7 +2,7 @@
 
 Guide to using the Dine-In Order Accuracy application features.
 
-> **Note — `TARGET_DEVICE`**: To change the inference device, set `TARGET_DEVICE` in `.env` to `GPU`, `CPU`, or `NPU`, then re-run setup:
+> **Note — `TARGET_DEVICE`**: To change the inference device, set `TARGET_DEVICE` in `.env` to `GPU` or `CPU`, then re-run setup:
 > ```bash
 > cd ../ovms-service && ./setup_models.sh --app dine-in && cd ../dine-in
 > make down && make up
@@ -255,7 +255,7 @@ Configuration options:
 | `BENCHMARK_INIT_DURATION` | 60 | Warmup time (seconds) |
 | `BENCHMARK_MIN_REQUESTS` | 3 | Min requests before measuring |
 | `BENCHMARK_REQUEST_TIMEOUT` | 300 | Request timeout (seconds) |
-| `TARGET_DEVICE` | GPU | Target device: CPU, GPU, NPU |
+| `TARGET_DEVICE` | GPU | Target device: CPU, GPU |
 | `RESULTS_DIR` | results | Output directory |
 | `REGISTRY` | false | Use registry images (true/false) |
 

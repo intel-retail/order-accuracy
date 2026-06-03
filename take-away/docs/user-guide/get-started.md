@@ -113,7 +113,7 @@ make up
 VLM_BACKEND=ovms
 OVMS_ENDPOINT=http://ovms-vlm:8000
 OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
-TARGET_DEVICE=GPU            # 'GPU', 'CPU', or 'NPU' — also set OPENVINO_DEVICE to match
+TARGET_DEVICE=GPU            # 'GPU' or 'CPU' — also set OPENVINO_DEVICE to match
 
 # =============================================================================
 # Inference Device (must match TARGET_DEVICE)
@@ -136,7 +136,7 @@ MINIO_ROOT_PASSWORD=<your-minio-password>
 MINIO_ENDPOINT=minio:9000
 ```
 
-> **Changing the inference device**: Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU`, `CPU`, or `NPU`), then re-run `./setup_models.sh` to re-export the model for that device.
+> **Changing the inference device**: Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU` or `CPU`), then re-run `./setup_models.sh` to re-export the model for that device.
 
 ### Validate Configuration
 
