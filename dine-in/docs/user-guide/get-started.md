@@ -154,7 +154,7 @@ Key variables:
 | `BENCHMARK_WORKERS` | 1 | Concurrent workers |
 | `BENCHMARK_DURATION` | 180 | Duration (seconds) |
 | `BENCHMARK_TARGET_LATENCY_MS` | 25000 | Latency threshold (ms) |
-| `TARGET_DEVICE` | GPU | Device: CPU, GPU, NPU |
+| `TARGET_DEVICE` | GPU | Device: CPU, GPU |
 
 ### Stream Density Test
 
@@ -178,7 +178,7 @@ make plot-metrics          # Generate visualisation plots
 
 ## Changing Inference Device
 
-To switch between GPU, CPU, or NPU, update `TARGET_DEVICE` in `.env` and re-run model setup:
+To switch between GPU and CPU, update `TARGET_DEVICE` in `.env` and re-run model setup:
 
 ```bash
 # In .env

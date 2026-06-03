@@ -2,7 +2,7 @@
 
 This guide covers performance testing, stream density benchmarking, and metrics collection for the Take-Away Order Accuracy system.
 
-> **Note — Inference Device**: The default device is `GPU`. To switch to a different device (`CPU` or `NPU`), you must do **both** steps below, otherwise the model will be exported for the wrong device:
+> **Note — Inference Device**: The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
 > 1. Set **both** variables in your `.env` file:
 >    ```bash
 >    TARGET_DEVICE=GPU      # used by setup_models.sh and docker-compose

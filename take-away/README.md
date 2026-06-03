@@ -38,7 +38,7 @@ Take-Away Order Accuracy is an AI-powered vision system that validates drive-thr
 ### Prerequisites
 
 - Docker 24.0+ with Compose V2
-- Intel hardware (CPU, iGPU, dGPU, NPU)
+- Intel hardware (CPU, iGPU, dGPU)
 - 16 GB RAM minimum (64 GB recommended for production)
 - [Docker](https://docs.docker.com/engine/install/)
 - [Make](https://www.gnu.org/software/make/) (`sudo apt install make`)

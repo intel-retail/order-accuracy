@@ -35,7 +35,7 @@ dine-in/
 │   └── inventory.json               # Known menu items
 ├── images/                          # Test plate images (user-supplied)
 ├── results/                         # Benchmark output
-├── docker-compose.yml
+├── docker-compose.yaml
 ├── Dockerfile                       # python:3.13-slim base
 ├── Makefile
 └── requirements.txt
