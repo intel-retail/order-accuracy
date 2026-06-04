@@ -64,7 +64,7 @@ BENCHMARK_API_ENDPOINT := $(API_ENDPOINT)
 endif
 
 # Docker compose file
-COMPOSE_FILE ?= docker-compose.yml
+COMPOSE_FILE ?= docker-compose.yaml
 
 # Version tag for registry images
 export TAG = 2026.1.0-rc2

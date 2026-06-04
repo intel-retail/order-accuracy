@@ -9,7 +9,7 @@ import logging
 import threading
 import asyncio
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 from io import BytesIO
@@ -177,58 +177,102 @@ validation_store = BoundedValidationCache(maxsize=10000)
 
 # Helper functions for metrics collection
 
-async def call_metrics_collector() -> Dict:
+def _extract_peak_from_series(
+    series: List,
+    start_iso: str,
+    end_iso: str,
+    value_index: int = 1,
+) -> float:
+    """
+    Return the peak value from a time-series list within [start_iso, end_iso].
+
+    Each entry is [timestamp_str, value, ...].  Falls back to the last entry
+    if no samples fall inside the window.
+    """
+    peak = None
+    for entry in series:
+        ts = entry[0]
+        if start_iso <= ts <= end_iso:
+            val = entry[value_index]
+            if peak is None or val > peak:
+                peak = val
+    if peak is not None:
+        return peak
+    # Fallback: return the last value if the window yielded nothing
+    return series[-1][value_index] if series else 0.0
+
+
+async def call_metrics_collector(
+    inference_start_iso: str = None,
+    inference_end_iso: str = None,
+) -> Dict:
     """
     Get CPU/GPU utilization metrics from dedicated metrics-collector service.
-    
-    Returns:
-        Dict with CPU and GPU metrics
+
+    When *inference_start_iso* and *inference_end_iso* are provided the
+    function extracts **peak** utilization readings from the time-series
+    that fall within the inference window.  This avoids the common pitfall
+    of sampling metrics only after inference completes (when the GPU is
+    already idle and reads 0 %).
+
+    Falls back to the latest snapshot when no window is given or when no
+    samples exist inside the window.
     """
     try:
         import httpx
-        
+
         metrics_url = f"{config_manager.config.service.metrics_collector_endpoint}/metrics"
         logger.info(f"[METRICS] Calling metrics collector at {metrics_url}")
-        
-        # Call metrics collector service
+
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.get(metrics_url)
             response.raise_for_status()
-            
+
             metrics_data = response.json()
             logger.debug(f"[METRICS] Raw response keys: {list(metrics_data.keys())}")
-            
-            # Extract latest values from time-series arrays
-            # Response format: {"cpu_utilization": [[timestamp, value], ...], ...}
+
             cpu_series = metrics_data.get('cpu_utilization', [])
             gpu_series = metrics_data.get('gpu_utilization', [])
             memory_series = metrics_data.get('memory', [])
-            
-            # Get latest values (last element in each array)
-            cpu_util = cpu_series[-1][1] if cpu_series else 0.0
-            gpu_util = gpu_series[-1][1] if gpu_series else 0.0
-            # Memory array format: [timestamp, total_gb, used_gb, avail_gb, percent]
-            memory_util = memory_series[-1][4] if memory_series and len(memory_series[-1]) > 4 else 0.0
-            
+
+            if inference_start_iso and inference_end_iso:
+                # Peak utilization during the inference window
+                cpu_util = _extract_peak_from_series(
+                    cpu_series, inference_start_iso, inference_end_iso)
+                gpu_util = _extract_peak_from_series(
+                    gpu_series, inference_start_iso, inference_end_iso)
+                # Memory: percent is at index 4
+                memory_util = _extract_peak_from_series(
+                    memory_series, inference_start_iso, inference_end_iso,
+                    value_index=4) if memory_series and len(memory_series[0]) > 4 else 0.0
+                mode = "peak-in-window"
+            else:
+                # Snapshot: latest values (original behaviour)
+                cpu_util = cpu_series[-1][1] if cpu_series else 0.0
+                gpu_util = gpu_series[-1][1] if gpu_series else 0.0
+                memory_util = (memory_series[-1][4]
+                               if memory_series and len(memory_series[-1]) > 4
+                               else 0.0)
+                mode = "latest-snapshot"
+
             metrics_response = {
                 "cpu_utilization": round(cpu_util, 2),
                 "gpu_utilization": round(gpu_util, 2),
                 "memory_utilization": round(memory_util, 2),
-                "gpu_memory_utilization": 0.0  # Not available in current metrics
+                "gpu_memory_utilization": 0.0,  # Not provided by metrics-collector
             }
-            
-            logger.info(f"[METRICS] System metrics collected from service: {metrics_response}")
-            
+
+            logger.info(f"[METRICS] System metrics ({mode}): {metrics_response}")
+
             return metrics_response
-            
+
     except Exception as e:
         logger.error(f"[METRICS] Error getting metrics from collector service: {e}")
-        # Return zeros if metrics service is unavailable
         return {
             "cpu_utilization": 0.0,
             "gpu_utilization": 0.0,
             "memory_utilization": 0.0,
-            "gpu_memory_utilization": 0.0
+            "gpu_memory_utilization": 0.0,
         }
 
 
@@ -430,6 +474,7 @@ async def validate_plate(
         # Perform validation (includes VLM inference + semantic matching)
         logger.info(f"[API] Starting validation: validation_id={validation_id}, image_id={image_id}, request_id={request_id}")
         validation_start = time.time()
+        inference_start_iso = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
         
         result = await validation_service.validate_plate(
             image_bytes=image_bytes,
@@ -438,12 +483,16 @@ async def validate_plate(
             request_id=request_id
         )
         
+        inference_end_iso = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
         validation_total_ms = (time.time() - validation_start) * 1000
         logger.info(f"[API] Validation service completed in {validation_total_ms:.2f}ms")
         
-        # Collect system metrics
+        # Collect peak system metrics observed during the inference window
         logger.info(f"[API] Calling metrics collector for {request_id}")
-        system_metrics = await call_metrics_collector()
+        system_metrics = await call_metrics_collector(
+            inference_start_iso=inference_start_iso,
+            inference_end_iso=inference_end_iso,
+        )
         logger.info(f"[API] Metrics collector response for {request_id}: {system_metrics}")
         
         # Calculate end-to-end latency (from request start to now, before response serialization)
