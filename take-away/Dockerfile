@@ -1,4 +1,4 @@
-FROM intel/dlstreamer:2026.1.0-ubuntu24-rc1.1
+FROM intel/dlstreamer:2026.1.0-ubuntu24-rc2
 
 USER root
 

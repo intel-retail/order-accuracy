@@ -1563,7 +1563,7 @@ if __name__ == "__main__":
     print("[Gradio] Starting Order Accuracy UI with Intel styling...")
     
     # Enable queue for generator support with higher concurrency
-    demo.queue(concurrency_count=5, max_size=20)
+    demo.queue(default_concurrency_limit=5, max_size=20)
     
     demo.launch(
         server_name="0.0.0.0",
