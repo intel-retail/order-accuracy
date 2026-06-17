@@ -34,7 +34,7 @@ services:
   # Note: This service is optional and disabled by default since the dine-in app
   # uses pre-configured validation results. To enable, run with --profile with-semantic
   semantic-service:
-    image: intel/semantic-search-agent:2026.0.0
+    image: intel/semantic-search-agent:2026.1.0
     container_name: dinein_semantic_service
     ports:
       - "8081:8080"  # Changed from 8080 to avoid conflict
@@ -73,7 +73,7 @@ services:
 
   # Dine-In Order Accuracy Gradio UI
   dine-in:
-    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.0.0}
+    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.1.0}
     build:
       context: .
       dockerfile: Dockerfile
@@ -116,7 +116,7 @@ services:
   # Scale with: docker compose up -d --scale dinein-worker=4
   # Or set WORKERS env variable and use profile: docker compose --profile benchmark up -d
   dinein-worker:
-    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.0.0}
+    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.1.0}
     build:
       context: .
       dockerfile: Dockerfile
@@ -163,7 +163,7 @@ services:
       - "host.docker.internal:host-gateway"
 
   metrics-collector:
-      image: intel/hl-ai-metrics-collector:2026.0.0
+      image: intel/hl-ai-metrics-collector:2026.1.0
       container_name: metrics-collector
       privileged: true
       pid: host
