@@ -59,7 +59,7 @@ OOM_PROTECTION ?= 1
 PERF_TOOLS_DIR ?= ../performance-tools/benchmark-scripts
 
 # Version tag for registry images
-export TAG ?= 2026.1.0-rc2
+export TAG ?= 2026.1.0
 
 # Sample video for quick-start testing (orders 384 → 651 → 925)
 # Hosted on the upstream repo's GitHub Releases. Override via env if needed:

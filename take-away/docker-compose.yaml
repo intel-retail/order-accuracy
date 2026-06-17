@@ -261,7 +261,7 @@ services:
 
   # Semantic Comparison Service
   semantic-service:
-    image: intel/semantic-search-agent:2026.0.0
+    image: intel/semantic-search-agent:2026.1.0
     container_name: oa_semantic_service
     ports:
       - "8080:8080"

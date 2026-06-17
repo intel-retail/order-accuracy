@@ -124,10 +124,10 @@ In a full-service restaurant:
 
 | Container | Image | Ports | Description |
 |-----------|-------|-------|-------------|
-| `dinein_app` | `intel/order-accuracy-dine-in:2026.0.0` | 7861, 8083 | Main application (Gradio + FastAPI) |
+| `dinein_app` | `intel/order-accuracy-dine-in:2026.1.0` | 7861, 8083 | Main application (Gradio + FastAPI) |
 | `dinein_ovms_vlm` | `openvino/model_server:latest-gpu` | 8002 | Vision-Language Model server |
-| `dinein_semantic_service` | `intel/semantic-search-agent:1.0.0` | 8081, 9091 | Semantic text matching |
-| `metrics-collector` | `intel/hl-ai-metrics-collector:1.0.0` | 8084 | System metrics aggregation |
+| `dinein_semantic_service` | `intel/semantic-search-agent:2026.1.0` | 8081, 9091 | Semantic text matching |
+| `metrics-collector` | `intel/hl-ai-metrics-collector:2026.1.0` | 8084 | System metrics aggregation |
 
 ### Network Topology
 
