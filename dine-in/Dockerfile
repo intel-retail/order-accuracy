@@ -22,18 +22,12 @@ COPY requirements.txt .
 RUN python3 -m pip install --break-system-packages --ignore-installed --no-cache-dir --upgrade pip setuptools wheel && \
     pip3 install --break-system-packages --no-cache-dir -r requirements.txt
 
-# Create non-root user for security
-ARG UID=1000
-ARG GID=1000
-RUN groupadd -g ${GID} appuser 2>/dev/null || true && \
-    useradd -u ${UID} -g ${GID} -m appuser 2>/dev/null || true
-
 # Copy application files from src
 COPY src/ ./src/
 COPY configs/ ./configs/
 
-# Create results directory and set permissions
-RUN mkdir -p /app/results && chown -R ${UID}:${GID} /app
+# Create results directory and set permissions (dlstreamer is UID 1000 in base image)
+RUN mkdir -p /app/results && chown -R dlstreamer:dlstreamer /app
 # Copy entrypoint script (runs as root to fix volume permissions, then drops to appuser)
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
