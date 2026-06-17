@@ -1,25 +1,13 @@
-FROM python:3.13-slim
+FROM intel/dlstreamer:2026.1.0-ubuntu24
 
-# Proxy configuration
-ARG http_proxy
-ARG https_proxy
-ARG HTTP_PROXY
-ARG HTTPS_PROXY
-ARG no_proxy
-ARG NO_PROXY
-
-#ENV http_proxy=${http_proxy} \
-#    https_proxy=${https_proxy} \
-#    HTTP_PROXY=${HTTP_PROXY} \
-#    HTTPS_PROXY=${HTTPS_PROXY} \
-#    no_proxy=${no_proxy} \
-#    NO_PROXY=${NO_PROXY}
+USER root
 
 # Set working directory
 WORKDIR /app
 
 # Install system dependencies
-RUN apt-get update && \
+RUN rm -f /etc/apt/sources.list.d/intel-gpu*.list 2>/dev/null; \
+    apt-get update && \
     apt-get install -y --no-install-recommends \
     curl \
     ca-certificates \
@@ -31,22 +19,15 @@ RUN apt-get update && \
 COPY requirements.txt .
 
 # Install Python dependencies
-RUN pip install --no-cache-dir --upgrade pip && \
-    pip install --no-cache-dir -r requirements.txt
-
-# Create non-root user for security
-ARG UID=1000
-ARG GID=1000
-RUN groupadd -g ${GID} appuser && \
-    useradd -u ${UID} -g ${GID} -m appuser
+RUN python3 -m pip install --break-system-packages --ignore-installed --no-cache-dir --upgrade pip setuptools wheel && \
+    pip3 install --break-system-packages --no-cache-dir -r requirements.txt
 
 # Copy application files from src
 COPY src/ ./src/
 COPY configs/ ./configs/
 
-# Create results directory and set permissions
-RUN mkdir -p /app/results && chown -R appuser:appuser /app
-
+# Create results directory and set permissions (dlstreamer is UID 1000 in base image)
+RUN mkdir -p /app/results && chown -R dlstreamer:dlstreamer /app
 # Copy entrypoint script (runs as root to fix volume permissions, then drops to appuser)
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
@@ -57,4 +38,4 @@ EXPOSE 8080
 
 # Entrypoint fixes permissions and drops to appuser
 ENTRYPOINT ["/app/entrypoint.sh"]
-CMD ["python", "src/main.py"]
+CMD ["python3", "src/main.py"]
