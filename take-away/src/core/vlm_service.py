@@ -11,6 +11,7 @@ from .config_loader import load_config
 from .order_results import add_result
 from .validation_agent import validate_order
 from .vlm_backend_factory import VLMBackendFactory
+from .inventory_narrower import load_inventory_metadata, build_narrowed_inventory_text
 import json
 
 # Configure logging
@@ -74,6 +75,13 @@ try:
 except Exception as e:
     logger.error(f"Failed to load orders.json: {e}")
     EXPECTED_ORDERS = {}
+
+# ============================================================
+# LOAD INVENTORY METADATA (for aliases and categories)
+# ============================================================
+
+INVENTORY_METADATA_FILE = "/config/inventory.json"
+INVENTORY_METADATA = load_inventory_metadata(INVENTORY_METADATA_FILE)
 
 # ============================================================
 # MINIO CLIENT
@@ -183,12 +191,25 @@ class VLMComponent:
         else:
             order_hint = ""
 
+        # ===== Build inventory text: narrowed for specific orders, full as fallback =====
+        if expected_items:
+            # Narrow inventory to order-relevant items for better VLM focus
+            inventory_text_for_prompt = build_narrowed_inventory_text(
+                INVENTORY,
+                expected_items,
+                inventory_metadata=INVENTORY_METADATA,
+                fallback_to_full=True
+            )
+        else:
+            # No specific order context; use full inventory
+            inventory_text_for_prompt = INVENTORY_TEXT
+
         # ===== Inventory-aware + order-aware prompt =====
         prompt = (
             f"You will receive {num_frames} frames from a grocery order packing station.\n\n"
             f"{order_hint}"
             f"Recognize products ONLY from this inventory list:\n"
-            f"{INVENTORY_TEXT}\n\n"
+            f"{inventory_text_for_prompt}\n\n"
             f"Rules:\n"
             f"- Always choose the closest matching inventory item name.\n"
             f"- Never invent new product names outside the list.\n"

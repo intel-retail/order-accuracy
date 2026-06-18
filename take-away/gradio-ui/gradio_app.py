@@ -1460,6 +1460,14 @@ with gr.Blocks(
             with gr.Row():
                 refresh_btn = gr.Button("Refresh Results", variant="secondary")
                 clear_history_btn = gr.Button("Clear History", variant="secondary")
+
+            # Auto-refresh detected orders every 5 seconds.
+            demo.load(
+                fn=refresh_history,
+                inputs=None,
+                outputs=results_history_display,
+                every=5,
+            )
             
             refresh_btn.click(
                 fn=refresh_history,

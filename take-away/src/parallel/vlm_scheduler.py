@@ -36,6 +36,7 @@ import os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'core'))
 from ovms_client import OVMSVLMClient  # type: ignore
 from config_loader import load_config  # type: ignore
+from inventory_narrower import load_inventory_metadata, build_narrowed_inventory_text  # type: ignore
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,20 @@ else:
     logger.debug(f"Inventory items: {INVENTORY}")
 
 INVENTORY_TEXT = "\n".join(f"- {item}" for item in INVENTORY)
+
+# Load inventory metadata (for aliases and categories)
+INVENTORY_METADATA_FILE = "/config/inventory.json"
+INVENTORY_METADATA = load_inventory_metadata(INVENTORY_METADATA_FILE)
+
+# Load expected orders
+ORDERS_FILE = "/config/orders.json"
+try:
+    with open(ORDERS_FILE, "r") as f:
+        EXPECTED_ORDERS = json.load(f)
+    logger.info(f"VLM Scheduler loaded {len(EXPECTED_ORDERS)} expected orders from {ORDERS_FILE}")
+except Exception as e:
+    logger.error(f"Failed to load orders.json: {e}")
+    EXPECTED_ORDERS = {}
 
 
 class VLMScheduler:
@@ -443,8 +458,8 @@ class VLMScheduler:
             if not images:
                 raise Exception("No valid images in request")
             
-            # Build prompt using existing format from vlm_service.py
-            prompt = self._build_vlm_prompt(len(images))
+            # Build prompt using narrowed inventory for this order
+            prompt = self._build_vlm_prompt(len(images), order_id=request.order_id)
             
             # Call OVMS VLM client with unique_id for metrics logging
             output = self._vlm_client.generate(
@@ -492,19 +507,45 @@ class VLMScheduler:
         except Exception as e:
             raise Exception(f"VLM inference error: {e}")
     
-    def _build_vlm_prompt(self, num_images: int) -> str:
+    def _build_vlm_prompt(self, num_images: int, order_id: str = None) -> str:
         """
         Build VLM prompt with inventory constraints.
         
-        Matches the EXACT prompt format used in vlm_service.py.
+        When order_id is provided, uses narrowed inventory for better VLM focus.
+        Otherwise uses full inventory as fallback.
+        
+        Args:
+            num_images: Number of frames in the request
+            order_id: Order ID to lookup expected items for narrowing
+            
+        Returns:
+            Formatted VLM prompt
         """
         # OVMS automatically associates images with the prompt
         img_tags = ""
         
+        # Get expected items for this order (if available)
+        expected_items = None
+        if order_id:
+            expected_items = EXPECTED_ORDERS.get(str(order_id))
+            if expected_items:
+                logger.debug(f"Found {len(expected_items)} expected items for order {order_id}")
+        
+        # Build inventory text: narrowed for specific orders, full as fallback
+        if expected_items:
+            inventory_text_for_prompt = build_narrowed_inventory_text(
+                INVENTORY,
+                expected_items,
+                inventory_metadata=INVENTORY_METADATA,
+                fallback_to_full=True
+            )
+        else:
+            inventory_text_for_prompt = INVENTORY_TEXT
+        
         prompt = (
             f"You will receive {num_images} frames.\n\n"
             f"Recognize products ONLY from this inventory list:\n"
-            f"{INVENTORY_TEXT}\n\n"
+            f"{inventory_text_for_prompt}\n\n"
             f"Rules:\n"
             f"- Always choose the closest matching inventory item name.\n"
             f"- Never invent new product names outside the list.\n"
