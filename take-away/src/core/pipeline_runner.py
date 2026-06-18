@@ -4,6 +4,10 @@ import threading
 import logging
 from minio import Minio
 
+RTSP_DEFAULT_LATENCY = os.getenv("RTSP_LATENCY", "500")
+CAPTURE_FPS = int(os.getenv("CAPTURE_FPS", "10"))
+queue_params = "max-size-time=0 max-size-bytes=0 max-size-buffers=200 leaky=no"
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -19,7 +23,7 @@ def build_gstreamer_pipeline(source_type: str, source: str) -> str:
 
     elif source_type == "rtsp":
         source = normalize_rtsp_url(source)
-        src = f"rtspsrc location={source} protocols=tcp latency=200"
+        src = f"rtspsrc location={source} protocols=tcp latency={RTSP_DEFAULT_LATENCY} timeout=5000000 drop-on-latency=true retry=3"
 
     elif source_type == "webcam":
         src = f"v4l2src device={source}"
@@ -31,17 +35,19 @@ def build_gstreamer_pipeline(source_type: str, source: str) -> str:
         logger.error(f"Unsupported source_type: {source_type}")
         raise ValueError(f"Unsupported source_type: {source_type}")
 
-    pipeline = (
-        f"{src} "
-        "! decodebin "
-        "! videoconvert "
-        "! video/x-raw,format=BGR "
-        "! videorate "
-        "! video/x-raw,framerate=10/1 "
-        "! queue max-size-time=0 max-size-bytes=0 max-size-buffers=1000 leaky=no "
-        "! gvapython module=frame_pipeline function=process_frame "
-        "! fakesink sync=true"  # sync=true ensures real-time playback so OCR can keep up
-    )
+        pipeline = (
+            f"{src} "
+            "! rtph264depay "
+            "! h264parse config-interval=-1 "
+            "! avdec_h264 "
+            "! videoconvert "
+            "! video/x-raw,format=BGR "
+            "! videorate "
+            f"! video/x-raw,framerate={CAPTURE_FPS}/1 "
+            f"! queue {queue_params} "
+            "! gvapython module=frame_pipeline function=process_frame "
+            "! fakesink sync=false"
+        )
 
     logger.info(f"GStreamer pipeline built: {pipeline[:100]}...")
     return pipeline
