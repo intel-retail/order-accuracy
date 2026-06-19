@@ -35,19 +35,17 @@ def build_gstreamer_pipeline(source_type: str, source: str) -> str:
         logger.error(f"Unsupported source_type: {source_type}")
         raise ValueError(f"Unsupported source_type: {source_type}")
 
-        pipeline = (
-            f"{src} "
-            "! rtph264depay "
-            "! h264parse config-interval=-1 "
-            "! avdec_h264 "
-            "! videoconvert "
-            "! video/x-raw,format=BGR "
-            "! videorate "
-            f"! video/x-raw,framerate={CAPTURE_FPS}/1 "
-            f"! queue {queue_params} "
-            "! gvapython module=frame_pipeline function=process_frame "
-            "! fakesink sync=false"
-        )
+    pipeline = (
+        f"{src} "
+        "! decodebin "
+        "! videoconvert "
+        "! video/x-raw,format=BGR "
+        "! videorate "
+        f"! video/x-raw,framerate={CAPTURE_FPS}/1 "
+        f"! queue {queue_params} "
+        "! gvapython module=frame_pipeline function=process_frame "
+        "! fakesink sync=true"
+    )
 
     logger.info(f"GStreamer pipeline built: {pipeline[:100]}...")
     return pipeline
