@@ -2,20 +2,25 @@
 
 This guide covers performance testing, stream density benchmarking, and metrics collection for the Take-Away Order Accuracy system.
 
-> **Note — Inference Device**: The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
+> **Note — Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
+>
 > 1. Set **both** variables in your `.env` file:
+>
 >    ```bash
 >    TARGET_DEVICE=GPU      # used by setup_models.sh and docker-compose
 >    OPENVINO_DEVICE=GPU    # used by the Makefile benchmark targets
 >    ```
+>
 > 2. Re-export the model for the new device:
+>
 >    ```bash
 >    cd ../ovms-service && ./setup_models.sh --app take-away
 >    ```
 >
 > `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format. `OPENVINO_DEVICE` is what the Makefile passes to the benchmark script. Both must match.
 
-> **Important**: Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
+> **Important:** Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
+>
 > ```bash
 > make download-sample-video
 > ```
@@ -82,12 +87,12 @@ make benchmark \
 
 **Variables:**
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BENCHMARK_WORKERS` | `1` | Number of concurrent workers |
-| `BENCHMARK_DURATION` | `200` | Test duration (seconds) |
-| `BENCHMARK_INIT_DURATION` | `10` | Warmup time (seconds) |
-| `OPENVINO_DEVICE` | `GPU` | Inference device (`GPU`, `CPU`). Must also set `TARGET_DEVICE` in `.env` and re-run `setup_models.sh` — see note above. |
+| Variable                  | Default | Description                                                                                                             |
+| ------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `BENCHMARK_WORKERS`       | `1`     | Number of concurrent workers                                                                                            |
+| `BENCHMARK_DURATION`      | `200`   | Test duration (seconds)                                                                                                 |
+| `BENCHMARK_INIT_DURATION` | `10`    | Warmup time (seconds)                                                                                                   |
+| `OPENVINO_DEVICE`         | `GPU`   | Inference device (`GPU`, `CPU`). Must also set `TARGET_DEVICE` in `.env` and re-run `setup_models.sh` — see note above. |
 
 ---
 
@@ -110,14 +115,14 @@ make benchmark-stream-density \
 
 **Variables:**
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BENCHMARK_TARGET_LATENCY_MS` | `25000` | Target latency threshold (ms) |
-| `BENCHMARK_LATENCY_METRIC` | `avg` | Metric to evaluate: `avg` or `p95` |
-| `BENCHMARK_WORKER_INCREMENT` | `1` | Workers added per iteration |
-| `BENCHMARK_INIT_DURATION` | `10` | Warmup time per iteration (seconds) |
-| `BENCHMARK_MIN_TRANSACTIONS` | `1` | Min transactions before measuring latency |
-| `OOM_PROTECTION` | `1` | Set to `0` to disable OOM protection (not recommended) |
+| Variable                      | Default | Description                                            |
+| ----------------------------- | ------- | ------------------------------------------------------ |
+| `BENCHMARK_TARGET_LATENCY_MS` | `25000` | Target latency threshold (ms)                          |
+| `BENCHMARK_LATENCY_METRIC`    | `avg`   | Metric to evaluate: `avg` or `p95`                     |
+| `BENCHMARK_WORKER_INCREMENT`  | `1`     | Workers added per iteration                            |
+| `BENCHMARK_INIT_DURATION`     | `10`    | Warmup time per iteration (seconds)                    |
+| `BENCHMARK_MIN_TRANSACTIONS`  | `1`     | Min transactions before measuring latency              |
+| `OOM_PROTECTION`              | `1`     | Set to `0` to disable OOM protection (not recommended) |
 
 ---
 
@@ -125,7 +130,7 @@ make benchmark-stream-density \
 
 Results are saved to the `results/` directory:
 
-```
+```text
 results/
 ├── vlm_application_metrics_*.txt    # VLM application metrics
 ├── vlm_performance_metrics_*.txt    # VLM performance metrics
