@@ -20,7 +20,7 @@ Currently no authentication required (internal service).
 
 Check service health status.
 
-```http
+```text
 GET /health
 ```
 
@@ -40,16 +40,16 @@ GET /health
 
 Validate a food plate image against an order manifest.
 
-```http
+```text
 POST /api/validate
 ```
 
 **Request**
 
-| Parameter | Type | Location | Description |
-|-----------|------|----------|-------------|
-| `image` | file | form-data | Plate image (JPEG/PNG) |
-| `order` | JSON string | form-data | Order manifest |
+| Parameter | Type        | Location  | Description            |
+| --------- | ----------- | --------- | ---------------------- |
+| `image`   | file        | form-data | Plate image (JPEG/PNG) |
+| `order`   | JSON string | form-data | Order manifest         |
 
 **Order Schema**
 
@@ -126,12 +126,12 @@ curl -X POST "http://localhost:8083/api/validate" \
 
 **Status Codes**
 
-| Code | Description |
-|------|-------------|
-| 200 | Validation successful |
-| 400 | Invalid request (missing image or order) |
-| 422 | Validation error (invalid order format) |
-| 500 | Server error (VLM or semantic service failure) |
+| Code | Description                                    |
+| ---- | ---------------------------------------------- |
+| 200  | Validation successful                          |
+| 400  | Invalid request (missing image or order)       |
+| 422  | Validation error (invalid order format)        |
+| 500  | Server error (VLM or semantic service failure) |
 
 ---
 
@@ -139,14 +139,14 @@ curl -X POST "http://localhost:8083/api/validate" \
 
 Retrieve a validation result by ID.
 
-```http
+```text
 GET /api/validate/{validation_id}
 ```
 
 **Parameters**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
+| Parameter       | Type          | Description            |
+| --------------- | ------------- | ---------------------- |
 | `validation_id` | string (path) | UUID of the validation |
 
 **Example**
@@ -161,10 +161,10 @@ Same schema as POST /api/validate response.
 
 **Status Codes**
 
-| Code | Description |
-|------|-------------|
-| 200 | Validation found |
-| 404 | Validation not found |
+| Code | Description          |
+| ---- | -------------------- |
+| 200  | Validation found     |
+| 404  | Validation not found |
 
 ---
 
@@ -172,7 +172,7 @@ Same schema as POST /api/validate response.
 
 Get all cached validation results.
 
-```http
+```text
 GET /api/validate
 ```
 
@@ -184,7 +184,9 @@ curl "http://localhost:8083/api/validate"
 
 **Response**
 
-```json
+`JSON`
+
+```
 [
   {
     "validation_id": "uuid-1",
@@ -209,7 +211,7 @@ curl "http://localhost:8083/api/validate"
 
 Remove a validation from cache.
 
-```http
+```text
 DELETE /api/validate/{validation_id}
 ```
 
@@ -229,10 +231,10 @@ curl -X DELETE "http://localhost:8083/api/validate/26eba3f8-276b-44ac-b553-74419
 
 **Status Codes**
 
-| Code | Description |
-|------|-------------|
-| 200 | Deleted successfully |
-| 404 | Validation not found |
+| Code | Description          |
+| ---- | -------------------- |
+| 200  | Deleted successfully |
+| 404  | Validation not found |
 
 ---
 
@@ -240,16 +242,16 @@ curl -X DELETE "http://localhost:8083/api/validate/26eba3f8-276b-44ac-b553-74419
 
 Validate multiple images in one request.
 
-```http
+```text
 POST /api/validate/batch
 ```
 
 **Request**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `images` | file[] | Multiple plate images |
-| `orders` | JSON string | Array of order manifests |
+| Parameter | Type        | Description              |
+| --------- | ----------- | ------------------------ |
+| `images`  | file[]      | Multiple plate images    |
+| `orders`  | JSON string | Array of order manifests |
 
 **Example**
 
@@ -265,7 +267,9 @@ curl -X POST "http://localhost:8083/api/validate/batch" \
 
 **Response**
 
-```json
+`JSON`
+
+```
 {
   "batch_id": "batch-uuid",
   "results": [
@@ -287,30 +291,30 @@ curl -X POST "http://localhost:8083/api/validate/batch" \
 
 ### ValidationResult
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `validation_id` | string | Unique identifier |
-| `image_id` | string | Order/image identifier |
-| `order_complete` | boolean | True if all items match |
-| `accuracy_score` | float | 0.0-1.0 match ratio |
-| `missing_items` | array | Items not detected |
-| `extra_items` | array | Items detected but not ordered |
-| `quantity_mismatches` | array | Quantity discrepancies |
-| `matched_items` | array | Successfully matched items |
-| `timestamp` | string | ISO 8601 timestamp |
-| `metrics` | object | Performance metrics |
+| Field                 | Type    | Description                    |
+| --------------------- | ------- | ------------------------------ |
+| `validation_id`       | string  | Unique identifier              |
+| `image_id`            | string  | Order/image identifier         |
+| `order_complete`      | boolean | True if all items match        |
+| `accuracy_score`      | float   | 0.0-1.0 match ratio            |
+| `missing_items`       | array   | Items not detected             |
+| `extra_items`         | array   | Items detected but not ordered |
+| `quantity_mismatches` | array   | Quantity discrepancies         |
+| `matched_items`       | array   | Successfully matched items     |
+| `timestamp`           | string  | ISO 8601 timestamp             |
+| `metrics`             | object  | Performance metrics            |
 
 ### Metrics
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `end_to_end_latency_ms` | int | Total request time |
-| `vlm_inference_ms` | int | VLM processing time |
-| `agent_reconciliation_ms` | int | Semantic matching time |
-| `within_operational_window` | boolean | Under target latency |
-| `cpu_utilization` | float | CPU usage percentage |
-| `gpu_utilization` | float | GPU usage percentage |
-| `memory_utilization` | float | Memory usage percentage |
+| Field                       | Type    | Description             |
+| --------------------------- | ------- | ----------------------- |
+| `end_to_end_latency_ms`     | int     | Total request time      |
+| `vlm_inference_ms`          | int     | VLM processing time     |
+| `agent_reconciliation_ms`   | int     | Semantic matching time  |
+| `within_operational_window` | boolean | Under target latency    |
+| `cpu_utilization`           | float   | CPU usage percentage    |
+| `gpu_utilization`           | float   | GPU usage percentage    |
+| `memory_utilization`        | float   | Memory usage percentage |
 
 ---
 
@@ -358,6 +362,6 @@ curl -X POST "http://localhost:8083/api/validate/batch" \
 
 ## Interactive Documentation
 
-- **Swagger UI**: http://localhost:8083/docs
-- **ReDoc**: http://localhost:8083/redoc
-- **OpenAPI JSON**: http://localhost:8083/openapi.json
+- **Swagger UI**: `http://localhost:8083/docs`
+- **ReDoc**: `http://localhost:8083/redoc`
+- **OpenAPI JSON**: `http://localhost:8083/openapi.json`
