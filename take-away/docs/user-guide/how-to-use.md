@@ -1,4 +1,4 @@
-# How to Use Take-Away Order Accuracy
+# How to Use
 
 This guide covers daily operational use of the Take-Away Order Accuracy system.
 
@@ -15,9 +15,10 @@ make up
 ```
 
 Endpoints:
-- Gradio UI: http://localhost:7860
-- REST API: http://localhost:8000
-- MinIO Console: http://localhost:9001
+
+- Gradio UI: `http://localhost:7860`
+- REST API: `http://localhost:8000`
+- MinIO Console: `http://localhost:9001`
 
 ### Parallel Worker Mode
 
@@ -33,7 +34,7 @@ This starts the `rtsp-streamer` service and enables the frame-selector service f
 
 ## Using the Gradio Web Interface
 
-Access the Gradio UI at http://localhost:7860.
+Access the Gradio UI at `http://localhost:7860`.
 
 1. Upload a video file **or** enter an RTSP URL
 2. Enter the expected order items (one per line)
@@ -83,19 +84,19 @@ curl http://localhost:8000/vlm/results
 
 ### Additional Endpoints
 
-| Endpoint | Method | Description |
-|----------|--------|-------------|
-| `/mode` | GET | Current service mode and worker count |
-| `/statistics` | GET | Processing statistics |
-| `/videos/history` | GET | All processed videos |
-| `/videos/summary` | GET | Video processing summary |
-| `/videos/current` | GET | Currently processing video |
-| `/videos/{video_id}` | GET | Specific video details |
-| `/videos/{video_id}/complete` | POST | Mark video complete |
-| `/videos/{video_id}/fail` | POST | Mark video failed |
-| `/videos/history` | DELETE | Clear video history |
-| `/orders/{order_id}/recall` | GET | Recall frames for an order |
-| `/orders/{order_id}/replay` | GET | Replay order processing |
+| Endpoint                      | Method | Description                           |
+| ----------------------------- | ------ | ------------------------------------- |
+| `/mode`                       | GET    | Current service mode and worker count |
+| `/statistics`                 | GET    | Processing statistics                 |
+| `/videos/history`             | GET    | All processed videos                  |
+| `/videos/summary`             | GET    | Video processing summary              |
+| `/videos/current`             | GET    | Currently processing video            |
+| `/videos/{video_id}`          | GET    | Specific video details                |
+| `/videos/{video_id}/complete` | POST   | Mark video complete                   |
+| `/videos/{video_id}/fail`     | POST   | Mark video failed                     |
+| `/videos/history`             | DELETE | Clear video history                   |
+| `/orders/{order_id}/recall`   | GET    | Recall frames for an order            |
+| `/orders/{order_id}/replay`   | GET    | Replay order processing               |
 
 ---
 
@@ -105,19 +106,19 @@ curl http://localhost:8000/vlm/results
 
 ```yaml
 frame_selector:
-  top_k: 3                       # Frames selected per order
-  min_frames_per_order: 1        # Minimum frames required before processing
-  poll_interval_sec: 1.5         # MinIO polling interval (seconds)
-  min_frames_before_finalize: 5  # Wait for N frames before finalizing
-  inactivity_timeout_sec: 8      # Seconds of inactivity before order ends
+  top_k: 3 # Frames selected per order
+  min_frames_per_order: 1 # Minimum frames required before processing
+  poll_interval_sec: 1.5 # MinIO polling interval (seconds)
+  min_frames_before_finalize: 5 # Wait for N frames before finalizing
+  inactivity_timeout_sec: 8 # Seconds of inactivity before order ends
 ```
 
 ### VLM (`config/application.yaml`)
 
 ```yaml
 vlm:
-  temperature: 0.2     # Lower = more deterministic (recommended)
-  max_new_tokens: 100  # Token limit for VLM output
+  temperature: 0.2 # Lower = more deterministic (recommended)
+  max_new_tokens: 100 # Token limit for VLM output
 ```
 
 ### RTSP Streams (parallel mode)

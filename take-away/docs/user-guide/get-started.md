@@ -1,4 +1,4 @@
-# Getting Started with Take-Away Order Accuracy
+# Get Started
 
 This guide walks you through the installation, configuration, and first-run of the Take-Away Order Accuracy system.
 
@@ -18,26 +18,33 @@ This guide walks you through the installation, configuration, and first-run of t
 
 ## Prerequisites
 
+For detailed hardware and software requirements, see the [System Requirements](./get-started/system-requirements.md) guide.
+
 ### Hardware Requirements
 
-| Component | Minimum | Recommended |
-|-----------|---------|-------------|
-| CPU | Intel Xeon 8 cores | Intel Xeon 16+ cores |
-| RAM | 16 GB | 64 GB+ |
-| GPU | Intel Arc A770 (8GB) | Intel Arc |
-| Storage | 50GB SSD | 200GB NVMe |
+| Component | Minimum              | Recommended          |
+| --------- | -------------------- | -------------------- |
+| CPU       | Intel Xeon 8 cores   | Intel Xeon 16+ cores |
+| RAM       | 16GB                 | 64GB+                |
+| GPU       | Intel Arc A770 (8GB) | Intel Arc            |
+| Storage   | 50GB SSD             | 200GB NVMe           |
 
-> **ℹ RAM note:** 16 GB system RAM is sufficient for **inference**. For first-time model export (`setup_models.sh`), a higher-memory host (48–64 GB recommended) avoids potential OOM — export there and copy `ovms-service/models/` to the target system. 64 GB+ is recommended for production or multi-station deployments.
+> **Note:** **RAM note** 16 GB system RAM is sufficient for **inference**. For first-time model
+> export (`setup_models.sh`), a higher-memory host (48–64 GB recommended) avoids potential OOM
+> — export there and copy `ovms-service/models/` to the target system. 64 GB+ is recommended
+> for production or multi-station deployments.
 
-> **ℹ KV Cache on iGPU / low-RAM systems:** On iGPU platforms the KV cache is allocated from **system RAM**. Set `export CACHE_SIZE=2` before running `setup_models.sh` to reduce KV cache to 2 GB (default is 4 GB). See [ovms-service/README.md — Tuning the KV Cache Size](../../../ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
+> **KV Cache on iGPU / low-RAM systems:** On iGPU platforms the KV cache is allocated from
+> **system RAM**. Set `export CACHE_SIZE=2` before running `setup_models.sh` to reduce KV cache
+> to 2 GB (default is 4 GB). See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/main/ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
 
 ### Software Requirements
 
-| Software | Version | Purpose |
-|----------|---------|---------|
-| Docker | 24.0+ | Container runtime |
-| Docker Compose | V2+ | Service orchestration |
-| Intel GPU Driver | Latest | GPU support |
+| Software         | Version | Purpose               |
+| ---------------- | ------- | --------------------- |
+| Docker           | 24.0+   | Container runtime     |
+| Docker Compose   | V2+     | Service orchestration |
+| Intel GPU Driver | Latest  | GPU support           |
 
 ### Verify Prerequisites
 
@@ -82,11 +89,12 @@ cd ../take-away
 ```
 
 This downloads and exports:
+
 - Qwen2.5-VL-7B-Instruct (OpenVINO format)
 - YOLOv11 model (INT8 OpenVINO)
 - EasyOCR detection and recognition models
 
-> Re-run this step any time you change `TARGET_DEVICE` in `.env`.
+> **Note:** Re-run this step any time you change `TARGET_DEVICE` in `.env`.
 
 ### Step 5: Build and Start
 
@@ -136,7 +144,7 @@ MINIO_ROOT_PASSWORD=<your-minio-password>
 MINIO_ENDPOINT=minio:9000
 ```
 
-> **Changing the inference device**: Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU` or `CPU`), then re-run `./setup_models.sh` to re-export the model for that device.
+> **Changing the inference device:** Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU` or `CPU`), then re-run `./setup_models.sh` to re-export the model for that device.
 
 ### Validate Configuration
 
@@ -171,9 +179,9 @@ To feed a looping video as a live RTSP stream:
 WORKERS=1 docker compose --profile parallel up -d --no-deps rtsp-streamer
 ```
 
-| Access From | URL |
-|-------------|-----|
-| Host machine | `rtsp://localhost:8554/station_1` |
+| Access From      | URL                                   |
+| ---------------- | ------------------------------------- |
+| Host machine     | `rtsp://localhost:8554/station_1`     |
 | Other containers | `rtsp://rtsp-streamer:8554/station_1` |
 
 Increase `WORKERS` for multiple stations (`station_1`, `station_2`, etc.).
@@ -198,13 +206,13 @@ This checks both the order accuracy API (`localhost:8000`) and OVMS (`localhost:
 
 ### Service URLs
 
-| Service | URL |
-|---------|-----|
-| Order Accuracy API | http://localhost:8000 |
-| OVMS VLM | http://localhost:8001 |
-| Gradio UI | http://localhost:7860 |
-| MinIO Console | http://localhost:9001 |
-| Semantic Service | http://localhost:8080 |
+| Service            | URL                     |
+| ------------------ | ----------------------- |
+| Order Accuracy API | `http://localhost:8000` |
+| OVMS VLM           | `http://localhost:8001` |
+| Gradio UI          | `http://localhost:7860` |
+| MinIO Console      | `http://localhost:9001` |
+| Semantic Service   | `http://localhost:8080` |
 
 ### Service Status
 
@@ -218,7 +226,7 @@ make status
 
 ### Via Gradio UI
 
-1. Open http://localhost:7860
+1. Open `http://localhost:7860`
 2. Upload a test video or enter an RTSP URL
 3. Click "Upload and Start Processing"
 4. View results showing matched, missing, and extra items
@@ -295,14 +303,6 @@ cd ../take-away && make down && make up
 
 ---
 
-## Next Steps
-
-1. **Run Benchmarks**: See [Benchmarking Guide](benchmarking-guide.md)
-2. **Learn the API**: See [API Reference](api-reference.md)
-3. **Customize Settings**: See [How to Use Application](how-to-use-application.md)
-
----
-
 ## Quick Reference
 
 ```bash
@@ -318,3 +318,23 @@ make clean                  # Stop and remove volumes
 make benchmark              # Run fixed-workers benchmark
 make benchmark-stream-density  # Run stream density benchmark
 ```
+
+## Next Steps
+
+- [System Requirements](./get-started/system-requirements.md) - Check the detailed requirements
+- [Build from Source](./get-started/build-from-source.md) - Build from source
+- [How It Works](./how-it-works.md) - Learn about the architecture
+- [How to Use](./how-to-use.md) - Customize settings
+- [Benchmarking Guide](./ta-benchmarking.md) - Run benchmarks
+- [API Reference](./api-reference.md) - Learn the API
+- [Release Notes](./release-notes.md) - Read about updates and improvements
+
+<!--hide_directive
+:::{toctree}
+:hidden:
+
+./get-started/system-requirements.md
+./get-started/build-from-source.md
+
+:::
+hide_directive-->

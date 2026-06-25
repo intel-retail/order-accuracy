@@ -1,6 +1,6 @@
-# Building Dine-In Order Accuracy from Source
+# Build from Source
 
-Instructions for building Docker images locally instead of pulling from the registry.
+This guide covers building Docker images locally instead of pulling them from the registry.
 
 ---
 
@@ -18,7 +18,7 @@ docker compose version
 
 ## Repository Structure
 
-```
+```text
 dine-in/
 ├── src/
 │   ├── app.py                        # Gradio UI
@@ -57,7 +57,7 @@ make build REGISTRY=false
 
 `make build REGISTRY=false` builds `intel/order-accuracy-dine-in:2026.1.0` from the local Dockerfile.
 
-> `ovms-vlm`, `semantic-service`, and `metrics-collector` are always pulled from their registries — they have no local build context.
+> **Note:** `ovms-vlm`, `semantic-service`, and `metrics-collector` are always pulled from their registries — they have no local build context.
 
 ### Build a Custom Tag
 

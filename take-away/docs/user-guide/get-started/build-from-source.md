@@ -1,4 +1,4 @@
-# Building Take-Away Order Accuracy from Source
+# Build from Source
 
 This guide covers building Docker images locally instead of pulling them from the registry.
 
@@ -18,7 +18,7 @@ docker compose version
 
 ## Repository Structure
 
-```
+```text
 take-away/
 ├── src/                        # Main order-accuracy service source
 ├── frame-selector-service/     # YOLO frame selection service
@@ -48,14 +48,14 @@ make build REGISTRY=false
 
 This builds:
 
-| Service | Image |
-|---------|-------|
-| order-accuracy | `intel/order-accuracy-take-away:2026.1.0` |
+| Service        | Image                                          |
+| -------------- | ---------------------------------------------- |
+| order-accuracy | `intel/order-accuracy-take-away:2026.1.0`      |
 | frame-selector | `intel/order-accuracy-frame-selector:2026.1.0` |
-| gradio-ui | `intel/order-accuracy-take-away-ui:2026.1.0` |
-| rtsp-streamer | `intel/order-accuracy-take-away-rtsp:2026.1.0` |
+| gradio-ui      | `intel/order-accuracy-take-away-ui:2026.1.0`   |
+| rtsp-streamer  | `intel/order-accuracy-take-away-rtsp:2026.1.0` |
 
-> `semantic-service` and OVMS (`openvino/model_server`) are always pulled — they have no local build context.
+> **Note:** `semantic-service` and OVMS (`openvino/model_server`) are always pulled — they have no local build context.
 
 ### Build a Single Service
 
@@ -85,6 +85,7 @@ cd ../take-away
 ```
 
 This downloads and exports:
+
 - **Qwen2.5-VL-7B-Instruct** (OpenVINO INT8) → `ovms-service/models/`
 - **EasyOCR** models → `take-away/models/easyocr/`
 - **YOLO11n** (FP32 + INT8 OpenVINO) → `take-away/models/`
@@ -130,4 +131,3 @@ sudo usermod -aG render $USER
 # Log out and back in, then restart services
 make down && make up
 ```
-

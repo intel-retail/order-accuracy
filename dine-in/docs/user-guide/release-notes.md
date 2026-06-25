@@ -1,6 +1,4 @@
-# Release Notes
-
----
+# Release Notes: Dine-In Order Accuracy
 
 ## Version 2026.0.0 (March 2026)
 
@@ -10,8 +8,8 @@ Promoted from `2026.0-rc2` with no code changes. All functionality is identical 
 
 ### Published Images
 
-| Image | Tag |
-|-------|-----|
+| Image                          | Tag        |
+| ------------------------------ | ---------- |
 | `intel/order-accuracy-dine-in` | `2026.0.0` |
 
 ---
@@ -27,8 +25,8 @@ Promoted from `2026.0-rc2` with no code changes. All functionality is identical 
 
 ### Published Images
 
-| Image | Tag |
-|-------|-----|
+| Image                          | Tag          |
+| ------------------------------ | ------------ |
 | `intel/order-accuracy-dine-in` | `2026.0-rc2` |
 
 ---
@@ -49,11 +47,11 @@ Promoted from `2026.0-rc2` with no code changes. All functionality is identical 
 
 ### Configuration Changes
 
-| Variable | Old Default | New Default |
-|----------|-------------|-------------|
-| `TAG` | 1.0.0 | 2026.0-rc1 |
-| `REGISTRY` | false | true |
-| `DINEIN_IMAGE` | - | intel/order-accuracy-dine-in:2026.0-rc1 |
+| Variable       | Old Default | New Default                             |
+| -------------- | ----------- | --------------------------------------- |
+| `TAG`          | 1.0.0       | 2026.0-rc1                              |
+| `REGISTRY`     | false       | true                                    |
+| `DINEIN_IMAGE` | -           | intel/order-accuracy-dine-in:2026.0-rc1 |
 
 ### Migration Notes
 
@@ -109,10 +107,10 @@ Promoted from `2026.0-rc2` with no code changes. All functionality is identical 
 
 ### Configuration Changes
 
-| Variable | Old Default | New Default |
-|----------|-------------|-------------|
-| `API_TIMEOUT` | 60 | 300 |
-| `BENCHMARK_TARGET_LATENCY_MS` | 1000 | 2000 |
+| Variable                      | Old Default | New Default |
+| ----------------------------- | ----------- | ----------- |
+| `API_TIMEOUT`                 | 60          | 300         |
+| `BENCHMARK_TARGET_LATENCY_MS` | 1000        | 2000        |
 
 ### Dependencies
 
@@ -145,4 +143,3 @@ Promoted from `2026.0-rc2` with no code changes. All functionality is identical 
 - Order manifest comparison
 - Accuracy scoring
 - Performance metrics
-
