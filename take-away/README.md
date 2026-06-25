@@ -70,12 +70,13 @@ cd ../take-away
 ```
 
 This step:
+
 - Downloads Qwen2.5-VL-7B-Instruct from HuggingFace (~7 GB)
 - Converts to OpenVINO INT8 format
 - Downloads YOLO and EasyOCR models
 - Creates model files in `ovms-service/models/` and `take-away/models/`
 
-> **Note**: Only needed once. Model files are shared between dine-in and take-away.
+> **Note:** Only needed once. Model files are shared between dine-in and take-away.
 
 ### 3. Build and Start
 
@@ -105,13 +106,14 @@ make up REGISTRY=false
 
 | Document | Description |
 |----------|-------------|
-| [System Architecture & Requirements](docs/user-guide/system-architecture-and-requirements.md) | Architecture, design, hardware/software requirements, and pre-deployment checklist |
-| [Getting Started](docs/user-guide/get-started.md) | Installation and setup guide |
-| [How to Use](docs/user-guide/how-to-use-application.md) | Usage instructions and workflows |
-| [Build from Source](docs/user-guide/how-to-build-from-source.md) | Source build instructions |
-| [API Reference](docs/user-guide/api-reference.md) | Complete REST API documentation |
-| [Benchmarking Guide](docs/user-guide/benchmarking-guide.md) | Performance testing guide |
-| [Release Notes](docs/user-guide/release-notes.md) | Version history and changes |
+| [Getting Started](../docs/user-guide/take-away/get-started.md) | Installation and setup guide |
+| [System Requirements](../docs/user-guide/take-away/get-started/system-requirements.md) | Hardware/software requirements and pre-deployment checklist |
+| [System Architecture](../docs/user-guide/take-away/how-it-works.md) | Architecture, design and component details of the Take-Away application. |
+| [How to Use](../docs/user-guide/take-away/how-to-use.md) | Usage instructions and workflows |
+| [Build from Source](../docs/user-guide/take-away/get-started/build-from-source.md) | Source build instructions |
+| [API Reference](../docs/user-guide/take-away/api-reference.md) | Complete REST API documentation |
+| [Benchmarking Guide](../docs/user-guide/take-away/ta-benchmarking.md) | Performance testing guide |
+| [Release Notes](../docs/user-guide/take-away/release-notes.md) | Version history and changes |
 
 ---
 
@@ -121,7 +123,7 @@ make up REGISTRY=false
 - **Semantic Comparison Service**: Microservice for semantic text matching
 - **Performance Tools**: Benchmarking scripts for stream density testing (git submodule)
 
-> **Note**: Performance tools are included as a git submodule. Run `make update-submodules` to initialize.
+> **Note:** Performance tools are included as a git submodule. Run `make update-submodules` to initialize.
 
 ---
 
