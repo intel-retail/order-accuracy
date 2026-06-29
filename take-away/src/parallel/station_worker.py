@@ -49,10 +49,10 @@ logger = logging.getLogger(__name__)
 class PipelineConfig:
     """Configuration for GStreamer pipeline behavior."""
     
-    # RTSP source hardening - LOW LATENCY for fast connection
-    rtsp_latency_ms: int = 0  # Zero buffering (was 200ms)
+    # RTSP source hardening - balanced latency for stable connection
+    rtsp_latency_ms: int = 500  # 500ms buffering for stable RTSP
     rtsp_retry_count: int = 50  # Conservative retry count for RTSP reconnection
-    rtsp_timeout_us: int = 2000000   # 2 seconds
+    rtsp_timeout_us: int = 5000000   # 5 seconds
     rtsp_keepalive: bool = True
     rtsp_drop_on_latency: bool = True
     rtsp_protocols: str = "tcp"
@@ -81,9 +81,9 @@ class PipelineConfig:
         """Create config from dictionary, using defaults for missing values."""
         pipeline_cfg = config.get('pipeline', {})
         return cls(
-            rtsp_latency_ms=pipeline_cfg.get('rtsp_latency_ms', 200),
+            rtsp_latency_ms=pipeline_cfg.get('rtsp_latency_ms', 500),
             rtsp_retry_count=pipeline_cfg.get('rtsp_retry_count', 50),
-            rtsp_timeout_us=pipeline_cfg.get('rtsp_timeout_us', 2000000),
+            rtsp_timeout_us=pipeline_cfg.get('rtsp_timeout_us', 5000000),
             rtsp_keepalive=pipeline_cfg.get('rtsp_keepalive', True),
             rtsp_drop_on_latency=pipeline_cfg.get('rtsp_drop_on_latency', True),
             rtsp_protocols=pipeline_cfg.get('rtsp_protocols', 'tcp'),
@@ -932,7 +932,8 @@ class StationWorker:
                 [
                     'timeout', str(timeout_sec),
                     'gst-launch-1.0', '-e',
-                    'rtspsrc', f'location={self.rtsp_url}', 'protocols=tcp', 'latency=0',
+                    'rtspsrc', f'location={self.rtsp_url}', 'protocols=tcp', 'latency=500',
+                    'timeout=5000000',  # 5 second RTSP timeout
                     '!', 'fakesink', 'sync=false'
                 ],
                 capture_output=True,
@@ -1056,27 +1057,34 @@ class StationWorker:
         # NOTE: 1fps is the recommended rate for CPU-based EasyOCR + YOLO processing.
         capture_fps = int(os.environ.get("CAPTURE_FPS", "10"))
         
+        queue_params = "max-size-time=0 max-size-bytes=0 max-size-buffers=200 leaky=no"
+        
         # Check if source is RTSP - use optimized low-latency rtspsrc
         if self.rtsp_url.startswith("rtsp://"):
             # LOW-LATENCY RTSP PIPELINE
-            # - latency=0: Zero buffering (default is 2000ms!)
+            # - latency: Configurable buffering (default 500ms)
             # - buffer-mode=0: Auto/slave mode for minimal delay
             # - ntp-sync=false: Skip NTP synchronization
             # - do-rtcp=false: Disable RTCP feedback loop
             # - protocols=tcp: Force TCP for reliability
-            # - retry=5: Quick retry on connection issues
+            # - retry=3: Quick retry on connection issues
+            # - timeout: Configurable RTSP timeout (default 5s)
+            # - drop-on-latency: Drop frames when buffer full to avoid stalls
+            # - h264parse config-interval=-1: Send SPS/PPS with every keyframe
             # - queue: Buffer frames to prevent drops during slow OCR processing
             #          max-size-buffers=200 holds ~200 frames (enough for 200s at 1fps)
             pipeline = (
-                f'rtspsrc location={self.rtsp_url} latency=0 buffer-mode=0 '
-                'protocols=tcp ntp-sync=false do-rtcp=false retry=5 '
+                f'rtspsrc location={self.rtsp_url} latency={cfg.rtsp_latency_ms} buffer-mode=0 '
+                f'protocols=tcp ntp-sync=false do-rtcp=false retry=3 '
+                f'timeout={cfg.rtsp_timeout_us} drop-on-latency={str(cfg.rtsp_drop_on_latency).lower()} '
                 '! rtph264depay '
+                '! h264parse config-interval=-1 '
                 '! avdec_h264 '
                 '! videoconvert '
                 '! video/x-raw,format=BGR '
                 '! videorate '
                 f'! video/x-raw,framerate={capture_fps}/1 '
-                '! queue max-size-time=0 max-size-bytes=0 max-size-buffers=200 leaky=no '
+                f'! queue {queue_params} '
                 f'! gvapython module={frame_pipeline_module} function=process_frame '
                 '! fakesink sync=false'
             )
@@ -1094,7 +1102,7 @@ class StationWorker:
                 '! video/x-raw,format=BGR '
                 '! videorate '
                 f'! video/x-raw,framerate={capture_fps}/1 '
-                '! queue max-size-time=0 max-size-bytes=0 max-size-buffers=200 leaky=no '
+                f'! queue {queue_params} '
                 f'! gvapython module={frame_pipeline_module} function=process_frame '
                 '! fakesink sync=false'
             )
