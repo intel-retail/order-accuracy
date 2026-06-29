@@ -1,4 +1,4 @@
-# Take-Away Order Accuracy API Reference
+# API Reference
 
 Complete REST API documentation for the Take-Away Order Accuracy service.
 
@@ -51,11 +51,11 @@ curl -H "Authorization: Bearer your-token" http://localhost:8000/api/v1/...
 
 ## Base URL
 
-| Environment | URL |
-|-------------|-----|
-| Development | `http://localhost:8000` |
-| Docker Network | `http://oa_service:8000` |
-| Production | `https://api.yourdomain.com` |
+| Environment    | URL                          |
+| -------------- | ---------------------------- |
+| Development    | `http://localhost:8000`      |
+| Docker Network | `http://oa_service:8000`     |
+| Production     | `https://api.yourdomain.com` |
 
 ---
 
@@ -66,11 +66,13 @@ curl -H "Authorization: Bearer your-token" http://localhost:8000/api/v1/...
 Check service health status.
 
 **Request:**
+
 ```bash
 curl http://localhost:8000/health
 ```
 
 **Response (200 OK):**
+
 ```json
 {
   "status": "healthy",
@@ -84,14 +86,14 @@ curl http://localhost:8000/health
 
 **Response Fields:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| status | string | Health status: `healthy`, `degraded`, `unhealthy` |
-| service | string | Service name |
-| version | string | API version |
-| mode | string | Service mode: `single`, `parallel` |
-| uptime_seconds | integer | Seconds since service start |
-| timestamp | string | ISO 8601 timestamp |
+| Field          | Type    | Description                                       |
+| -------------- | ------- | ------------------------------------------------- |
+| status         | string  | Health status: `healthy`, `degraded`, `unhealthy` |
+| service        | string  | Service name                                      |
+| version        | string  | API version                                       |
+| mode           | string  | Service mode: `single`, `parallel`                |
+| uptime_seconds | integer | Seconds since service start                       |
+| timestamp      | string  | ISO 8601 timestamp                                |
 
 ---
 
@@ -100,11 +102,13 @@ curl http://localhost:8000/health
 Get detailed health status including dependencies.
 
 **Request:**
+
 ```bash
 curl http://localhost:8000/health/detailed
 ```
 
 **Response (200 OK):**
+
 ```json
 {
   "status": "healthy",
@@ -140,6 +144,7 @@ curl http://localhost:8000/health/detailed
 Upload a video file for processing.
 
 **Request:**
+
 ```bash
 curl -X POST http://localhost:8000/upload-video \
   -F "file=@video.mp4" \
@@ -149,13 +154,14 @@ curl -X POST http://localhost:8000/upload-video \
 
 **Parameters:**
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| file | file | Yes | Video file (MP4, AVI, MOV) |
-| video_id | string | Yes | Unique identifier for the video |
-| station_id | string | No | Station identifier (default: station_1) |
+| Parameter  | Type   | Required | Description                             |
+| ---------- | ------ | -------- | --------------------------------------- |
+| file       | file   | Yes      | Video file (MP4, AVI, MOV)              |
+| video_id   | string | Yes      | Unique identifier for the video         |
+| station_id | string | No       | Station identifier (default: station_1) |
 
 **Response (200 OK):**
+
 ```json
 {
   "status": "success",
@@ -170,11 +176,11 @@ curl -X POST http://localhost:8000/upload-video \
 
 **Error Responses:**
 
-| Status | Description |
-|--------|-------------|
-| 400 | Invalid file format or missing parameters |
-| 413 | File too large (max 500MB) |
-| 500 | Server error during upload |
+| Status | Description                               |
+| ------ | ----------------------------------------- |
+| 400    | Invalid file format or missing parameters |
+| 413    | File too large (max 500MB)                |
+| 500    | Server error during upload                |
 
 ---
 
@@ -183,6 +189,7 @@ curl -X POST http://localhost:8000/upload-video \
 Process an uploaded video with VLM inference.
 
 **Request:**
+
 ```bash
 curl -X POST http://localhost:8000/run-video \
   -H "Content-Type: application/json" \
@@ -202,17 +209,18 @@ curl -X POST http://localhost:8000/run-video \
 
 **Request Body:**
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| video_id | string | Yes | Video ID from upload |
-| expected_items | array | Yes | Array of expected order items |
-| expected_items[].name | string | Yes | Item name |
-| expected_items[].quantity | integer | Yes | Expected quantity |
-| options | object | No | Processing options |
-| options.matching_strategy | string | No | `exact`, `semantic`, `hybrid` |
-| options.similarity_threshold | float | No | 0.0-1.0 (default: 0.85) |
+| Field                        | Type    | Required | Description                   |
+| ---------------------------- | ------- | -------- | ----------------------------- |
+| video_id                     | string  | Yes      | Video ID from upload          |
+| expected_items               | array   | Yes      | Array of expected order items |
+| expected_items[].name        | string  | Yes      | Item name                     |
+| expected_items[].quantity    | integer | Yes      | Expected quantity             |
+| options                      | object  | No       | Processing options            |
+| options.matching_strategy    | string  | No       | `exact`, `semantic`, `hybrid` |
+| options.similarity_threshold | float   | No       | 0.0-1.0 (default: 0.85)       |
 
 **Response (202 Accepted):**
+
 ```json
 {
   "status": "processing",
@@ -232,6 +240,7 @@ curl -X POST http://localhost:8000/run-video \
 Direct VLM inference on an image.
 
 **Request:**
+
 ```bash
 curl -X POST http://localhost:8000/run_vlm \
   -F "image=@frame.jpg" \
@@ -240,18 +249,19 @@ curl -X POST http://localhost:8000/run_vlm \
 
 **Parameters:**
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| image | file | Yes | Image file (JPEG, PNG) |
-| prompt | string | No | Custom prompt (default: item detection) |
+| Parameter | Type   | Required | Description                             |
+| --------- | ------ | -------- | --------------------------------------- |
+| image     | file   | Yes      | Image file (JPEG, PNG)                  |
+| prompt    | string | No       | Custom prompt (default: item detection) |
 
 **Response (200 OK):**
+
 ```json
 {
   "status": "success",
   "detected_items": [
-    {"name": "burger", "quantity": 2, "confidence": 0.95},
-    {"name": "fries", "quantity": 1, "confidence": 0.88}
+    { "name": "burger", "quantity": 2, "confidence": 0.95 },
+    { "name": "fries", "quantity": 1, "confidence": 0.88 }
   ],
   "raw_response": "...",
   "processing_time_ms": 2850,
@@ -270,17 +280,19 @@ curl -X POST http://localhost:8000/run_vlm \
 Get VLM processing results.
 
 **Request:**
+
 ```bash
 curl "http://localhost:8000/vlm/results?video_id=order_001"
 ```
 
 **Query Parameters:**
 
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| video_id | string | Yes | Video ID to retrieve results |
+| Parameter | Type   | Required | Description                  |
+| --------- | ------ | -------- | ---------------------------- |
+| video_id  | string | Yes      | Video ID to retrieve results |
 
 **Response (200 OK):**
+
 ```json
 {
   "video_id": "order_001",
@@ -289,21 +301,19 @@ curl "http://localhost:8000/vlm/results?video_id=order_001"
   "detections": [
     {
       "frame_id": 1,
-      "items": [
-        {"name": "burger", "quantity": 2}
-      ]
+      "items": [{ "name": "burger", "quantity": 2 }]
     },
     {
       "frame_id": 2,
       "items": [
-        {"name": "burger", "quantity": 2},
-        {"name": "fries", "quantity": 1}
+        { "name": "burger", "quantity": 2 },
+        { "name": "fries", "quantity": 1 }
       ]
     }
   ],
   "aggregated_detection": [
-    {"name": "burger", "quantity": 2, "confidence": 0.95},
-    {"name": "fries", "quantity": 1, "confidence": 0.88}
+    { "name": "burger", "quantity": 2, "confidence": 0.95 },
+    { "name": "fries", "quantity": 1, "confidence": 0.88 }
   ]
 }
 ```
@@ -317,17 +327,19 @@ curl "http://localhost:8000/vlm/results?video_id=order_001"
 Get validation results for an order.
 
 **Request:**
+
 ```bash
 curl http://localhost:8000/results/order_001
 ```
 
 **Path Parameters:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| order_id | string | Order/video identifier |
+| Parameter | Type   | Description            |
+| --------- | ------ | ---------------------- |
+| order_id  | string | Order/video identifier |
 
 **Response (200 OK):**
+
 ```json
 {
   "order_id": "order_001",
@@ -385,13 +397,13 @@ curl http://localhost:8000/results/order_001
 
 **Response Fields:**
 
-| Field | Type | Description |
-|-------|------|-------------|
-| matched | array | Items correctly found |
-| missing | array | Expected items not found |
-| extra | array | Found items not in order |
+| Field             | Type  | Description               |
+| ----------------- | ----- | ------------------------- |
+| matched           | array | Items correctly found     |
+| missing           | array | Expected items not found  |
+| extra             | array | Found items not in order  |
 | quantity_mismatch | array | Items with wrong quantity |
-| accuracy_score | float | 0.0-1.0 validation score |
+| accuracy_score    | float | 0.0-1.0 validation score  |
 
 ---
 
@@ -400,19 +412,21 @@ curl http://localhost:8000/results/order_001
 Get recent results for a station.
 
 **Request:**
+
 ```bash
 curl "http://localhost:8000/results/station/station_1?limit=10"
 ```
 
 **Query Parameters:**
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| limit | integer | 10 | Max results to return |
-| offset | integer | 0 | Pagination offset |
-| since | string | - | ISO 8601 timestamp filter |
+| Parameter | Type    | Default | Description               |
+| --------- | ------- | ------- | ------------------------- |
+| limit     | integer | 10      | Max results to return     |
+| offset    | integer | 0       | Pagination offset         |
+| since     | string  | -       | ISO 8601 timestamp filter |
 
 **Response (200 OK):**
+
 ```json
 {
   "station_id": "station_1",
@@ -463,18 +477,19 @@ All errors follow a standard format:
 
 ### Error Codes
 
-| Code | HTTP Status | Description |
-|------|-------------|-------------|
-| VALIDATION_ERROR | 400 | Invalid request parameters |
-| NOT_FOUND | 404 | Resource not found |
-| FILE_TOO_LARGE | 413 | Upload exceeds size limit |
-| PROCESSING_ERROR | 500 | VLM or internal error |
-| SERVICE_UNAVAILABLE | 503 | Dependency unavailable |
-| TIMEOUT | 504 | Processing timeout |
+| Code                | HTTP Status | Description                |
+| ------------------- | ----------- | -------------------------- |
+| VALIDATION_ERROR    | 400         | Invalid request parameters |
+| NOT_FOUND           | 404         | Resource not found         |
+| FILE_TOO_LARGE      | 413         | Upload exceeds size limit  |
+| PROCESSING_ERROR    | 500         | VLM or internal error      |
+| SERVICE_UNAVAILABLE | 503         | Dependency unavailable     |
+| TIMEOUT             | 504         | Processing timeout         |
 
 ### Common Error Responses
 
 **400 Bad Request:**
+
 ```json
 {
   "error": {
@@ -485,6 +500,7 @@ All errors follow a standard format:
 ```
 
 **404 Not Found:**
+
 ```json
 {
   "error": {
@@ -495,6 +511,7 @@ All errors follow a standard format:
 ```
 
 **500 Internal Server Error:**
+
 ```json
 {
   "error": {
@@ -513,17 +530,17 @@ All errors follow a standard format:
 
 ### Default Limits
 
-| Endpoint | Limit | Window |
-|----------|-------|--------|
-| /upload-video | 10 | per minute |
-| /run-video | 20 | per minute |
-| /run_vlm | 30 | per minute |
-| /results/* | 100 | per minute |
-| /health | unlimited | - |
+| Endpoint      | Limit     | Window     |
+| ------------- | --------- | ---------- |
+| /upload-video | 10        | per minute |
+| /run-video    | 20        | per minute |
+| /run_vlm      | 30        | per minute |
+| /results/\*   | 100       | per minute |
+| /health       | unlimited | -          |
 
-### Rate Limit Headers
+### HTTP Rate Limit Headers
 
-```http
+```text
 X-RateLimit-Limit: 20
 X-RateLimit-Remaining: 15
 X-RateLimit-Reset: 1705312800
@@ -532,6 +549,7 @@ X-RateLimit-Reset: 1705312800
 ### Rate Limit Exceeded
 
 **Response (429 Too Many Requests):**
+
 ```json
 {
   "error": {
@@ -548,9 +566,9 @@ X-RateLimit-Reset: 1705312800
 
 Access the interactive API documentation:
 
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-- **OpenAPI JSON**: http://localhost:8000/openapi.json
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
+- **OpenAPI JSON**: `http://localhost:8000/openapi.json`
 
 ---
 
@@ -564,7 +582,7 @@ import requests
 class OrderAccuracyClient:
     def __init__(self, base_url="http://localhost:8000"):
         self.base_url = base_url
-    
+
     def upload_video(self, file_path, video_id):
         with open(file_path, 'rb') as f:
             response = requests.post(
@@ -573,7 +591,7 @@ class OrderAccuracyClient:
                 data={"video_id": video_id}
             )
         return response.json()
-    
+
     def run_validation(self, video_id, expected_items):
         response = requests.post(
             f"{self.base_url}/run-video",
@@ -583,7 +601,7 @@ class OrderAccuracyClient:
             }
         )
         return response.json()
-    
+
     def get_results(self, order_id):
         response = requests.get(f"{self.base_url}/results/{order_id}")
         return response.json()

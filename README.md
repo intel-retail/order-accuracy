@@ -86,18 +86,19 @@ make up
 # Access UI at http://localhost:7861
 ```
 
-> **Note**: The OVMS model setup only needs to be done once. Model files are shared between dine-in and take-away applications.
+> **Note:** The OVMS model setup only needs to be done once. Model files are shared between dine-in and take-away applications.
 
 ### Documentation
 
 | Document | Description |
 |----------|-------------|
-| [Getting Started](dine-in/docs/user-guide/get-started.md) | Installation guide |
-| [System Architecture & Requirements](dine-in/docs/user-guide/system-architecture-and-requirements.md) | Architecture, design, hardware/software requirements |
-| [How to Use](dine-in/docs/user-guide/how-to-use-application.md) | Usage instructions |
-| [Build from Source](dine-in/docs/user-guide/how-to-build-from-source.md) | Build instructions |
-| [API Reference](dine-in/docs/user-guide/api-reference.md) | REST API documentation |
-| [Release Notes](dine-in/docs/user-guide/release-notes.md) | Version history |
+| [Getting Started](./docs/user-guide/dine-in/get-started.md) | Installation guide |
+| [System Requirements](./docs/user-guide/dine-in/get-started/system-requirements.md) | Hardware/software requirements |
+| [System Architecture](./docs/user-guide/dine-in/how-it-works.md) | Architecture and design |
+| [How to Use](./docs/user-guide/dine-in/how-to-use.md) | Usage instructions |
+| [Build from Source](./docs/user-guide/dine-in/get-started/build-from-source.md) | Build instructions |
+| [API Reference](./docs/user-guide/dine-in/api-reference.md) | REST API documentation |
+| [Release Notes](./docs/user-guide/dine-in/release-notes.md) | Version history |
 
 📖 **Full Documentation**: [dine-in/README.md](dine-in/README.md)
 
@@ -145,13 +146,14 @@ make up-parallel WORKERS=4
 
 | Document | Description |
 |----------|-------------|
-| [Getting Started](take-away/docs/user-guide/get-started.md) | Installation guide |
-| [System Architecture & Requirements](take-away/docs/user-guide/system-architecture-and-requirements.md) | Architecture, design, hardware/software requirements |
-| [How to Use](take-away/docs/user-guide/how-to-use-application.md) | Usage instructions |
-| [Build from Source](take-away/docs/user-guide/how-to-build-from-source.md) | Build instructions |
-| [API Reference](take-away/docs/user-guide/api-reference.md) | REST API documentation |
-| [Benchmarking Guide](take-away/docs/user-guide/benchmarking-guide.md) | Performance testing |
-| [Release Notes](take-away/docs/user-guide/release-notes.md) | Version history |
+| [Getting Started](./docs/user-guide/take-away/get-started.md) | Installation guide |
+| [System Requirements](./docs/user-guide/take-away/get-started/system-requirements.md) | Hardware/software requirements |
+| [System Architecture](./docs/user-guide/take-away/how-it-works.md) | Architecture and design |
+| [How to Use](./docs/user-guide/take-away/how-to-use.md) | Usage instructions |
+| [Build from Source](./docs/user-guide/take-away/get-started/build-from-source.md) | Build instructions |
+| [API Reference](./docs/user-guide/take-away/api-reference.md) | REST API documentation |
+| [Benchmarking Guide](./docs/user-guide/take-away/ta-benchmarking.md) | Performance testing |
+| [Release Notes](./docs/user-guide/take-away/release-notes.md) | Version history |
 
 📖 **Full Documentation**: [take-away/README.md](take-away/README.md)
 
@@ -300,7 +302,7 @@ make consolidate-metrics    # Consolidate benchmark metrics to CSV
 make plot-metrics           # Generate plots from benchmark metrics
 ```
 
-> **Note**: Before running benchmarks, ensure a test video is present at `storage/videos/test.mp4`. Use `make download-sample-video` to fetch one.
+> **Note:** Before running benchmarks, ensure a test video is present at `storage/videos/test.mp4`. Use `make download-sample-video` to fetch one.
 
 ---
 
@@ -333,6 +335,7 @@ For application-specific issues, refer to the respective documentation:
 - **Take-Away Issues**: See [take-away/docs/](take-away/docs/user-guide/)
 
 For platform-wide issues or feature requests, submit an issue with:
+
 1. Application name (dine-in/take-away)
 2. Steps to reproduce
 3. Expected vs actual behavior

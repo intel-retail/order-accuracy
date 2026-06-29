@@ -36,7 +36,7 @@ Before running the application, you must prepare your test data:
    - Define all possible food items that can appear in orders
    - Include item names, categories, and any relevant metadata
 
-> **Note**: The `images/` folder does not contain sample images by default. You must add your own images before testing.
+> **Note:** The `images/` folder does not contain sample images by default. You must add your own images before testing.
 
 ### 1. Configure Environment
 
@@ -60,10 +60,11 @@ cd ../dine-in
 ```
 
 This step:
+
 - Downloads Qwen2.5-VL-7B-Instruct from HuggingFace (~7 GB)
 - Converts to OpenVINO INT8 format
 
-> **Note**: Only needed once. Model files are shared between dine-in and take-away.
+> **Note:** Only needed once. Model files are shared between dine-in and take-away.
 
 ### 3. Build and Start
 
@@ -95,25 +96,27 @@ make up REGISTRY=false
 ## Documentation
 
 - **Overview**
-  - [System Architecture & Requirements](docs/user-guide/system-architecture-and-requirements.md): Architecture, component details, hardware/software requirements, and pre-deployment checklist.
+  - [System Architecture](../docs/user-guide/dine-in/how-it-works.md): Architecture, design and component details of the Dine-In application.
+  - [System Requirements](../docs/user-guide/dine-in/get-started/system-requirements.md): Hardware/software requirements and pre-deployment checklist.
 
 - **Getting Started**
-  - [Get Started](docs/user-guide/get-started.md): Step-by-step guide to get started with the sample application.
-  - [How to Use the Application](./docs/user-guide/how-to-use-application.md): Explore the application's features and verify its functionality.
+  - [Get Started](../docs/user-guide/dine-in/get-started.md): Step-by-step guide to get started with the sample application.
+  - [How to Use the Application](../docs/user-guide/dine-in/how-to-use.md): Explore the application's features and verify its functionality.
 
 - **Deployment**
-  - [How to Build from Source](docs/user-guide/how-to-build-from-source.md): Instructions for building from source code.
-
+  - [How to Build from Source](../docs/user-guide/dine-in/get-started/build-from-source.md): Instructions for building from source code.
 
 - **API Reference**
-  - [API Reference](docs/user-guide/api-reference.md): Comprehensive reference for the available REST API endpoints.
+  - [API Reference](../docs/user-guide/dine-in/api-reference.md): Comprehensive reference for the available REST API endpoints.
 
 - **Release Notes**
-  - [Release Notes](docs/user-guide/release-notes.md): Information on the latest updates, improvements, and bug fixes.
+  - [Release Notes](../docs/user-guide/dine-in/release-notes.md): Information on the latest updates, improvements, and bug fixes.
 
 ---
 
 ## Benchmarking
+
+See [Get Started](../docs/user-guide/dine-in/get-started.md#benchmarking) for detailed benchmark configuration options.
 
 ### Prerequisites
 
@@ -137,7 +140,7 @@ make benchmark-single IMAGE_ID=MCD-1001    # Quick single image test
 make benchmark           # Run Order Accuracy benchmark
 ```
 
-> **Note**: `make benchmark` uses Docker profiles to start worker containers. Both the `dine-in` app and `dinein-worker` services use the **same Docker image** (built from the same Dockerfile). The worker is simply the same container running `worker.py` instead of the UI.
+> **Note:** `make benchmark` uses Docker profiles to start worker containers. Both the `dine-in` app and `dinein-worker` services use the **same Docker image** (built from the same Dockerfile). The worker is simply the same container running `worker.py` instead of the UI.
 
 ### Stream Density Test
 
@@ -145,7 +148,7 @@ make benchmark           # Run Order Accuracy benchmark
 make benchmark-density   # Find max concurrent validations
 ```
 
-> **Note**: `make benchmark-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
+> **Note:** `make benchmark-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
 
 ### Metrics Processing
 
@@ -153,8 +156,6 @@ make benchmark-density   # Find max concurrent validations
 make consolidate-metrics # Consolidate results to CSV
 make plot-metrics        # Generate visualization plots
 ```
-
-See [Get Started](docs/user-guide/get-started.md) for detailed benchmark configuration options.
 
 ---
 

@@ -1,4 +1,4 @@
-# Getting Started with Dine-In Order Accuracy
+# Get Started
 
 This guide walks you through installation, configuration, and first run of the Dine-In Order Accuracy system.
 
@@ -11,7 +11,12 @@ This guide walks you through installation, configuration, and first run of the D
 - 16 GB RAM minimum (64 GB recommended for production)
 - 50 GB free disk space
 
-> **ℹ KV Cache on iGPU / low-RAM systems:** 16 GB RAM is sufficient for **inference**. For first-time model export, a higher-memory host (48–64 GB) is recommended. On iGPU platforms, the KV cache is allocated from **system RAM** — set `export CACHE_SIZE=2` before running `setup_models.sh` to reduce KV cache to 2 GB (default is 4 GB). See [ovms-service/README.md — Tuning the KV Cache Size](../../../ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
+> **Notes:**
+> **KV Cache on iGPU / low-RAM systems:** 16 GB RAM is sufficient for **inference**.
+> For first-time model export, a higher-memory host (48–64 GB) is recommended.
+> On iGPU platforms, the KV cache is allocated from **system RAM** — set `export CACHE_SIZE=2`
+> before running `setup_models.sh` to reduce KV cache to 2 GB (default is 4 GB).
+> See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/main/ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
 
 ```bash
 docker --version
@@ -43,9 +48,9 @@ cd ../ovms-service
 cd ../dine-in
 ```
 
-> **Note**: If you previously ran setup for take-away, the model files are already shared and this step will detect them automatically — no re-download needed.
+> **Note:** If you previously ran setup for take-away, the model files are already shared and this step will detect them automatically — no re-download needed.
 
-This downloads Qwen2.5-VL-7B-Instruct (~7 GB) and converts it to OpenVINO INT8 format. Only needed once — model files are shared with take-away.
+This downloads Qwen2.5-VL-7B-Instruct (~7 GB) and converts it to OpenVINO INT8 format. This is only needed once — the model files are shared with Take-Away.
 
 ## Step 3: Prepare Test Data
 
@@ -67,12 +72,12 @@ make build REGISTRY=false && make up
 
 This starts 4 containers:
 
-| Container | Ports | Purpose |
-|-----------|-------|---------|
-| `dinein_app` | 7861, 8083 | Gradio UI + FastAPI |
-| `dinein_ovms_vlm` | 8002 | VLM model server (OVMS) |
-| `dinein_semantic_service` | 8081, 9091 | Semantic matching |
-| `metrics-collector` | 8084 | System metrics |
+| Container                 | Ports      | Purpose                 |
+| ------------------------- | ---------- | ----------------------- |
+| `dinein_app`              | 7861, 8083 | Gradio UI + FastAPI     |
+| `dinein_ovms_vlm`         | 8002       | VLM model server (OVMS) |
+| `dinein_semantic_service` | 8081, 9091 | Semantic matching       |
+| `metrics-collector`       | 8084       | System metrics          |
 
 ---
 
@@ -89,7 +94,7 @@ curl http://localhost:8083/health
 curl http://localhost:8002/v1/config | jq .
 ```
 
-Open http://localhost:7861 for the Gradio UI, or http://localhost:8083/docs for the REST API docs.
+Open `http://localhost:7861` for the Gradio UI, or `http://localhost:8083/docs` for the REST API docs.
 
 ---
 
@@ -97,7 +102,7 @@ Open http://localhost:7861 for the Gradio UI, or http://localhost:8083/docs for 
 
 ### Via Gradio UI
 
-1. Open http://localhost:7861
+1. Open `http://localhost:7861`
 2. Select a scenario from the dropdown
 3. Review the order manifest
 4. Click **"Validate Plate"**
@@ -109,6 +114,7 @@ The bundled `MCD-1001.png` image shows **Filet-O-Fish** and **Cheesy Fries** on 
 Two test scenarios are provided:
 
 **Negative test case** — order does not match tray (demonstrates mismatch detection):
+
 ```bash
 curl -X POST "http://localhost:8083/api/validate" \
   -F "image=@images/MCD-1001.png" \
@@ -117,6 +123,7 @@ curl -X POST "http://localhost:8083/api/validate" \
 ```
 
 **Positive test case** — order matches tray (demonstrates successful validation):
+
 ```bash
 curl -X POST "http://localhost:8083/api/validate" \
   -F "image=@images/MCD-1001.png" \
@@ -149,12 +156,12 @@ make benchmark
 
 Key variables:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BENCHMARK_WORKERS` | 1 | Concurrent workers |
-| `BENCHMARK_DURATION` | 180 | Duration (seconds) |
-| `BENCHMARK_TARGET_LATENCY_MS` | 25000 | Latency threshold (ms) |
-| `TARGET_DEVICE` | GPU | Device: CPU, GPU |
+| Variable                      | Default | Description            |
+| ----------------------------- | ------- | ---------------------- |
+| `BENCHMARK_WORKERS`           | 1       | Concurrent workers     |
+| `BENCHMARK_DURATION`          | 180     | Duration (seconds)     |
+| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Latency threshold (ms) |
+| `TARGET_DEVICE`               | GPU     | Device: CPU, GPU       |
 
 ### Stream Density Test
 
@@ -228,3 +235,24 @@ make benchmark                       # Full benchmark
 make benchmark-stream-density        # Stream density test
 make help                            # All commands
 ```
+
+---
+
+## Next Steps
+
+- [System Requirements](./get-started/system-requirements.md) - Check the requirements
+- [Build from Source](./get-started/build-from-source.md) - Build from source
+- [How It Works](./how-it-works.md) - Learn about the architecture
+- [How to Use](./how-to-use.md) - Customize settings
+- [API Reference](./api-reference.md) - Learn the API
+- [Release Notes](./release-notes.md) - Read about updates and improvements
+
+<!--hide_directive
+:::{toctree}
+:hidden:
+
+./get-started/system-requirements.md
+./get-started/build-from-source.md
+
+:::
+hide_directive-->

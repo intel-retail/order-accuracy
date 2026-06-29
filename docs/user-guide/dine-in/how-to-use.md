@@ -1,8 +1,9 @@
-# How to Use the Application
+# How to Use
 
 Guide to using the Dine-In Order Accuracy application features.
 
-> **Note — `TARGET_DEVICE`**: To change the inference device, set `TARGET_DEVICE` in `.env` to `GPU` or `CPU`, then re-run setup:
+> **Note — `TARGET_DEVICE`:** To change the inference device, set `TARGET_DEVICE` in `.env` to `GPU` or `CPU`, then re-run setup:
+>
 > ```bash
 > cd ../ovms-service && ./setup_models.sh --app dine-in && cd ../dine-in
 > make down && make up
@@ -10,17 +11,17 @@ Guide to using the Dine-In Order Accuracy application features.
 
 ## Gradio UI
 
-Access the web interface at http://localhost:7861
+Access the web interface at `http://localhost:7861`.
 
 ### Interface Overview
 
-> **Note — negative test case**: The default MCD-1001 scenario in the Gradio UI
+> **Note — negative test case:** The default MCD-1001 scenario in the Gradio UI
 > intentionally submits a mismatched order (Cheeseburger / French Fries) against a tray
 > image that contains Filet-O-Fish and Cheesy Fries. This demonstrates the application's
 > ability to detect an incorrect order. The result will show `order_complete: ✗`. To see a
 > successful validation, select another scenario or update the order to match the tray.
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │  Dine-In Order Accuracy Benchmark                           │
 ├─────────────────────────────────────────────────────────────┤
@@ -93,12 +94,12 @@ Expected response (`order_complete: false` — tray has Filet-O-Fish/Cheesy Frie
   "order_complete": false,
   "accuracy_score": 0.0,
   "missing_items": [
-    {"name": "Cheeseburger", "quantity": 1},
-    {"name": "French Fries", "quantity": 1}
+    { "name": "Cheeseburger", "quantity": 1 },
+    { "name": "French Fries", "quantity": 1 }
   ],
   "extra_items": [
-    {"name": "Filet-O-Fish", "quantity": 1},
-    {"name": "Cheesy Fries", "quantity": 1}
+    { "name": "Filet-O-Fish", "quantity": 1 },
+    { "name": "Cheesy Fries", "quantity": 1 }
   ],
   "quantity_mismatches": [],
   "matched_items": [],
@@ -223,6 +224,7 @@ make benchmark-single IMAGE_ID=MCD-1001
 ```
 
 Output:
+
 ```
 === Benchmark Results ===
 {
@@ -245,21 +247,22 @@ make benchmark
 
 Configuration options:
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `BENCHMARK_WORKERS` | 1 | Number of concurrent workers |
-| `BENCHMARK_DURATION` | 180 | Benchmark duration (seconds) |
-| `BENCHMARK_TARGET_LATENCY_MS` | 25000 | Target latency threshold (ms) |
-| `BENCHMARK_LATENCY_METRIC` | avg | Metric: `avg`, `p95`, or `max` |
-| `BENCHMARK_DENSITY_INCREMENT` | 1 | Concurrent images per iteration |
-| `BENCHMARK_INIT_DURATION` | 60 | Warmup time (seconds) |
-| `BENCHMARK_MIN_REQUESTS` | 3 | Min requests before measuring |
-| `BENCHMARK_REQUEST_TIMEOUT` | 300 | Request timeout (seconds) |
-| `TARGET_DEVICE` | GPU | Target device: CPU, GPU |
-| `RESULTS_DIR` | results | Output directory |
-| `REGISTRY` | false | Use registry images (true/false) |
+| Variable                      | Default | Description                      |
+| ----------------------------- | ------- | -------------------------------- |
+| `BENCHMARK_WORKERS`           | 1       | Number of concurrent workers     |
+| `BENCHMARK_DURATION`          | 180     | Benchmark duration (seconds)     |
+| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Target latency threshold (ms)    |
+| `BENCHMARK_LATENCY_METRIC`    | avg     | Metric: `avg`, `p95`, or `max`   |
+| `BENCHMARK_DENSITY_INCREMENT` | 1       | Concurrent images per iteration  |
+| `BENCHMARK_INIT_DURATION`     | 60      | Warmup time (seconds)            |
+| `BENCHMARK_MIN_REQUESTS`      | 3       | Min requests before measuring    |
+| `BENCHMARK_REQUEST_TIMEOUT`   | 300     | Request timeout (seconds)        |
+| `TARGET_DEVICE`               | GPU     | Target device: CPU, GPU          |
+| `RESULTS_DIR`                 | results | Output directory                 |
+| `REGISTRY`                    | false   | Use registry images (true/false) |
 
 Example:
+
 ```bash
 make benchmark BENCHMARK_WORKERS=2 BENCHMARK_DURATION=600 TARGET_DEVICE=GPU
 ```
@@ -273,7 +276,8 @@ make benchmark-stream-density
 ```
 
 Output:
-```
+
+```text
 Target Latency: 15000ms
 Max Density: 2 concurrent images
 
@@ -298,29 +302,30 @@ make plot-metrics
 
 ### Validation Status
 
-| Field | Description |
-|-------|-------------|
-| `order_complete` | `true` if all items match with correct quantities |
-| `accuracy_score` | 0.0-1.0 ratio of matched to expected items |
-| `missing_items` | Items in order but not detected on plate |
-| `extra_items` | Items detected but not in order |
-| `quantity_mismatches` | Items with wrong quantities |
-| `matched_items` | Successfully matched items with similarity scores |
+| Field                 | Description                                       |
+| --------------------- | ------------------------------------------------- |
+| `order_complete`      | `true` if all items match with correct quantities |
+| `accuracy_score`      | 0.0-1.0 ratio of matched to expected items        |
+| `missing_items`       | Items in order but not detected on plate          |
+| `extra_items`         | Items detected but not in order                   |
+| `quantity_mismatches` | Items with wrong quantities                       |
+| `matched_items`       | Successfully matched items with similarity scores |
 
 ### Metrics Interpretation
 
-| Metric | Good Value | Warning |
-|--------|------------|---------|
-| `vlm_inference_ms` | < 10,000 | > 15,000 |
-| `gpu_utilization` | 80-100% | < 50% (not using GPU) |
-| `cpu_utilization` | 20-40% | > 80% |
-| `memory_utilization` | < 80% | > 90% |
+| Metric               | Good Value | Warning               |
+| -------------------- | ---------- | --------------------- |
+| `vlm_inference_ms`   | < 10,000   | > 15,000              |
+| `gpu_utilization`    | 80-100%    | < 50% (not using GPU) |
+| `cpu_utilization`    | 20-40%     | > 80%                 |
+| `memory_utilization` | < 80%      | > 90%                 |
 
 ## Adding Custom Test Scenarios
 
 ### 1. Add Image
 
 Place image in `images/` directory:
+
 ```bash
 cp my_plate.jpg images/
 ```
@@ -328,6 +333,7 @@ cp my_plate.jpg images/
 ### 2. Update Orders Config
 
 Edit `configs/orders.json`:
+
 ```json
 {
   "orders": [
@@ -336,8 +342,8 @@ Edit `configs/orders.json`:
       "restaurant": "My Restaurant",
       "table_number": "5",
       "items_ordered": [
-        {"item": "Burger", "quantity": 1},
-        {"item": "Fries", "quantity": 1}
+        { "item": "Burger", "quantity": 1 },
+        { "item": "Fries", "quantity": 1 }
       ]
     }
   ]
