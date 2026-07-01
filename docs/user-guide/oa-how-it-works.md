@@ -105,7 +105,7 @@ flowchart TB
 
 #### 1. VLM Backend (OVMS)
 
-OpenVINO Model Server hosting Qwen2.5-VL-7B for vision-language inference.
+OpenVINO™ Model Server hosting Qwen2.5-VL-7B for vision-language inference.
 
 **Features:**
 

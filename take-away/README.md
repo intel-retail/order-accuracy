@@ -2,7 +2,7 @@
 
 **Real-time Order Validation System for Quick Service Restaurants**
 
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](../LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
 [![Docker](https://img.shields.io/badge/Docker-24.0%2B-blue.svg)](https://docker.com)
 [![OpenVINO](https://img.shields.io/badge/OpenVINO-2026.0-blue.svg)](https://docs.openvino.ai)
@@ -26,9 +26,9 @@ Take-Away Order Accuracy is an AI-powered vision system that validates drive-thr
 
 ### Service Modes
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| **Single** | Single worker with Gradio UI | Development, testing, demos |
+| Mode         | Description                     | Use Case                    |
+| ------------ | ------------------------------- | --------------------------- |
+| **Single**   | Single worker with Gradio UI    | Development, testing, demos |
 | **Parallel** | Multi-worker with VLM scheduler | Production, high throughput |
 
 ---
@@ -65,18 +65,18 @@ The VLM model must be exported before running the application. The script reads 
 
 ```bash
 cd ../ovms-service
-./setup_models.sh    # Downloads and exports model (~30-60 min first time)
+./setup_models.sh --app take-away    # Downloads and exports model (~30-60 min first time)
 cd ../take-away
 ```
 
 This step:
 
 - Downloads Qwen2.5-VL-7B-Instruct from HuggingFace (~7 GB)
-- Converts to OpenVINO INT8 format
+- Converts to OpenVINO™ INT8 format
 - Downloads YOLO and EasyOCR models
 - Creates model files in `ovms-service/models/` and `take-away/models/`
 
-> **Note:** Only needed once. Model files are shared between dine-in and take-away.
+> **Note:** Only needed once. Model files are shared between Dine-In and Take-Away.
 
 ### 3. Build and Start
 
@@ -90,30 +90,29 @@ make up REGISTRY=false
 
 ### 4. Access Services
 
-| Service | URL | Purpose |
-|---------|-----|---------|
-| Gradio UI | http://localhost:7860 | Interactive order validation |
-| Order Accuracy API | http://localhost:8000 | REST API endpoints |
-| MinIO Console | http://localhost:9001 | Frame storage management |
-| OVMS VLM | http://localhost:8001 | VLM model server |
-| Semantic Service | http://localhost:8080 | Semantic matching API |
+| Service            | URL                   | Purpose                      |
+| ------------------ | --------------------- | ---------------------------- |
+| Gradio UI          | http://localhost:7860 | Interactive order validation |
+| Order Accuracy API | http://localhost:8000 | REST API endpoints           |
+| MinIO Console      | http://localhost:9001 | Frame storage management     |
+| OVMS VLM           | http://localhost:8001 | VLM model server             |
+| Semantic Service   | http://localhost:8080 | Semantic matching API        |
 
 ---
 
 ## Documentation
 
-### User Guides
-
-| Document | Description |
-|----------|-------------|
-| [Getting Started](../docs/user-guide/take-away/get-started.md) | Installation and setup guide |
-| [System Requirements](../docs/user-guide/take-away/get-started/system-requirements.md) | Hardware/software requirements and pre-deployment checklist |
-| [System Architecture](../docs/user-guide/take-away/how-it-works.md) | Architecture, design and component details of the Take-Away application. |
-| [How to Use](../docs/user-guide/take-away/how-to-use.md) | Usage instructions and workflows |
-| [Build from Source](../docs/user-guide/take-away/get-started/build-from-source.md) | Source build instructions |
-| [API Reference](../docs/user-guide/take-away/api-reference.md) | Complete REST API documentation |
-| [Benchmarking Guide](../docs/user-guide/take-away/ta-benchmarking.md) | Performance testing guide |
-| [Release Notes](../docs/user-guide/take-away/release-notes.md) | Version history and changes |
+| Document                                                                               | Description                                                              |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| [Getting Started](../docs/user-guide/take-away/get-started.md)                         | Installation and setup guide                                             |
+| [System Requirements](../docs/user-guide/take-away/get-started/system-requirements.md) | Hardware/software requirements and pre-deployment checklist              |
+| [System Architecture](../docs/user-guide/take-away/how-it-works.md)                    | Architecture, design and component details of the Take-Away application. |
+| [How to Use](../docs/user-guide/take-away/how-to-use.md)                               | Usage instructions and workflows                                         |
+| [Build from Source](../docs/user-guide/take-away/get-started/build-from-source.md)     | Source build instructions                                                |
+| [API Reference](../docs/user-guide/take-away/api-reference.md)                         | Complete REST API documentation                                          |
+| [Benchmarking Guide](../docs/user-guide/take-away/ta-benchmarking.md)                  | Performance testing guide                                                |
+| [Troubleshooting](../docs/user-guide/take-away/troubleshooting.md)                     | Common issues and resolutions                                            |
+| [Release Notes](../docs/user-guide/take-away/release-notes.md)                         | Version history and changes                                              |
 
 ---
 
@@ -131,7 +130,7 @@ make up REGISTRY=false
 
 Copyright © 2026 Intel Corporation
 
-Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
+Licensed under the Apache License, Version 2.0. See [LICENSE](../LICENSE) for details.
 
 ---
 
@@ -139,6 +138,6 @@ Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for detai
 
 For issues, questions, or contributions:
 
-1. Review the [documentation](docs/user-guide/)
-2. Check existing [issues](issues/)
-3. Submit a detailed bug report or feature request
+1. Review the [documentation](../docs/user-guide/take-away/troubleshooting.md) and [release notes](../docs/user-guide/take-away/release-notes.md)
+2. Check existing [issues](https://github.com/intel-retail/order-accuracy/issues)
+3. Submit a detailed bug report or feature request. See the [Support](../README.md#support) section of the main README for guidance.

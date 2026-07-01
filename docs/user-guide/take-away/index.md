@@ -13,6 +13,17 @@ hide_directive-->
 
 Take-Away Order Accuracy is an enterprise-grade AI vision system designed for real-time order validation in quick-service restaurant (QSR) environments. The system employs Vision Language Models (VLM) to analyze video feeds from drive-through stations, automatically identifying items in order bags and validating them against POS order data.
 
+## Next Steps
+
+- [System Requirements](./get-started/system-requirements.md) - Check the detailed requirements
+- [Installation Guide](./get-started.md) - Step-by-step installation instructions
+- [How It Works](./how-it-works.md) - Learn about the architecture
+- [How To Use](./how-to-use.md) - Learn how to operate the system
+- [Benchmarking Guide](./ta-benchmarking.md) - Run benchmarks
+- [API Reference](./api-reference.md) - Learn the API
+- [Troubleshooting](./troubleshooting.md) - Resolve common issues
+- [Release Notes](./release-notes.md) - Read about updates and improvements
+
 <!--hide_directive
 :::{toctree}
 :hidden:
@@ -22,6 +33,7 @@ Take-Away Order Accuracy is an enterprise-grade AI vision system designed for re
 How To Use <./how-to-use.md>
 Benchmarking <./ta-benchmarking.md>
 API Reference <./api-reference.md>
+Troubleshooting <./troubleshooting.md>
 Release Notes <./release-notes.md>
 
 :::

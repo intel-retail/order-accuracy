@@ -102,16 +102,4 @@ curl http://localhost:8083/health
 
 ## Troubleshooting
 
-### Build Fails (network / pip)
-
-```bash
-docker compose build --no-cache
-```
-
-### GPU Not Detected
-
-```bash
-sudo usermod -aG render $USER
-# Log out and back in, then restart
-make down && make up
-```
+For common issues, see [Troubleshooting](../troubleshooting.md).
