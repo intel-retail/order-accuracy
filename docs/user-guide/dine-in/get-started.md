@@ -2,7 +2,12 @@
 
 This guide walks you through installation, configuration, and first run of the Dine-In Order Accuracy system.
 
----
+## Table of Contents
+
+1. [Prerequisites](#prerequisites)
+2. [Installation](#installation)
+3. [Verifying Installation](#verifying-installation)
+4. [First Order Validation](#first-order-validation)
 
 ## Prerequisites
 
@@ -23,13 +28,18 @@ docker --version
 docker compose version
 ```
 
----
+## Installation
 
-## Step 1: Configure Environment
+### Step 1: Clone the Repository
 
 ```bash
+git clone https://github.com/intel-retail/order-accuracy.git
 cd order-accuracy/dine-in
+```
 
+### Step 2: Configure the Environment
+
+```bash
 # Create .env from template
 make init-env
 # Edit .env if needed — defaults work for most setups
@@ -38,9 +48,9 @@ make init-env
 make update-submodules
 ```
 
-## Step 2: Setup OVMS Model (First Time Only)
+### Step 3: Setup OVMS Model (First Time Only)
 
-The setup script reads model configuration (device, precision, model name) from `dine-in/.env` (created in Step 1), so **complete Step 1 before running this step**.
+The setup script reads model configuration (device, precision, model name) from `dine-in/.env` (created in Step 2), so **complete Step 2 before running this step**.
 
 ```bash
 cd ../ovms-service
@@ -48,19 +58,27 @@ cd ../ovms-service
 cd ../dine-in
 ```
 
-> **Note:** If you previously ran setup for take-away, the model files are already shared and this step will detect them automatically — no re-download needed.
+> **Note:** Only needed once. Model files are shared between Dine-In and Take-Away.
 
-This downloads Qwen2.5-VL-7B-Instruct (~7 GB) and converts it to OpenVINO INT8 format. This is only needed once — the model files are shared with Take-Away.
+This downloads Qwen2.5-VL-7B-Instruct (~7 GB) and converts it to OpenVINO™ INT8 format. This is only needed once — the model files are shared with Take-Away.
 
-## Step 3: Prepare Test Data
+### Step 4: Prepare Test Data
 
-The `images/` folder does not contain sample images. Add your own before testing:
+Before running the application, you must prepare your test data:
 
-1. Place plate images in `images/` (`.jpg`, `.jpeg`, or `.png`)
-2. Edit `configs/orders.json` — add entries with `image_id` matching your filenames
-3. Edit `configs/inventory.json` — define all possible menu items
+1. **Add Images**: Place your food tray images in the `images/` folder
+   - Supported formats: `.jpg`, `.jpeg`, `.png`
+   - Images should clearly show the food items on the tray
 
-## Step 4: Build and Start
+2. **Update Orders**: Edit `configs/orders.json` with your test orders
+   - Each order should have an `order_id` and list of `items`
+   - `order_id` should match your `image_id`
+
+3. **Update Inventory**: Edit `configs/inventory.json` to match your menu items
+   - Define all possible food items that can appear in orders
+   - Include item names, categories, and any relevant metadata
+
+### Step 5: Build and Start
 
 ```bash
 # Pull images from registry (default)
@@ -98,7 +116,7 @@ Open `http://localhost:7861` for the Gradio UI, or `http://localhost:8083/docs` 
 
 ---
 
-## First Validation
+## First Order Validation
 
 ### Via Gradio UI
 
@@ -140,49 +158,6 @@ make benchmark-single IMAGE_ID=MCD-1001
 
 ---
 
-## Benchmarking
-
-### Single Image Test
-
-```bash
-make benchmark-single IMAGE_ID=MCD-1001
-```
-
-### Full Benchmark
-
-```bash
-make benchmark
-```
-
-Key variables:
-
-| Variable                      | Default | Description            |
-| ----------------------------- | ------- | ---------------------- |
-| `BENCHMARK_WORKERS`           | 1       | Concurrent workers     |
-| `BENCHMARK_DURATION`          | 180     | Duration (seconds)     |
-| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Latency threshold (ms) |
-| `TARGET_DEVICE`               | GPU     | Device: CPU, GPU       |
-
-### Stream Density Test
-
-Finds the maximum number of concurrent image validations within the latency target:
-
-```bash
-make benchmark-stream-density
-
-# With overrides
-make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=20000 BENCHMARK_INIT_DURATION=30
-```
-
-### Metrics Processing
-
-```bash
-make consolidate-metrics   # Consolidate results to CSV
-make plot-metrics          # Generate visualisation plots
-```
-
----
-
 ## Changing Inference Device
 
 To switch between GPU and CPU, update `TARGET_DEVICE` in `.env` and re-run model setup:
@@ -191,36 +166,9 @@ To switch between GPU and CPU, update `TARGET_DEVICE` in `.env` and re-run model
 # In .env
 TARGET_DEVICE=CPU
 
-cd ../ovms-service && ./setup_models.sh && cd ../dine-in
+cd ../ovms-service && ./setup_models.sh --app dine-in && cd ../dine-in
 make down && make up
 ```
-
----
-
-## Troubleshooting
-
-### OVMS Not Starting
-
-```bash
-docker logs dinein_ovms_vlm
-ls -la ../ovms-service/models/
-```
-
-OVMS can take 2–5 minutes to load the model. Wait for `"Server started"` in the logs.
-
-### GPU Not Detected
-
-```bash
-sudo usermod -aG render $USER
-# Log out and back in, then restart services
-make down && make up
-```
-
-### No Scenarios in UI
-
-Ensure images are in `images/` and `configs/orders.json` has entries with matching `image_id` values (filename without extension).
-
----
 
 ## Quick Reference
 
@@ -233,18 +181,21 @@ make test-api                        # Health check
 make benchmark-single IMAGE_ID=...   # Quick test
 make benchmark                       # Full benchmark
 make benchmark-stream-density        # Stream density test
+make clean                           # Stop and remove volumes
+make clean-images                    # Remove dangling Docker images
+make clean-all                       # Remove all unused Docker resources
 make help                            # All commands
 ```
 
----
-
 ## Next Steps
 
-- [System Requirements](./get-started/system-requirements.md) - Check the requirements
+- [System Requirements](./get-started/system-requirements.md) - Check the detailed requirements
 - [Build from Source](./get-started/build-from-source.md) - Build from source
 - [How It Works](./how-it-works.md) - Learn about the architecture
 - [How to Use](./how-to-use.md) - Customize settings
+- [Benchmarking Guide](./di-benchmarking.md) - Run benchmarks
 - [API Reference](./api-reference.md) - Learn the API
+- [Troubleshooting](./troubleshooting.md) - Resolve common issues
 - [Release Notes](./release-notes.md) - Read about updates and improvements
 
 <!--hide_directive

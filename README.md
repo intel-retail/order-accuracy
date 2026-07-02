@@ -1,243 +1,111 @@
 # Order Accuracy
 
-**AI-Powered Order Validation Platform for Quick Service Restaurants**
-
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://python.org)
 [![Docker](https://img.shields.io/badge/Docker-24.0%2B-blue.svg)](https://docker.com)
 [![OpenVINO](https://img.shields.io/badge/OpenVINO-2026.0-blue.svg)](https://docs.openvino.ai)
 
----
+A suite of Intel® edge AI applications for real-time order validation in Quick Service Restaurant (QSR)
+environments, powered by Vision Language Models (VLM) and Intel® OpenVINO™ inference.
 
-## Overview
+Order Accuracy automatically detects items in food trays, bags, or containers, compares them
+against expected order data, and identifies discrepancies before orders reach customers.
 
-Order Accuracy is an enterprise AI vision platform that validates food orders in real-time using Vision Language Models (VLM). The platform automatically detects items in food trays, bags, or containers, compares them against expected order data, and identifies discrepancies before orders reach customers.
-
-### Platform Applications
+## Platform Applications
 
 The platform provides two specialized applications optimized for different restaurant scenarios:
 
-| Application | Use Case | Input Type |
-|-------------|----------|------------|
-| **[Dine-In](#dine-in-order-accuracy)** | Restaurant table service validation | Static images |
-| **[Take-Away](#take-away-order-accuracy)** | Drive-through and counter service | Video streams (RTSP) |
+| Application                                | Use Case                            |
+| ------------------------------------------ | ----------------------------------- |
+| **[Dine-In](#dine-in-order-accuracy)**     | Restaurant table service validation |
+| **[Take-Away](#take-away-order-accuracy)** | Drive-through and counter service   |
+
+### Choosing the Right Application
+
+| Criteria             | Dine-In             | Take-Away              |
+| -------------------- | ------------------- | ---------------------- |
+| **Input Type**       | Static images       | Video streams (RTSP)   |
+| **Throughput**       | Low-medium          | High (parallel)        |
+| **Latency Priority** | Accuracy over speed | Speed and accuracy     |
+| **Camera Setup**     | Fixed position      | Multi-station          |
+| **Typical Use**      | Table service       | Drive-through, counter |
+| **Processing**       | Single request      | Batch processing       |
 
 ---
 
-## Architecture
+### Dine-In Order Accuracy
 
-```
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         ORDER ACCURACY PLATFORM                                  │
-│                                                                                  │
-│  ┌──────────────────────────────┐    ┌──────────────────────────────┐          │
-│  │        DINE-IN               │    │        TAKE-AWAY             │          │
-│  │   (Image-Based Validation)   │    │  (Video Stream Validation)   │          │
-│  │                              │    │                              │          │
-│  │  • Single image capture      │    │  • Real-time RTSP streams    │          │
-│  │  • Tray/table validation     │    │  • Multi-station parallel    │          │
-│  │  • REST API integration      │    │  • Frame selection (YOLO)    │          │
-│  │  • Gradio web interface      │    │  • VLM request batching      │          │
-│  └──────────────┬───────────────┘    └──────────────┬───────────────┘          │
-│                 │                                   │                           │
-│                 └─────────────┬─────────────────────┘                           │
-│                               │                                                  │
-│                               ▼                                                  │
-│  ┌──────────────────────────────────────────────────────────────────────────┐  │
-│  │                        SHARED PLATFORM SERVICES                          │  │
-│  │                                                                          │  │
-│  │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌──────────┐ │  │
-│  │  │  OVMS VLM   │    │  Semantic   │    │   MinIO     │    │  Gradio  │ │  │
-│  │  │ (Qwen2.5-VL)│    │  Service    │    │  Storage    │    │    UI    │ │  │
-│  │  │   :8001     │    │   :8080     │    │   :9000     │    │  :7860   │ │  │
-│  │  └─────────────┘    └─────────────┘    └─────────────┘    └──────────┘ │  │
-│  └──────────────────────────────────────────────────────────────────────────┘  │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+Image-based order validation for full-service restaurant expo operations. Staff
+place a plate or tray in the validation station and trigger a check via the
+Gradio UI or REST API. The system analyzes plate contents with a pre-trained
+Qwen2.5-VL model and reconciles detected items against the order manifest —
+no model fine-tuning required.
 
----
+**Best for:** table service, fixed-position cameras, accuracy-prioritized
+single-image validation.
 
-## Dine-In Order Accuracy
+For full details see the [Dine-In User Guide](./docs/user-guide/dine-in/index.md).
+Alternatively, see the [Dine-In README](./dine-in/README.md) for a quick overview of the application.
 
-**Image-based order validation for restaurant dining applications**
+### Take-Away Order Accuracy
 
-Optimized for validating food trays at serving stations before delivery to tables. Uses single image capture and VLM analysis for fast, accurate item detection.
+Real-time video stream validation for drive-through and counter service. The
+service ingests RTSP streams from multiple stations, selects relevant frames
+with a YOLO model, batches VLM requests, and validates orders in parallel
+across up to 8 workers — with circuit-breaker fault tolerance and automatic
+recovery for high-throughput deployments.
 
-### Key Features
+**Best for:** drive-through and counter service, multi-station camera setups,
+speed-and-accuracy continuous validation.
 
-- Single image capture and analysis
-- Food tray/plate item detection
-- REST API for POS integration
-- Gradio web interface for manual validation
-- Hybrid semantic matching
-
-### Quick Start
-
-```bash
-# 1. Setup OVMS Model (first time only - takes 30-60 min)
-cd ovms-service
-./setup_models.sh
-
-# 2. Build and start dine-in
-cd ../dine-in
-make build
-make up
-# Access UI at http://localhost:7861
-```
-
-> **Note:** The OVMS model setup only needs to be done once. Model files are shared between dine-in and take-away applications.
+For full details see the [Take-Away User Guide](./docs/user-guide/take-away/index.md).
+Alternatively, see the [Take-Away README](./take-away/README.md) for a quick overview of the application.
 
 ### Documentation
 
-| Document | Description |
-|----------|-------------|
-| [Getting Started](./docs/user-guide/dine-in/get-started.md) | Installation guide |
-| [System Requirements](./docs/user-guide/dine-in/get-started/system-requirements.md) | Hardware/software requirements |
-| [System Architecture](./docs/user-guide/dine-in/how-it-works.md) | Architecture and design |
-| [How to Use](./docs/user-guide/dine-in/how-to-use.md) | Usage instructions |
-| [Build from Source](./docs/user-guide/dine-in/get-started/build-from-source.md) | Build instructions |
-| [API Reference](./docs/user-guide/dine-in/api-reference.md) | REST API documentation |
-| [Release Notes](./docs/user-guide/dine-in/release-notes.md) | Version history |
-
-📖 **Full Documentation**: [dine-in/README.md](dine-in/README.md)
+| Dine-In                                                         | Take-Away                                                         |
+| --------------------------------------------------------------- | ----------------------------------------------------------------- |
+| [Get Started](./docs/user-guide/dine-in/get-started.md)         | [Get Started](./docs/user-guide/take-away/get-started.md)         |
+| [How It Works](./docs/user-guide/dine-in/how-it-works.md)       | [How It Works](./docs/user-guide/take-away/how-it-works.md)       |
+| [How to Use](./docs/user-guide/dine-in/how-to-use.md)           | [How to Use](./docs/user-guide/take-away/how-to-use.md)           |
+| [Benchmarking](./docs/user-guide/dine-in/di-benchmarking.md)    | [Benchmarking](./docs/user-guide/take-away/ta-benchmarking.md)    |
+| [API Reference](./docs/user-guide/dine-in/api-reference.md)     | [API Reference](./docs/user-guide/take-away/api-reference.md)     |
+| [Troubleshooting](./docs/user-guide/dine-in/troubleshooting.md) | [Troubleshooting](./docs/user-guide/take-away/troubleshooting.md) |
+| [Release Notes](./docs/user-guide/dine-in/release-notes.md)     | [Release Notes](./docs/user-guide/take-away/release-notes.md)     |
 
 ---
 
-## Take-Away Order Accuracy
+### Shared Platform Services
 
-**Real-time video stream validation for drive-through and counter service**
+Both applications share a common set of services:
 
-Optimized for high-throughput drive-through environments with multiple camera stations. Processes RTSP video streams in parallel using intelligent frame selection and VLM batching.
+| Service              | Description                                                              |
+| -------------------- | ------------------------------------------------------------------------ |
+| **OVMS VLM**         | OpenVINO™ Model Server running Qwen2.5-VL with an OpenAI-compatible API  |
+| **Semantic Service** | AI-powered item matching (exact → semantic → hybrid) with local fallback |
+| **MinIO Storage**    | S3-compatible object storage for frames, selections, and results         |
+| **Gradio UI**        | Web interface for manual validation and demos                            |
 
-### Key Features
+The OVMS model files are exported once and shared by both applications. See the
+[OVMS Service README](./ovms-service/README.md) for model setup and KV cache
+tuning guidance.
 
-- Real-time RTSP video stream processing
-- Multi-station parallel processing (up to 8 workers)
-- GStreamer-based video pipeline
-- YOLO-powered frame selection
-- VLM request batching for throughput
-- Circuit breaker and auto-recovery
+## Get Started
 
-### Service Modes
+**Choose an application** and follow its Get Started guide:
 
-| Mode | Description | Use Case |
-|------|-------------|----------|
-| **Single** | Single worker, Gradio UI | Development, testing |
-| **Parallel** | Multi-worker, VLM scheduler | Production deployment |
+- [Dine-In — Get Started](./docs/user-guide/dine-in/get-started.md)
+- [Take-Away — Get Started](./docs/user-guide/take-away/get-started.md)
 
-### Quick Start
+For hardware and software prerequisites, see the system requirements for the
+application you plan to deploy:
 
-```bash
-cd take-away
-
-# Single worker mode (development)
-make build
-make up
-
-# Parallel mode (production)
-make build
-make up-parallel WORKERS=4
-
-# Access UI at http://localhost:7860
-```
-
-### Documentation
-
-| Document | Description |
-|----------|-------------|
-| [Getting Started](./docs/user-guide/take-away/get-started.md) | Installation guide |
-| [System Requirements](./docs/user-guide/take-away/get-started/system-requirements.md) | Hardware/software requirements |
-| [System Architecture](./docs/user-guide/take-away/how-it-works.md) | Architecture and design |
-| [How to Use](./docs/user-guide/take-away/how-to-use.md) | Usage instructions |
-| [Build from Source](./docs/user-guide/take-away/get-started/build-from-source.md) | Build instructions |
-| [API Reference](./docs/user-guide/take-away/api-reference.md) | REST API documentation |
-| [Benchmarking Guide](./docs/user-guide/take-away/ta-benchmarking.md) | Performance testing |
-| [Release Notes](./docs/user-guide/take-away/release-notes.md) | Version history |
-
-📖 **Full Documentation**: [take-away/README.md](take-away/README.md)
-
----
-
-## Choosing the Right Application
-
-| Criteria | Dine-In | Take-Away |
-|----------|---------|-----------|
-| **Input Type** | Static images | Video streams (RTSP) |
-| **Throughput** | Low-medium | High (parallel) |
-| **Latency Priority** | Accuracy over speed | Speed and accuracy |
-| **Camera Setup** | Fixed position | Multi-station |
-| **Typical Use** | Table service | Drive-through, counter |
-| **Processing** | Single request | Batch processing |
-
-### Recommendation
-
-- **Choose Dine-In** if you need to validate orders from captured images at serving stations
-- **Choose Take-Away** if you need real-time validation from continuous video streams
-
----
-
-## Shared Platform Components
-
-### VLM Backend (OVMS)
-
-Both applications use OpenVINO Model Server with Qwen2.5-VL for vision-language inference:
-
-```bash
-# OVMS provides OpenAI-compatible API
-curl http://localhost:8001/v3/chat/completions \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "Qwen/Qwen2.5-VL-7B-Instruct-ov-int8",
-    "messages": [...]
-  }'
-```
-
-### Semantic Comparison Service
-
-AI-powered semantic matching microservice for intelligent item comparison:
-
-- **Matching Strategies**: Exact → Semantic → Hybrid
-- **Example**: Matches "green apple" ↔ "apple" using semantic reasoning
-- **Fallback**: Automatic fallback to local matching if service unavailable
-
-### MinIO Storage
-
-S3-compatible object storage for frames and results:
-
-- **frames bucket**: Raw captured frames
-- **selected bucket**: YOLO-selected frames
-- **results bucket**: Validation results
-
-Access MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
-
----
-
-## System Requirements
-
-### Minimum Configuration
-
-| Component | Specification |
-|-----------|---------------|
-| CPU | Intel Xeon 8+ cores |
-| RAM | 64 GB (required for first-time model export); 16 GB for inference only |
-| GPU | Intel Arc A770 16 GB (8 GB requires `CACHE_SIZE=2` or lower) |
-| Storage | 50 GB SSD |
-| Docker | 24.0+ with Compose V2 |
-
-### Recommended Configuration
-
-| Component | Specification |
-|-----------|---------------|
-| CPU | Intel Xeon 16+ cores |
-| RAM | 64 GB |
-| GPU | NVIDIA RTX 3080+ / Intel Data Center GPU |
-| Storage | 200 GB NVMe SSD |
-| Network | 10 Gbps (for Take-Away RTSP) |
+- [Dine-In — System Requirements](./docs/user-guide/dine-in/get-started/system-requirements.md)
+- [Take-Away — System Requirements](./docs/user-guide/take-away/get-started/system-requirements.md)
 
 > **⚠ Model Export RAM Requirement:** `setup_models.sh` performs INT8 quantization of Qwen2.5-VL-7B, which temporarily requires up to 40 GB of system RAM (FP16 model ~15 GB + INT8 compressed ~8 GB + calibration buffers ~8–15 GB). On platforms with 32 GB RAM (e.g. Wildcat Lake, Meteor Lake), the export OOMs and writes partial, corrupt XML files, causing the `oa_ovms_vlm` container to fail at startup with "Unable to read the model" errors. Always run `setup_models.sh` on a system with at least 48 GB RAM (64 GB recommended). The exported model files can then be copied to lower-memory systems for inference-only deployments.
 >
-> **ℹ OVMS KV Cache (`cache_size`):** The default `CACHE_SIZE=4` reserves 4 GB of VRAM for the KV cache. The INT8 model itself uses ~8 GB VRAM, so total VRAM ≈ 12 GB (fits in Intel Arc A770 16 GB). On **integrated GPU** platforms (Wildcat Lake, Meteor Lake), the KV cache is allocated from **system RAM** — on a 32 GB system this can exhaust all available memory. Use a smaller value (`CACHE_SIZE=2`) on iGPU platforms. Set `export CACHE_SIZE=<N>` before running `setup_models.sh`, or edit `graph.pbtxt` directly after export. See [OVMS Service README — Tuning the KV Cache Size](ovms-service/README.md#tuning-the-kv-cache-size) for a full sizing guide and per-platform recommendations.
+> **ℹ OVMS KV Cache (`cache_size`):** The default `CACHE_SIZE=4` reserves 4 GB of VRAM for the KV cache. The INT8 model itself uses ~8 GB VRAM, so total VRAM ≈ 12 GB (fits in Intel Arc A770 16 GB). On **integrated GPU** platforms (Wildcat Lake, Meteor Lake), the KV cache is allocated from **system RAM** — on a 32 GB system this can exhaust all available memory. Use a smaller value (`CACHE_SIZE=2`) on iGPU platforms. Set `export CACHE_SIZE=<N>` before running `setup_models.sh`, or edit `graph.pbtxt` directly after export. See [OVMS Service README — Tuning the KV Cache Size](./ovms-service/README.md#tuning-the-kv-cache-size) for a full sizing guide and per-platform recommendations.
 
 ---
 
@@ -247,75 +115,26 @@ Access MinIO Console: http://localhost:9001 (minioadmin/minioadmin)
 order-accuracy/
 ├── dine-in/                     # Dine-In application
 │   ├── src/                     # Application source code
-│   ├── docs/                    # Documentation
 │   ├── docker-compose.yaml      # Service orchestration
 │   ├── Makefile                 # Build automation
 │   └── README.md                # Dine-In documentation
+│
+├── docs/user-guide
+│   ├── dine-in/                 # Dine-In user guide
+│   └── take-away/               # Take-Away user guide
 │
 ├── take-away/                   # Take-Away application
 │   ├── src/                     # Application source code
 │   ├── frame-selector-service/  # YOLO frame selection
 │   ├── gradio-ui/               # Web interface
-│   ├── docs/                    # Documentation
 │   ├── docker-compose.yaml      # Service orchestration
 │   ├── Makefile                 # Build automation
 │   └── README.md                # Take-Away documentation
 │
 ├── ovms-service/                # Shared OVMS configuration
 ├── performance-tools/           # Benchmarking scripts
-├── config/                      # Shared configuration
 └── README.md                    # This file
 ```
-
----
-
-## Quick Reference
-
-### Dine-In Commands
-
-```bash
-cd dine-in
-make build                  # Build Docker images
-make up                     # Start services
-make down                   # Stop services
-make logs                   # View logs
-make update-submodules      # Initialize performance-tools (required before benchmarking)
-make benchmark              # Run benchmark
-make benchmark-stream-density      # Run stream density test
-make benchmark-density-results  # View density benchmark results
-```
-
-### Take-Away Commands
-
-```bash
-cd take-away
-make init-env               # Create .env from template
-make build                  # Build Docker images
-make up                     # Start (single mode)
-make down                   # Stop services
-make logs                   # View logs
-make update-submodules      # Initialize performance-tools (required before benchmarking)
-make download-sample-video  # Download sample video
-make benchmark              # Run Order Accuracy benchmark
-make benchmark-stream-density  # Stream density test (latency-based)
-make consolidate-metrics    # Consolidate benchmark metrics to CSV
-make plot-metrics           # Generate plots from benchmark metrics
-```
-
-> **Note:** Before running benchmarks, ensure a test video is present at `storage/videos/test.mp4`. Use `make download-sample-video` to fetch one.
-
----
-
-## Service Endpoints
-
-| Service | Port | URL |
-|---------|------|-----|
-| Order Accuracy API | 8000 | http://localhost:8000 |
-| OVMS VLM | 8001 | http://localhost:8001 |
-| Gradio UI | 7860 | http://localhost:7860 |
-| MinIO API | 9000 | http://localhost:9000 |
-| MinIO Console | 9001 | http://localhost:9001 |
-| Semantic Service | 8080 | http://localhost:8080 |
 
 ---
 
@@ -325,18 +144,16 @@ Copyright © 2025 Intel Corporation
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
 
----
-
 ## Support
 
 For application-specific issues, refer to the respective documentation:
 
-- **Dine-In Issues**: See [dine-in/docs/](dine-in/docs/user-guide/)
-- **Take-Away Issues**: See [take-away/docs/](take-away/docs/user-guide/)
+- **Dine-In Issues**: See [Dine-In Troubleshooting](./docs/user-guide/dine-in/troubleshooting.md)
+- **Take-Away Issues**: See [Take-Away Troubleshooting](./docs/user-guide/take-away/troubleshooting.md)
 
-For platform-wide issues or feature requests, submit an issue with:
+For platform-wide issues or feature requests, [submit an issue](https://github.com/intel-retail/order-accuracy/issues) with:
 
-1. Application name (dine-in/take-away)
+1. Application name (dine-in / take-away)
 2. Steps to reproduce
-3. Expected vs actual behavior
+3. Expected vs. actual behavior
 4. Logs (`make logs`)

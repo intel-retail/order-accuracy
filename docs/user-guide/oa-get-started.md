@@ -45,7 +45,7 @@
 
    ```bash
    cd ../ovms-service
-   ./setup_models.sh
+   ./setup_models.sh -app dine-in
    cd ../dine-in
    ```
 
@@ -93,7 +93,7 @@
 
    ```bash
    cd ../ovms-service
-   ./setup_models.sh
+   ./setup_models.sh -app take-away
    cd ../take-away
    ```
 
@@ -193,7 +193,7 @@ make down-volumes
 
 | Configuration      | Command                     | Description                |
 | ------------------ | --------------------------- | -------------------------- |
-| **Start Services** | `make up`                   | Start all dine-in services |
+| **Start Services** | `make up`                   | Start all Dine-In services |
 | **Build Locally**  | `make build REGISTRY=false` | Build images from source   |
 | **View Logs**      | `make logs`                 | View service logs          |
 | **Stop Services**  | `make down`                 | Stop all containers        |
@@ -209,7 +209,7 @@ make down-volumes
 | **Build Locally** | `make build REGISTRY=false`  | Build images from source                   |
 | **View Logs**     | `make logs`                  | View service logs                          |
 
-> **Note**: **Single Mode** is best for development and testing. **Parallel Mode** is recommended for production with multiple camera stations.
+> **Note:** **Single Mode** is best for development and testing. **Parallel Mode** is recommended for production with multiple camera stations.
 
 <!--hide_directive:::
 ::::hide_directive-->

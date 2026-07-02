@@ -1,19 +1,19 @@
 # OVMS Service for Order Accuracy
 
-This directory contains the OpenVINO Model Server (OVMS) configuration and model export scripts for the order accuracy VLM backend.
+This directory contains the OpenVINO™ Model Server (OVMS) configuration and model export scripts for the order accuracy VLM backend.
 
 ## Directory Structure
 
 ```
 ovms-service/
-├── export_model.py          # Script to export HuggingFace models to OpenVINO format
+├── export_model.py          # Script to export HuggingFace models to OpenVINO™ format
 ├── export_requirements.txt  # Python dependencies for model export
 ├── models/                  # OVMS model repository
 │   ├── config.json          # OVMS configuration
 │   └── Qwen/                # Model directory (created after export)
 │       └── Qwen2.5-VL-7B-Instruct-ov-int8/
 │           ├── graph.pbtxt  # MediaPipe graph configuration (critical)
-│           └── openvino_*   # OpenVINO model files
+│           └── openvino_*   # OpenVINO™ model files
 └── README.md                # This file
 ```
 
@@ -35,9 +35,10 @@ bash ovms-service/setup_models.sh --app dine-in
 ```
 
 This will:
+
 - Download `export_model.py` and install its dependencies automatically
 - Download the model from HuggingFace
-- Convert to OpenVINO IR format with int8 quantization
+- Convert to OpenVINO™ IR format with int8 quantization
 - Save to `ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/`
 - Generate `graph.pbtxt` for OVMS configuration
 
@@ -57,7 +58,7 @@ docker-compose --profile ovms up -d
 # Check OVMS health
 curl http://localhost:8002/v1/config
 
-# Check model status  
+# Check model status
 curl http://localhost:8002/v1/models
 
 # Verify model is AVAILABLE
@@ -353,4 +354,4 @@ docker logs oa_ovms_vlm 2>&1 | grep "Cache usage"
 
 - [OVMS Documentation](https://github.com/openvinotoolkit/model_server)
 - [Qwen2.5-VL Model](https://huggingface.co/Qwen/Qwen2.5-VL-7B-Instruct)
-- [OpenVINO GenAI](https://github.com/openvinotoolkit/openvino.genai)
+- [OpenVINO™ GenAI](https://github.com/openvinotoolkit/openvino.genai)

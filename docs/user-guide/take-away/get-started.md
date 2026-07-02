@@ -2,8 +2,6 @@
 
 This guide walks you through the installation, configuration, and first-run of the Take-Away Order Accuracy system.
 
----
-
 ## Table of Contents
 
 1. [Prerequisites](#prerequisites)
@@ -12,9 +10,6 @@ This guide walks you through the installation, configuration, and first-run of t
 4. [Starting the Services](#starting-the-services)
 5. [Verifying Installation](#verifying-installation)
 6. [First Order Validation](#first-order-validation)
-7. [Troubleshooting](#troubleshooting)
-
----
 
 ## Prerequisites
 
@@ -53,8 +48,6 @@ docker --version          # Docker version 24.0.x or higher
 docker compose version    # Docker Compose version v2.x.x
 ```
 
----
-
 ## Installation
 
 ### Step 1: Clone the Repository
@@ -64,39 +57,38 @@ git clone https://github.com/intel-retail/order-accuracy.git
 cd order-accuracy/take-away
 ```
 
-### Step 2: Initialize Git Submodules
+### Step 2: Configure the Environment
 
 ```bash
-make update-submodules
-```
-
-### Step 3: Create Environment File
-
-```bash
+# Create .env from template
 make init-env
+# Edit .env if needed — defaults work for most setups
+
+# Initialize git submodules (for benchmark tools)
+make update-submodules
 ```
 
 Edit the generated `.env` file as needed. See [Configuration](#configuration) below.
 
-### Step 4: Setup OVMS Models (First Time Only)
+### Step 3: Setup OVMS Model (First Time Only)
 
 Set `TARGET_DEVICE` in your `.env` **before** running this step. The script reads that value to export the model in the correct format for the target device.
 
 ```bash
 cd ../ovms-service
-./setup_models.sh
+./setup_models.sh --app take-away    # Downloads and exports model (~30-60 min first time)
 cd ../take-away
 ```
 
 This downloads and exports:
 
-- Qwen2.5-VL-7B-Instruct (OpenVINO format)
-- YOLOv11 model (INT8 OpenVINO)
+- Qwen2.5-VL-7B-Instruct (OpenVINO™ format)
+- YOLOv11 model (INT8 OpenVINO™)
 - EasyOCR detection and recognition models
 
 > **Note:** Re-run this step any time you change `TARGET_DEVICE` in `.env`.
 
-### Step 5: Build and Start
+### Step 4: Build and Start
 
 ```bash
 # Pull images from registry (default)
@@ -144,7 +136,7 @@ MINIO_ROOT_PASSWORD=<your-minio-password>
 MINIO_ENDPOINT=minio:9000
 ```
 
-> **Changing the inference device:** Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU` or `CPU`), then re-run `./setup_models.sh` to re-export the model for that device.
+> **Changing the inference device:** Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU` or `CPU`), then re-run `./setup_models.sh --app take-away` to re-export the model for that device.
 
 ### Validate Configuration
 
@@ -253,56 +245,6 @@ make benchmark
 
 ---
 
-## Troubleshooting
-
-### OVMS Not Starting
-
-```bash
-# Check logs
-docker logs oa_ovms_vlm
-
-# Verify model files exist
-ls -la ../ovms-service/models/
-```
-
-### Connection Refused to OVMS (port 8001)
-
-OVMS can take 2–5 minutes to load the model. Wait and check:
-
-```bash
-docker logs -f oa_ovms_vlm | grep "Serving"
-```
-
-### MinIO Bucket Errors
-
-```bash
-# Recreate MinIO with fresh volumes
-make down
-docker volume rm take-away_minio_data
-make up
-```
-
-### GPU Not Detected
-
-```bash
-sudo usermod -aG render $USER
-# Log out and log back in, then restart services
-make down && make up
-```
-
-### GPU OOM / Out of Memory
-
-```bash
-# Switch to CPU: set both in .env, then re-export model
-TARGET_DEVICE=CPU
-OPENVINO_DEVICE=CPU
-# Then:
-cd ../ovms-service && ./setup_models.sh
-cd ../take-away && make down && make up
-```
-
----
-
 ## Quick Reference
 
 ```bash
@@ -327,6 +269,7 @@ make benchmark-stream-density  # Run stream density benchmark
 - [How to Use](./how-to-use.md) - Customize settings
 - [Benchmarking Guide](./ta-benchmarking.md) - Run benchmarks
 - [API Reference](./api-reference.md) - Learn the API
+- [Troubleshooting](./troubleshooting.md) - Resolve common issues
 - [Release Notes](./release-notes.md) - Read about updates and improvements
 
 <!--hide_directive
