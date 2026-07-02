@@ -69,14 +69,13 @@ cd ../ovms-service
 cd ../take-away
 ```
 
-This step:
+This downloads and exports:
 
-- Downloads Qwen2.5-VL-7B-Instruct from HuggingFace (~7 GB)
-- Converts to OpenVINO™ INT8 format
-- Downloads YOLO and EasyOCR models
-- Creates model files in `ovms-service/models/` and `take-away/models/`
+- Qwen2.5-VL-7B-Instruct (OpenVINO™ format)
+- YOLOv11 model (INT8 OpenVINO™)
+- EasyOCR detection and recognition models
 
-> **Note:** Only needed once. Model files are shared between Dine-In and Take-Away.
+> **Note:** Re-run this step any time you change `TARGET_DEVICE` in `.env`.
 
 ### 3. Build and Start
 
