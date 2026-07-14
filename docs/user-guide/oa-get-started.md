@@ -41,22 +41,35 @@
    cd order-accuracy/dine-in
    ```
 
-2. **Setup OVMS Models (First Time Only)**
+2. **Configure the Environment**
+
+   ```bash
+   # Create .env from template
+   make init-env
+   # Edit .env if needed — defaults work for most setups
+
+   # Initialize git submodules (for benchmark tools)
+   make update-submodules
+   ```
+
+3. **Setup OVMS Models (First Time Only)**
+
+   The setup script reads model configuration (device, precision, model name) from `dine-in/.env` (created in Step 2), so **complete Step 2 before running this step**.
 
    ```bash
    cd ../ovms-service
-   ./setup_models.sh -app dine-in
+   ./setup_models.sh --app dine-in
    cd ../dine-in
    ```
 
    This downloads and converts the Qwen2.5-VL-7B model (~7GB). This only needs to be done once.
 
-3. **Prepare Test Data**
-   - Add your food tray/plate images to the `images/` folder
+4. **Prepare Test Data**
+   - Add your food tray/plate images to the `images/` folder (`.jpg`, `.jpeg` or `.png`)
    - Update `configs/orders.json` with test orders
    - Update `configs/inventory.json` with your menu items
 
-4. **Build and Start Services**
+5. **Build and Start Services**
 
    ```bash
    # Using pre-built images (recommended for first run)
@@ -68,7 +81,7 @@
    make up
    ```
 
-5. **Access the Application**
+6. **Access the Application**
    - **Gradio UI**: `http://localhost:7861`
    - **REST API Docs**: `http://localhost:8083/docs`
 
@@ -89,21 +102,30 @@
    cd order-accuracy/take-away
    ```
 
-2. **Setup OVMS Models (First Time Only)**
+2. **Configure the Environment**
+
+   ```bash
+   # Create .env from template
+   make init-env
+   # Edit .env if needed — defaults work for most setups
+
+   # Initialize git submodules (for benchmark tools)
+   make update-submodules
+   ```
+
+3. **Setup OVMS Models (First Time Only)**
+
+   Set `TARGET_DEVICE` in your `.env` **before** running this step. The script reads that value to export the model in the correct format for the target device.
 
    ```bash
    cd ../ovms-service
-   ./setup_models.sh -app take-away
+   ./setup_models.sh --app take-away    # Downloads and exports model (~30-60 min first time)
    cd ../take-away
    ```
 
    This downloads the VLM and EasyOCR models. This only needs to be done once.
 
-3. **Initialize Environment**
-
-   ```bash
-   make init-env
-   ```
+   > **Note:** Re-run this step any time you change `TARGET_DEVICE` in `.env`.
 
 4. **Build and Start Services**
 
@@ -182,7 +204,7 @@ make logs
 make down
 
 # Stop and remove volumes (clean restart)
-make down-volumes
+make clean
 ```
 
 ## Quick Start Reference
@@ -196,7 +218,7 @@ make down-volumes
 | **Start Services** | `make up`                   | Start all Dine-In services |
 | **Build Locally**  | `make build REGISTRY=false` | Build images from source   |
 | **View Logs**      | `make logs`                 | View service logs          |
-| **Stop Services**  | `make down`                 | Stop all containers        |
+| **Stop Services**  | `make down`                 | Stop all services          |
 
 <!--hide_directive:::
 :::{tab-item}hide_directive--> **Take-Away Commands**
