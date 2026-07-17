@@ -21,7 +21,7 @@ ovms-service/
 
 ### Prerequisites
 
-1. **Disk space**: ~8 GB for Qwen2.5-VL-7B-Instruct-ov-int8 model (int8 quantization)
+1. **Disk space**: ~8-12 GB depending on selected VLM and precision
 
 ### Export Model
 
@@ -37,10 +37,23 @@ bash ovms-service/setup_models.sh --app dine-in
 This will:
 
 - Download `export_model.py` and install its dependencies automatically
-- Download the model from HuggingFace
+- Read `OVMS_MODEL_NAME` from the selected app `.env` (`take-away/.env` or `dine-in/.env`)
+- Download that model from HuggingFace
 - Convert to OpenVINO™ IR format with int8 quantization
-- Save to `ovms-service/models/Qwen/Qwen2.5-VL-7B-Instruct/`
+- Save to `ovms-service/models/<model-name>/`
 - Generate `graph.pbtxt` for OVMS configuration
+
+Supported values for `OVMS_MODEL_NAME`:
+
+- `Qwen/Qwen2.5-VL-7B-Instruct`
+- `openbmb/MiniCPM-V-4_5`
+
+Optional authentication for gated Hugging Face models:
+
+- Add `HF_TOKEN=<your_token>` (or `HUGGINGFACE_HUB_TOKEN=<your_token>`) to the selected app `.env`
+- Or run `huggingface-cli login`
+
+Public models (for example Qwen) can be downloaded without authentication.
 
 > **ℹ Low-RAM systems:** Set `export CACHE_SIZE=2` before running `setup_models.sh` if you are on a 16 GB system. For first-time export, a 48–64 GB host is recommended to avoid OOM. See [Tuning the KV Cache Size](#tuning-the-kv-cache-size).
 

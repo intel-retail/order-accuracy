@@ -32,12 +32,13 @@ if [ "${APP}" != "take-away" ] && [ "${APP}" != "dine-in" ]; then
 fi
 
 ###############################################
-# HARD CODED MODEL REGISTRY
+# SUPPORTED MODEL REGISTRY
 # key = model_name passed to --model_name (also used as path under MODELS_DIR)
 # value = HuggingFace source passed to --source_model
 ###############################################
-declare -A MODEL_SOURCES
-MODEL_SOURCES["Qwen/Qwen2.5-VL-7B-Instruct"]="Qwen/Qwen2.5-VL-7B-Instruct"
+declare -A SUPPORTED_MODEL_SOURCES
+SUPPORTED_MODEL_SOURCES["Qwen/Qwen2.5-VL-7B-Instruct"]="Qwen/Qwen2.5-VL-7B-Instruct"
+SUPPORTED_MODEL_SOURCES["openbmb/MiniCPM-V-4_5"]="openbmb/MiniCPM-V-4_5"
 
 POTENTIAL_SOURCE_DIRS=(
     "${HOME}/ovms-vlm/models"
@@ -48,20 +49,59 @@ POTENTIAL_SOURCE_DIRS=(
 ###############################################
 # LOAD CONFIG FROM APP-SPECIFIC .env
 ###############################################
+read_env_value() {
+    local key="$1"
+    local file="$2"
+    grep -E "^${key}=" "${file}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r'
+}
+
 ENV_FILE="${PROJECT_ROOT}/${APP}/.env"
 echo "App: ${APP}  →  reading config from ${ENV_FILE}"
 if [ -f "${ENV_FILE}" ]; then
-    OVMS_MODEL_NAME_ENV=$(grep -E '^OVMS_MODEL_NAME=' "${ENV_FILE}" | head -1 | cut -d'=' -f2- | tr -d '"\r')
+    _OVMS_MODEL_NAME_FILE=$(read_env_value "OVMS_MODEL_NAME" "${ENV_FILE}")
 fi
-# Fall back to the hard-coded source model if .env is missing or unset
-OVMS_MODEL_NAME_ENV="${OVMS_MODEL_NAME_ENV:-Qwen/Qwen2.5-VL-7B-Instruct}"
+# Read OVMS_MODEL_NAME: shell env var takes precedence over app .env
+OVMS_MODEL_NAME_ENV="${OVMS_MODEL_NAME:-${_OVMS_MODEL_NAME_FILE:-Qwen/Qwen2.5-VL-7B-Instruct}}"
+
+if [ -z "${SUPPORTED_MODEL_SOURCES[${OVMS_MODEL_NAME_ENV}]+x}" ]; then
+    echo "ERROR: Unsupported OVMS_MODEL_NAME='${OVMS_MODEL_NAME_ENV}'"
+    echo "Supported models:"
+    for supported_model in "${!SUPPORTED_MODEL_SOURCES[@]}"; do
+        echo "  - ${supported_model}"
+    done
+    echo "Set OVMS_MODEL_NAME in ${ENV_FILE} to one of the values above."
+    exit 1
+fi
+
+declare -A MODEL_SOURCES
+MODEL_SOURCES["${OVMS_MODEL_NAME_ENV}"]="${SUPPORTED_MODEL_SOURCES[${OVMS_MODEL_NAME_ENV}]}"
+
+# Optional Hugging Face token loading from the selected app .env.
+# If present, export both names for broad compatibility:
+# - HF_TOKEN
+# - HUGGINGFACE_HUB_TOKEN
+_HF_TOKEN_FILE=""
+_HUGGINGFACE_HUB_TOKEN_FILE=""
+if [ -f "${ENV_FILE}" ]; then
+    _HF_TOKEN_FILE=$(read_env_value "HF_TOKEN" "${ENV_FILE}")
+    _HUGGINGFACE_HUB_TOKEN_FILE=$(read_env_value "HUGGINGFACE_HUB_TOKEN" "${ENV_FILE}")
+fi
+
+HF_TOKEN_ENV="${HF_TOKEN:-${HUGGINGFACE_HUB_TOKEN:-${_HF_TOKEN_FILE:-${_HUGGINGFACE_HUB_TOKEN_FILE:-}}}}"
+if [ -n "${HF_TOKEN_ENV}" ]; then
+    export HF_TOKEN="${HF_TOKEN_ENV}"
+    export HUGGINGFACE_HUB_TOKEN="${HF_TOKEN_ENV}"
+    echo "Hugging Face authentication: token loaded from environment/.env"
+else
+    echo "Hugging Face authentication: no token found; using anonymous access"
+fi
 
 # Read TARGET_DEVICE: shell env var takes precedence over take-away/.env, default GPU
-_TARGET_DEVICE_FILE=$(grep -E '^TARGET_DEVICE=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+_TARGET_DEVICE_FILE=$(read_env_value "TARGET_DEVICE" "${ENV_FILE}")
 TARGET_DEVICE_ENV="${TARGET_DEVICE:-${_TARGET_DEVICE_FILE:-GPU}}"
 
 # Read VLM_PRECISION: shell env var takes precedence over take-away/.env, default int8
-_VLM_PRECISION_FILE=$(grep -E '^VLM_PRECISION=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+_VLM_PRECISION_FILE=$(read_env_value "VLM_PRECISION" "${ENV_FILE}")
 VLM_PRECISION_ENV="${VLM_PRECISION:-${_VLM_PRECISION_FILE:-int8}}"
 
 # Read CACHE_SIZE: KV cache size in GB for OVMS.  Default is 4 GB which is
@@ -70,7 +110,7 @@ VLM_PRECISION_ENV="${VLM_PRECISION:-${_VLM_PRECISION_FILE:-int8}}"
 # consumes ~8 GB, so values above 8 will overflow to system RAM and can cause
 # OOM on 32 GB platforms (ITEP-91499).  Users with more VRAM/RAM can raise
 # this via `export CACHE_SIZE=8` before running setup_models.sh.
-_CACHE_SIZE_FILE=$(grep -E '^CACHE_SIZE=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+_CACHE_SIZE_FILE=$(read_env_value "CACHE_SIZE" "${ENV_FILE}")
 CACHE_SIZE_ENV="${CACHE_SIZE:-${_CACHE_SIZE_FILE:-4}}"
 # Validate CACHE_SIZE_ENV is a non-negative integer (0 = dynamic allocation)
 if ! echo "${CACHE_SIZE_ENV}" | grep -qE '^[0-9]+$'; then
@@ -314,18 +354,38 @@ export_model() {
         target_device_args=(--target_device "${TARGET_DEVICE_ENV}")
     fi
 
-    python "${SCRIPT_DIR}/export_model.py" text_generation \
-      --source_model "${SOURCE_MODEL}" \
-      --weight-format "${VLM_PRECISION_ENV}" \
-      --pipeline_type VLM_CB \
-      "${target_device_args[@]}" \
-      --cache_size "${CACHE_SIZE_ENV}" \
-      --max_num_seqs 4 \
-      --max_num_batched_tokens 8192 \
-      --enable_prefix_caching True \
-      --config_file_path "${MODELS_DIR}/config.json" \
-      --model_repository_path "${MODELS_DIR}" \
-      --model_name "${MODEL_NAME}"
+        local export_log
+        export_log=$(mktemp)
+
+        if ! python "${SCRIPT_DIR}/export_model.py" text_generation \
+            --source_model "${SOURCE_MODEL}" \
+            --weight-format "${VLM_PRECISION_ENV}" \
+            --pipeline_type VLM_CB \
+            "${target_device_args[@]}" \
+            --cache_size "${CACHE_SIZE_ENV}" \
+            --max_num_seqs 4 \
+            --max_num_batched_tokens 8192 \
+            --enable_prefix_caching True \
+            --config_file_path "${MODELS_DIR}/config.json" \
+            --model_repository_path "${MODELS_DIR}" \
+            --model_name "${MODEL_NAME}" 2>&1 | tee "${export_log}"; then
+
+                if grep -qiE "gated repo|access to model .* is restricted|401 client error|please log in" "${export_log}"; then
+                        echo ""
+                        echo "ERROR: Model download/export requires Hugging Face authentication."
+                        echo "The selected model may be gated."
+                        echo ""
+                        echo "Fix options:"
+                        echo "  1) Add HF_TOKEN=<your_token> (or HUGGINGFACE_HUB_TOKEN=<your_token>) to ${ENV_FILE}"
+                        echo "  2) Or run: huggingface-cli login"
+                        echo ""
+                fi
+
+                rm -f "${export_log}"
+                return 1
+        fi
+
+        rm -f "${export_log}"
 }
 
 ###############################################
