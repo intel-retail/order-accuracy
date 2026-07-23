@@ -31,7 +31,7 @@ flowchart TB
 | Station Workers        | GStreamer (DL Streamer), multiprocessing | RTSP video processing           |
 | VLM Scheduler          | Threading, queue batching                | Request optimization            |
 | Frame Selector         | YOLO, OpenCV                             | Optimal frame detection         |
-| OVMS VLM               | OpenVINO Model Server                    | Vision Language Model inference |
+| OVMS VLM               | OpenVINO™ Model Server                   | Vision Language Model inference |
 | Semantic Service       | FastAPI                                  | Text semantic matching          |
 | Gradio UI              | Gradio                                   | Web interface                   |
 | MinIO                  | S3-compatible storage                    | Frame and result storage        |
@@ -259,7 +259,7 @@ Vision Language Model processing with inventory detection and order validation.
 
 ### 5. OVMS VLM Client (`src/core/ovms_client.py`)
 
-OpenVINO Model Server client with OpenAI-compatible API.
+OpenVINO™ Model Server client with OpenAI-compatible API.
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
@@ -637,7 +637,7 @@ Scaling architecture:
 | ------------------ | ------------------------------------------------ |
 | VLM Batching       | 50-100ms time windows via VLM Scheduler          |
 | Frame Selection    | YOLO pre-filtering reduces unnecessary VLM calls |
-| INT8 Quantization  | OpenVINO INT8 model served via OVMS              |
+| INT8 Quantization  | OpenVINO™ INT8 model served via OVMS             |
 | Connection Pooling | HTTP session reuse to OVMS                       |
 
 ---

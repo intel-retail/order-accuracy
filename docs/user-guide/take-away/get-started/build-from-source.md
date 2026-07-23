@@ -2,8 +2,6 @@
 
 This guide covers building Docker images locally instead of pulling them from the registry.
 
----
-
 ## Prerequisites
 
 - Docker 24.0+ and Docker Compose V2+
@@ -13,8 +11,6 @@ This guide covers building Docker images locally instead of pulling them from th
 docker --version
 docker compose version
 ```
-
----
 
 ## Repository Structure
 
@@ -31,8 +27,6 @@ take-away/
 ├── Makefile
 └── requirements.txt
 ```
-
----
 
 ## Building Images
 
@@ -72,25 +66,21 @@ docker compose build rtsp-streamer
 docker compose build --no-cache
 ```
 
----
-
 ## Model Preparation
 
 Before starting services, download and export models:
 
 ```bash
 cd ../ovms-service
-./setup_models.sh
+./setup_models.sh --app take-away
 cd ../take-away
 ```
 
 This downloads and exports:
 
-- **Qwen2.5-VL-7B-Instruct** (OpenVINO INT8) → `ovms-service/models/`
+- **Qwen2.5-VL-7B-Instruct** (OpenVINO™ INT8) → `ovms-service/models/`
 - **EasyOCR** models → `take-away/models/easyocr/`
 - **YOLO11n** (FP32 + INT8 OpenVINO) → `take-away/models/`
-
----
 
 ## Start Services
 
@@ -105,29 +95,6 @@ make status
 make test-api
 ```
 
----
-
 ## Troubleshooting
 
-### Build Fails (network / pip)
-
-```bash
-docker compose build --no-cache
-```
-
-### Model File Not Found
-
-```bash
-# Verify models were correctly set up
-ls ../ovms-service/models/
-ls models/easyocr/
-ls models/yolo11n_int8_openvino_model/
-```
-
-### GPU Not Detected
-
-```bash
-sudo usermod -aG render $USER
-# Log out and back in, then restart services
-make down && make up
-```
+For common issues, see [Troubleshooting](../troubleshooting.md).

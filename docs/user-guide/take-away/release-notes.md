@@ -56,7 +56,7 @@ This is the first GA release of Take-Away Order Accuracy, promoted from `2026.0-
 
 - **AI-Powered Order Validation**: Real-time take-away order verification using Qwen2.5-VL-7B Vision Language Model
 - **Multi-Station Parallel Processing**: Concurrent order validation across multiple stations via RTSP streams
-- **Intelligent Frame Selection**: YOLO11-based frame selection with OpenVINO INT8 inference for optimal VLM input
+- **Intelligent Frame Selection**: YOLO11-based frame selection with OpenVINO™ INT8 inference for optimal VLM input
 - **Semantic Matching**: Hybrid exact/semantic item matching via dedicated microservice
 - **Docker Registry Support**: Pre-built images published to `intel/` Docker Hub namespace
 - **Stream Density Benchmarking**: Automated latency-based stream density testing
@@ -75,9 +75,9 @@ This is the first GA release of Take-Away Order Accuracy, promoted from `2026.0-
 #### Core Functionality
 
 - **Dual Service Mode**: Single worker mode for development, parallel worker mode for production
-- **VLM Integration**: Qwen2.5-VL-7B-Instruct via OpenVINO Model Server (OVMS) with GPU acceleration
+- **VLM Integration**: Qwen2.5-VL-7B-Instruct via OpenVINO™ Model Server (OVMS) with GPU acceleration
 - **Video Processing**: GStreamer-based pipeline with RTSP support and configurable FPS
-- **Frame Selection**: YOLO11 nano model with OpenVINO INT8 inference for hand/object detection and frame filtering
+- **Frame Selection**: YOLO11 nano model with OpenVINO™ INT8 inference for hand/object detection and frame filtering
 - **Semantic Matching**: Hybrid exact/semantic item matching with configurable similarity threshold
 - **EasyOCR Integration**: Order number detection from video frames
 
@@ -114,7 +114,7 @@ This is the first GA release of Take-Away Order Accuracy, promoted from `2026.0-
 | Component              | Image                                 | Description                                             |
 | ---------------------- | ------------------------------------- | ------------------------------------------------------- |
 | Order Accuracy Service | `intel/order-accuracy-take-away`      | Core orchestration, GStreamer pipelines, VLM scheduling |
-| Frame Selector         | `intel/order-accuracy-frame-selector` | YOLO11 OpenVINO INT8 frame selection                    |
+| Frame Selector         | `intel/order-accuracy-frame-selector` | YOLO11 OpenVINO™ INT8 frame selection                   |
 | Gradio UI              | `intel/order-accuracy-take-away-ui`   | Web interface for order validation                      |
 | RTSP Streamer          | `intel/order-accuracy-take-away-rtsp` | Video-to-RTSP stream conversion with 2PC sync           |
 | OVMS VLM               | `openvino/model_server:latest-gpu`    | Qwen2.5-VL-7B model serving                             |

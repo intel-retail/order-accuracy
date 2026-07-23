@@ -26,8 +26,6 @@ In a full-service restaurant:
 5. System compares detected items against the order manifest
 6. Staff receives immediate feedback on order accuracy
 
----
-
 ## Key Features
 
 | Feature                      | Description                                                                      |
@@ -40,6 +38,17 @@ In a full-service restaurant:
 | **Bounded Caching**          | LRU cache prevents memory exhaustion under load                                  |
 | **Comprehensive Metrics**    | CPU, GPU, memory utilization with token-level inference stats                    |
 
+## Next Steps
+
+- [System Requirements](./get-started/system-requirements.md) - Check the detailed requirements
+- [Installation Guide](./get-started.md) - Step-by-step installation instructions
+- [How It Works](./how-it-works.md) - Learn about the architecture
+- [How To Use](./how-to-use.md) - Learn how to operate the system
+- [Benchmarking Guide](./di-benchmarking.md) - Run benchmarks
+- [API Reference](./api-reference.md) - Learn the API
+- [Troubleshooting](./troubleshooting.md) - Resolve common issues
+- [Release Notes](./release-notes.md) - Read about updates and improvements
+
 <!--hide_directive
 :::{toctree}
 :hidden:
@@ -47,7 +56,9 @@ In a full-service restaurant:
 ./get-started.md
 ./how-it-works.md
 How To Use <./how-to-use.md>
+Benchmarking <./di-benchmarking.md>
 API Reference <./api-reference.md>
+Troubleshooting <./troubleshooting.md>
 Release Notes <./release-notes.md>
 
 :::

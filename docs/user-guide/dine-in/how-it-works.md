@@ -139,7 +139,7 @@ This document provides a comprehensive technical overview of the system architec
 
 ### 1. VLM Client (`vlm_client.py`)
 
-The VLM Client handles communication with OpenVINO Model Server for visual inference.
+The VLM Client handles communication with OpenVINO™ Model Server for visual inference.
 
 **Features:**
 

@@ -19,14 +19,6 @@ This guide covers performance testing, stream density benchmarking, and metrics 
 >
 > `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format. `OPENVINO_DEVICE` is what the Makefile passes to the benchmark script. Both must match.
 
-> **Important:** Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
->
-> ```bash
-> make download-sample-video
-> ```
-
----
-
 ## Quick Reference
 
 ```bash
@@ -54,8 +46,6 @@ make benchmark-oa-help
 make help
 ```
 
----
-
 ## Prerequisites
 
 ```bash
@@ -66,7 +56,11 @@ make update-submodules
 make up
 ```
 
----
+> **Important:** Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
+>
+> ```bash
+> make download-sample-video
+> ```
 
 ## Benchmark Commands
 

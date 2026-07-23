@@ -109,7 +109,7 @@ Optimized for high-throughput drive-through environments with multiple camera st
 
 ### VLM Backend (OVMS)
 
-Both applications use OpenVINO Model Server with Qwen2.5-VL for vision-language inference.
+Both applications use OpenVINO™ Model Server with Qwen2.5-VL for vision-language inference.
 
 ### Semantic Comparison Service
 
