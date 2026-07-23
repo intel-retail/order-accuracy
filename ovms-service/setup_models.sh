@@ -39,6 +39,8 @@ fi
 declare -A SUPPORTED_MODEL_SOURCES
 SUPPORTED_MODEL_SOURCES["Qwen/Qwen2.5-VL-7B-Instruct"]="Qwen/Qwen2.5-VL-7B-Instruct"
 SUPPORTED_MODEL_SOURCES["openbmb/MiniCPM-V-4_5"]="openbmb/MiniCPM-V-4_5"
+SUPPORTED_MODEL_SOURCES["openbmb/MiniCPM-V-2_6"]="openbmb/MiniCPM-V-2_6"
+SUPPORTED_MODEL_SOURCES["OpenVINO/Phi-3.5-vision-instruct-int8-ov"]="OpenVINO/Phi-3.5-vision-instruct-int8-ov"
 
 POTENTIAL_SOURCE_DIRS=(
     "${HOME}/ovms-vlm/models"

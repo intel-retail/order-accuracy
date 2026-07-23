@@ -16,6 +16,10 @@ model
 
 # Benchmark results
 results/
+dine-in/results_model/
+
+# Copilot CLI skills (session-local, not part of the application)
+.github/skills/
 
 # Python
 __pycache__/

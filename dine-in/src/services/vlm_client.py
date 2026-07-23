@@ -7,6 +7,7 @@ import asyncio
 import base64
 import json
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from io import BytesIO
 import httpx
 from PIL import Image, ImageOps, ImageEnhance, ImageFilter
+from .prediction_debug_logger import write_prediction_debug
 from vlm_metrics_logger import (
     log_start_time, 
     log_end_time, 
@@ -248,41 +250,37 @@ class ImagePreprocessor:
     
     def _smart_resize(self, img: Image.Image) -> Tuple[Image.Image, Dict[str, Any]]:
         """
-        Intelligently resize image while preserving aspect ratio.
-        
-        Uses high-quality LANCZOS resampling for downscaling.
-        Only resizes if image exceeds max_size.
+        Intelligently resize image into a square while preserving aspect ratio.
+
+        Fits the original image inside a max_size x max_size canvas using
+        high-quality LANCZOS resampling, then pads the remaining area.
         """
         original_width, original_height = img.size
-        info: Dict[str, Any] = {"resize_applied": False}
-        
-        # Check if resize needed
-        if max(original_width, original_height) <= self.max_size:
-            info["resize_reason"] = "already_optimal"
-            return img, info
-        
-        # Calculate new dimensions preserving aspect ratio
-        if original_width > original_height:
-            new_width = self.max_size
-            new_height = int(original_height * (self.max_size / original_width))
-        else:
-            new_height = self.max_size
-            new_width = int(original_width * (self.max_size / original_height))
-        
-        # Ensure minimum dimensions
-        new_width = max(new_width, self.MIN_SIZE)
-        new_height = max(new_height, self.MIN_SIZE)
-        
-        # Use LANCZOS for high-quality downsampling
-        img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
-        
-        info.update({
-            "resize_applied": True,
-            "scale_factor": round(new_width / original_width, 3),
-            "resize_reason": f"exceeded_max_{self.max_size}"
-        })
-        
-        return img, info
+        target_size = self.max_size
+        scale_factor = min(target_size / original_width, target_size / original_height)
+
+        new_width = max(int(round(original_width * scale_factor)), self.MIN_SIZE)
+        new_height = max(int(round(original_height * scale_factor)), self.MIN_SIZE)
+        new_width = min(new_width, target_size)
+        new_height = min(new_height, target_size)
+
+        resized_img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+
+        square_img = Image.new('RGB', (target_size, target_size), (255, 255, 255))
+        offset_x = (target_size - new_width) // 2
+        offset_y = (target_size - new_height) // 2
+        square_img.paste(resized_img, (offset_x, offset_y))
+
+        info: Dict[str, Any] = {
+            "resize_applied": (new_width, new_height) != (original_width, original_height),
+            "square_padding_applied": (offset_x > 0 or offset_y > 0),
+            "scale_factor": round(scale_factor, 3),
+            "resized_dimensions": (new_width, new_height),
+            "padding_offsets": (offset_x, offset_y),
+            "resize_reason": f"square_letterbox_{target_size}"
+        }
+
+        return square_img, info
     
     def _enhance_contrast(self, img: Image.Image) -> Image.Image:
         """
@@ -320,6 +318,10 @@ class VLMResponse:
         self.raw_response = raw_response
         self.detected_items: List[Dict[str, Any]] = []
         self.performance_metadata: Dict[str, Any] = {}  # Set by VLMClient after inference
+        self.raw_content: str = ""
+        self.parsed_output: Any = None
+        self.parse_mode: str = "unparsed"
+        self.debug_metadata: Dict[str, Any] = {}
         self._parse_response()
     
     def _parse_response(self):
@@ -328,6 +330,7 @@ class VLMResponse:
             # Extract content from OpenAI-compatible response
             if "choices" in self.raw_response:
                 content = self.raw_response["choices"][0]["message"]["content"]
+                self.raw_content = content
                 logger.info(f"[PARSE] VLM content: {content[:500]}")  # Log first 500 chars
                 
                 # Strip markdown code blocks if present (```json ... ```)
@@ -345,14 +348,18 @@ class VLMResponse:
                 # Try to parse as JSON first (structured output)
                 try:
                     parsed_content = json.loads(content_stripped)
+                    self.parsed_output = parsed_content
                     logger.info(f"[PARSE] Successfully parsed JSON: {parsed_content}")
                     if isinstance(parsed_content, dict) and "items" in parsed_content:
                         self.detected_items = parsed_content["items"]
+                        self.parse_mode = "json_dict"
                         logger.info(f"[PARSE] Extracted {len(self.detected_items)} items from JSON dict")
                     elif isinstance(parsed_content, list):
                         self.detected_items = parsed_content
+                        self.parse_mode = "json_list"
                         logger.info(f"[PARSE] Extracted {len(self.detected_items)} items from JSON list")
                     else:
+                        self.parse_mode = "unexpected_json"
                         logger.warning(f"[PARSE] Unexpected JSON structure: {parsed_content}")
                 except json.JSONDecodeError as je:
                     logger.info(f"[PARSE] JSON decode failed: {je}, trying to recover truncated JSON")
@@ -360,15 +367,21 @@ class VLMResponse:
                     recovered_items = self._recover_truncated_json(content_stripped)
                     if recovered_items:
                         self.detected_items = recovered_items
+                        self.parsed_output = recovered_items
+                        self.parse_mode = "truncated_json_recovery"
                         logger.info(f"[PARSE] Recovered {len(self.detected_items)} items from truncated JSON")
                     else:
                         # Fallback: parse natural language response
                         self._parse_natural_language(content)
+                        self.parsed_output = self.detected_items
+                        self.parse_mode = "natural_language"
                     
                 logger.info(f"Parsed {len(self.detected_items)} items from VLM response")
             else:
+                self.parse_mode = "invalid_response"
                 logger.error(f"Unexpected VLM response format: {self.raw_response}")
         except Exception as e:
+            self.parse_mode = "parse_error"
             logger.exception(f"Error parsing VLM response: {e}")
     
     def _parse_natural_language(self, content: str):
@@ -448,6 +461,45 @@ class VLMClient:
     - Circuit breaker for fault tolerance
     - Configurable timeouts per operation stage
     """
+
+    # Cap output tokens: a full multi-item order response is ~40 tokens of
+    # minified JSON, so 96 is a safe ceiling that prevents runaway generation
+    # while keeping latency low (latency scales with completion tokens).
+    MAX_OUTPUT_TOKENS = 96
+
+    # JSON schema for guided (structured) decoding. When OVMS supports it,
+    # this forces valid minified JSON, eliminates markdown fences, and reduces
+    # completion tokens. Sent via the OpenAI-compatible `response_format` field.
+    RESPONSE_FORMAT = {
+        "type": "json_schema",
+        "json_schema": {
+            "name": "detected_items",
+            "strict": True,
+            "schema": {
+                "type": "object",
+                "properties": {
+                    "items": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "name": {"type": "string"},
+                                "quantity": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "description": "Number of separate order servings (boxes/wrappers), NOT the piece count inside one serving. One box of nuggets or fries = 1, regardless of how many pieces are visible inside it.",
+                                },
+                            },
+                            "required": ["name", "quantity"],
+                            "additionalProperties": False,
+                        },
+                    }
+                },
+                "required": ["items"],
+                "additionalProperties": False,
+            },
+        },
+    }
     
     # Class-level HTTP client pool (shared across instances)
     _http_client: Optional[httpx.AsyncClient] = None
@@ -459,6 +511,22 @@ class VLMClient:
         self.timeout = timeout
         self.chat_endpoint = f"{endpoint}/v3/chat/completions"
         self.inventory_items = self._load_inventory()
+        self.prompt_config = self._load_prompt_config()
+
+        # Instance-level max_tokens/response_format so configs/prompt_config.json
+        # controls these too (falls back to the class-level defaults above if the
+        # config doesn't specify them).
+        self.max_output_tokens = self.prompt_config.get("max_output_tokens", self.MAX_OUTPUT_TOKENS)
+        self.response_format = json.loads(json.dumps(self.RESPONSE_FORMAT))  # deep copy
+        quantity_description = self.prompt_config.get("quantity_field_description")
+        if quantity_description:
+            self.response_format["json_schema"]["schema"]["properties"]["items"]["items"] \
+                ["properties"]["quantity"]["description"] = quantity_description
+
+        # Guided (structured) decoding via response_format JSON schema.
+        # Enabled by default; set VLM_GUIDED_DECODING=false to disable if the
+        # OVMS build/model does not support it.
+        self.use_guided_decoding = os.getenv("VLM_GUIDED_DECODING", "true").lower() == "true"
         
         # Circuit breaker for OVMS service
         self._circuit_breaker = CircuitBreaker(
@@ -470,9 +538,10 @@ class VLMClient:
         )
         
         # Initialize image preprocessor for optimized VLM inference
-        # Balanced settings for 7B model - good quality with reasonable speed
+        # Temporary square-resolution benchmark setting for Qwen.
+        # Change only max_size to test 480, 960, or 1440.
         self.preprocessor = ImagePreprocessor(
-            max_size=672,      # Good quality for 7B model
+            max_size=480,
             jpeg_quality=82,   # High quality compression
             enhance_contrast=True,
             sharpen=True
@@ -519,7 +588,55 @@ class VLMClient:
             await cls._http_client.aclose()
             cls._http_client = None
             logger.info("Closed shared HTTP client")
-    
+
+    async def warmup(self) -> bool:
+        """
+        Send a tiny dummy inference to trigger lazy graph/kernel init in OVMS
+        so the first real user request does not pay the ~3.5s warmup penalty.
+
+        Returns True if the warmup request succeeded, False otherwise.
+        """
+        try:
+            # Small solid-colour image → minimal preprocessing/encode cost
+            dummy = Image.new("RGB", (64, 64), (200, 200, 200))
+            buf = BytesIO()
+            dummy.save(buf, format="JPEG", quality=70)
+            encoded = base64.b64encode(buf.getvalue()).decode("utf-8")
+            image_url = f"data:image/jpeg;base64,{encoded}"
+
+            payload = {
+                "model": self.model_name,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "Respond with {\"items\":[]}"},
+                            {"type": "image_url", "image_url": {"url": image_url}},
+                        ],
+                    }
+                ],
+                "max_tokens": 8,
+                "temperature": 0.0,
+            }
+            if self.use_guided_decoding:
+                payload["response_format"] = self.response_format
+
+            logger.info("[VLM] Warmup inference starting...")
+            t0 = time.time()
+            client = await self.get_http_client()
+            response = await client.post(
+                self.chat_endpoint,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+            )
+            response.raise_for_status()
+            logger.info(f"[VLM] Warmup completed in {(time.time() - t0):.2f}s")
+            return True
+        except Exception as e:
+            # Warmup is best-effort: never block startup on failure
+            logger.warning(f"[VLM] Warmup failed (non-fatal): {e}")
+            return False
+
     def _load_inventory(self) -> List[str]:
         """Load inventory items from inventory.json"""
         try:
@@ -539,6 +656,105 @@ class VLMClient:
         except Exception as e:
             logger.error(f"Error loading inventory: {e}")
             return []
+
+    # Fallback prompt config used only if configs/prompt_config.json is missing or
+    # invalid, so the service still starts and behaves predictably. The file is the
+    # source of truth for prompt wording in normal operation.
+    _DEFAULT_PROMPT_CONFIG = {
+        "max_output_tokens": 96,
+        "quantity_rule": (
+            "\"quantity\" = number of separate ORDER SERVINGS (boxes/wrappers), NEVER "
+            "the piece count inside one serving. Do NOT count individual nuggets, fries, "
+            "or pieces. Example: a box containing 6 nuggets is quantity 1, not 6. Only "
+            "increase quantity if you see 2+ separate boxes/wrappers of the same item."
+        ),
+        "quantity_field_description": (
+            "Number of separate order servings (boxes/wrappers), NOT the piece count "
+            "inside one serving. One box of nuggets or fries = 1, regardless of how "
+            "many pieces are visible inside it."
+        ),
+        "json_schema_example": '{"items":[{"name":"item","quantity":1}]}',
+        "phi": {
+            "with_inventory_template": (
+                "You are a food item detector for a restaurant tray.\n\n"
+                "Inventory (the ONLY item names you may use):\n{inventory_list}\n\n"
+                "Task: Identify which of the inventory items above are present in the image.\n\n"
+                "Return ONLY valid JSON using exactly this schema:\n{json_schema_example}\n\n"
+                "Rules:\n"
+                "- Only detect items from the inventory list above. Never invent names outside this list.\n"
+                "- Match each visible food item to the closest inventory item name and use that exact name.\n"
+                "- Carefully scan the entire image before answering.\n"
+                "- Use all visual evidence in the scene before deciding items.\n"
+                "- Read visible text on wrappers, cartons, drink cups, and packaging.\n"
+                "- If product names are visible on packaging, use those names to match an inventory item.\n"
+                "- Do not rely only on food appearance.\n"
+                "- Detect every visible food item before generating the response.\n"
+                "- Do not stop after finding the first item.\n"
+                "- Include partially visible food items when reasonably confident.\n"
+                "- Ignore trays, napkins, and background objects.\n"
+                "- Detect only food items clearly visible in the image.\n"
+                "- {quantity_rule}\n"
+                "- Return only valid JSON.\n"
+                "- Do not output explanations.\n"
+                "- Do not output reasoning.\n"
+                "- Never repeat or explain the prompt.\n"
+                "- Never include markdown.\n"
+                "- If no inventory items are detected, return exactly: {{\"items\":[]}}"
+            ),
+        },
+        "generic": {
+            "with_inventory_template": (
+                "Inventory (the ONLY item names you may use): {inventory_text}\n\n"
+                "Identify which of the inventory items above are CLEARLY VISIBLE in this image.\n"
+                "Use only names from the inventory list. Do NOT guess or include items you cannot see.\n"
+                "{quantity_rule}\n"
+                "Respond with MINIFIED JSON on a single line only (no spaces, no newlines, no markdown).\n"
+                "JSON schema: {json_schema_example}"
+            ),
+            "without_inventory_template": (
+                "ONLY list food items CLEARLY VISIBLE in this image. Do NOT guess.\n"
+                "{quantity_rule}\n"
+                "Respond with MINIFIED JSON on a single line only (no spaces, no newlines, no markdown).\n"
+                "JSON: {json_schema_example}"
+            ),
+        },
+    }
+
+    def _load_prompt_config(self) -> Dict[str, Any]:
+        """
+        Load prompt templates/wording from configs/prompt_config.json so prompt
+        engineering can be tuned without touching code or rebuilding the image.
+        Falls back to _DEFAULT_PROMPT_CONFIG (and logs a warning) if the file is
+        missing or invalid, so a bad edit can never take the service down.
+        """
+        config = json.loads(json.dumps(self._DEFAULT_PROMPT_CONFIG))  # deep copy
+        try:
+            base_dir = Path(__file__).resolve().parent.parent.parent
+            prompt_config_path = base_dir / "configs" / "prompt_config.json"
+
+            if not prompt_config_path.exists():
+                logger.warning(
+                    f"Prompt config not found at {prompt_config_path}, using built-in defaults"
+                )
+                return config
+
+            with open(prompt_config_path, 'r') as f:
+                loaded = json.load(f)
+
+            # Shallow-merge top level, deep-merge the "phi"/"generic" template groups
+            for key, value in loaded.items():
+                if key.startswith("_") or key.startswith("$"):
+                    continue  # skip documentation/metadata keys
+                if key in ("phi", "generic") and isinstance(value, dict):
+                    config.setdefault(key, {}).update(value)
+                else:
+                    config[key] = value
+
+            logger.info(f"Loaded prompt config from {prompt_config_path}")
+            return config
+        except Exception as e:
+            logger.error(f"Error loading prompt config, using built-in defaults: {e}")
+            return config
     
     def _encode_image(self, image_bytes: bytes, skip_preprocessing: bool = False) -> Tuple[str, Dict[str, Any]]:
         """
@@ -575,18 +791,41 @@ class VLMClient:
             raise
     
     def _build_prompt(self) -> str:
-        """Build ultra-compact prompt for fast inference on iGPU"""
-        if self.inventory_items:
-            # Compact format: comma-separated items (faster than numbered list)
-            inventory_text = ", ".join(self.inventory_items[:30])  # Limit to 30 items
-            prompt = f"""Known menu items: {inventory_text}
+        """
+        Build the VLM prompt from configs/prompt_config.json (loaded at init into
+        self.prompt_config). All wording/rules live in that config file — edit it
+        and restart the container to change prompt behavior; no code change needed.
+        """
+        cfg = self.prompt_config
+        quantity_rule = cfg.get("quantity_rule", "")
+        json_schema_example = cfg.get("json_schema_example", '{"items":[{"name":"item","quantity":1}]}')
 
-ONLY list food items CLEARLY VISIBLE in this image. Do NOT guess or include items you cannot see.
-Return JSON: {{"items":[{{"name":"item","quantity":1}}]}}"""
+        if self.model_name.startswith("OpenVINO/Phi"):
+            inventory_list = ", ".join(self.inventory_items) if self.inventory_items else ""
+            template = cfg.get("phi", {}).get("with_inventory_template", "")
+            prompt = template.format(
+                inventory_list=inventory_list,
+                quantity_rule=quantity_rule,
+                json_schema_example=json_schema_example,
+            )
+            logger.info(f"[PROMPT] Built Phi-specific strict JSON prompt with {len(self.inventory_items)} inventory items, length={len(prompt)} chars")
+            return prompt
+
+        if self.inventory_items:
+            inventory_text = ", ".join(self.inventory_items)
+            template = cfg.get("generic", {}).get("with_inventory_template", "")
+            prompt = template.format(
+                inventory_text=inventory_text,
+                quantity_rule=quantity_rule,
+                json_schema_example=json_schema_example,
+            )
         else:
-            prompt = """ONLY list food items CLEARLY VISIBLE in this image. Do NOT guess.
-JSON: {"items":[{"name":"item","quantity":1}]}"""
-        
+            template = cfg.get("generic", {}).get("without_inventory_template", "")
+            prompt = template.format(
+                quantity_rule=quantity_rule,
+                json_schema_example=json_schema_example,
+            )
+
         logger.info(f"[PROMPT] Built compact prompt with {len(self.inventory_items)} inventory items, length={len(prompt)} chars")
         return prompt
     
@@ -594,7 +833,9 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
         self, 
         image_bytes: bytes, 
         order_id: Optional[str] = None,
-        request_id: Optional[str] = None
+        request_id: Optional[str] = None,
+        image_id: Optional[str] = None,
+        image_filename: Optional[str] = None
     ) -> VLMResponse:
         """
         Analyze food plate image using VLM with optimized preprocessing.
@@ -640,20 +881,25 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                        f"dims={preprocess_meta.get('processed_dimensions', 'N/A')}")
             
             # Step 2: Build request payload (OpenAI-compatible format)
+            prompt_text = self._build_prompt()
             payload = {
                 "model": self.model_name,
                 "messages": [
                     {
                         "role": "user",
                         "content": [
-                            {"type": "text", "text": self._build_prompt()},
+                            {"type": "text", "text": prompt_text},
                             {"type": "image_url", "image_url": {"url": encoded_image}}
                         ]
                     }
                 ],
-                "max_tokens": 512,  # Increased to handle longer item lists
+                "max_tokens": self.max_output_tokens,  # Cap output; response is compact JSON
                 "temperature": 0.0  # Greedy decoding for fastest inference
             }
+
+            # Enable structured decoding to guarantee valid minified JSON
+            if self.use_guided_decoding:
+                payload["response_format"] = self.response_format
             
             # Step 3: Check circuit breaker before making request
             if not await self._circuit_breaker.can_execute():
@@ -743,6 +989,20 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                 
                 # Step 5: Create response and parse detected items
                 vlm_response = VLMResponse(result)
+                vlm_response.debug_metadata = {
+                    "request_id": req_id,
+                    "model_name": self.model_name,
+                    "image_id": image_id,
+                    "image_filename": image_filename,
+                    "prompt": prompt_text,
+                    "raw_response": result,
+                    "raw_text": text,
+                    "payload_settings": {
+                        "max_tokens": payload["max_tokens"],
+                        "temperature": payload["temperature"]
+                    },
+                    "preprocess_metadata": preprocess_meta,
+                }
                 
                 # Attach performance metadata to response
                 vlm_response.performance_metadata = {
@@ -759,6 +1019,21 @@ JSON: {"items":[{"name":"item","quantity":1}]}"""
                     "tpot_sec": round(tpot, 4),
                     "throughput_mean_sec": round(throughput_mean, 2)
                 }
+
+                write_prediction_debug({
+                    "stage": "vlm_inference",
+                    "request_id": req_id,
+                    "model_name": self.model_name,
+                    "image_id": image_id,
+                    "image_filename": image_filename,
+                    "prompt": prompt_text,
+                    "raw_response": result,
+                    "raw_text": text,
+                    "parse_mode": vlm_response.parse_mode,
+                    "parsed_output": vlm_response.parsed_output,
+                    "detected_items": vlm_response.detected_items,
+                    "performance_metadata": vlm_response.performance_metadata,
+                })
                 
                 # Log custom metrics event
                 log_custom_event(

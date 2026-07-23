@@ -480,7 +480,8 @@ async def validate_plate(
             image_bytes=image_bytes,
             order_manifest=order_manifest.model_dump(),
             image_id=image_id,
-            request_id=request_id
+            request_id=request_id,
+            image_filename=image.filename
         )
         
         inference_end_iso = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
@@ -600,7 +601,8 @@ async def validate_batch(
                 result = await validation_service.validate_plate(
                     image_bytes=image_bytes,
                     order_manifest=order_manifest.model_dump(),
-                    image_id=image_id
+                    image_id=image_id,
+                    image_filename=image.filename
                 )
                 
                 # Build response
@@ -813,6 +815,13 @@ async def startup_event():
     
     # Check VLM service health
     await _check_vlm_health()
+
+    # Warm up the VLM so the first real request avoids the lazy-init penalty
+    try:
+        validation_service = get_validation_service()
+        await validation_service.vlm_client.warmup()
+    except Exception as e:
+        logger.warning(f"[STARTUP] VLM warmup skipped: {e}")
 
 
 async def _check_vlm_health():

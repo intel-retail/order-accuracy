@@ -83,7 +83,7 @@ REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
 
 # Benchmark Order Accuracy settings
 BENCHMARK_WORKERS ?= 1
-BENCHMARK_ITERATIONS ?= 1
+BENCHMARK_ITERATIONS ?= 8
 BENCHMARK_DURATION ?= 180
 BENCHMARK_TARGET_FPS ?= 15.0
 TARGET_DEVICE ?= GPU
@@ -440,6 +440,9 @@ benchmark: check-device
 	@echo "Target Device: $(TARGET_DEVICE)"
 	@echo "Results Dir: $(RESULTS_DIR)"
 	@echo ""
+	@echo "Cleaning up any stale containers from previous runs..."
+	@docker rm -f metrics-collector dinein_app dinein_ovms_vlm dinein_semantic_service >/dev/null 2>&1 || true
+	@docker compose -f $(COMPOSE_FILE) --profile benchmark down --remove-orphans >/dev/null 2>&1 || true
 	mkdir -p $(RESULTS_DIR)
 	cd $(PERF_TOOLS_DIR) && \
 	( \

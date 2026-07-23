@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 from .vlm_client import VLMClient, VLMResponse
 from .semantic_client import SemanticClient, SemanticMatchResult
+from .prediction_debug_logger import write_prediction_debug
 
 logger = logging.getLogger(__name__)
 
@@ -232,7 +233,8 @@ class ValidationService:
         image_bytes: bytes,
         order_manifest: Dict[str, Any],
         image_id: str,
-        request_id: str = None
+        request_id: str = None,
+        image_filename: str = None
     ) -> ValidationResult:
         """
         Validate plate against order manifest using VLM and semantic matching.
@@ -252,7 +254,12 @@ class ValidationService:
         try:
             # Step 1: VLM Inference
             vlm_start = time.time()
-            vlm_response: VLMResponse = await self.vlm_client.analyze_plate(image_bytes, request_id=request_id)
+            vlm_response: VLMResponse = await self.vlm_client.analyze_plate(
+                image_bytes,
+                request_id=request_id,
+                image_id=image_id,
+                image_filename=image_filename
+            )
             vlm_time_ms = (time.time() - vlm_start) * 1000
             logger.info(f"VLM inference completed in {vlm_time_ms:.2f}ms for {request_id}, "
                        f"detected {len(vlm_response.detected_items)} items")
@@ -332,6 +339,29 @@ class ValidationService:
                 matched_items=matched_items_list,
                 metrics=metrics
             )
+
+            debug_metadata = getattr(vlm_response, 'debug_metadata', {}) or {}
+            write_prediction_debug({
+                "stage": "validation_result",
+                "request_id": request_id,
+                "model_name": debug_metadata.get("model_name"),
+                "image_id": image_id,
+                "image_filename": image_filename or debug_metadata.get("image_filename"),
+                "prompt": debug_metadata.get("prompt"),
+                "raw_response": debug_metadata.get("raw_response"),
+                "raw_text": vlm_response.raw_content,
+                "parse_mode": vlm_response.parse_mode,
+                "parsed_output": vlm_response.parsed_output,
+                "final_detected_items": vlm_response.detected_items,
+                "expected_food_items": expected_items,
+                "missing_items": missing_items,
+                "extra_items": extra_items,
+                "matched_items": matched_items_list,
+                "quantity_mismatches": quantity_mismatches,
+                "accuracy_score": accuracy_score,
+                "order_complete": order_complete,
+                "performance_metadata": vlm_perf,
+            })
             
             logger.info(f"Validation completed: image_id={image_id}, "
                        f"accuracy={accuracy_score:.2f}, "
