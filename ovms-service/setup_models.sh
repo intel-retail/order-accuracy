@@ -39,6 +39,15 @@ fi
 declare -A SUPPORTED_MODEL_SOURCES
 SUPPORTED_MODEL_SOURCES["Qwen/Qwen2.5-VL-7B-Instruct"]="Qwen/Qwen2.5-VL-7B-Instruct"
 SUPPORTED_MODEL_SOURCES["openbmb/MiniCPM-V-4_5"]="openbmb/MiniCPM-V-4_5"
+# NOTE: "openbmb/MiniCPM-V-4_5-int4" on Hugging Face is a bitsandbytes-quantized
+# PyTorch checkpoint (tagged "8-bit"), which optimum-intel/NNCF cannot import
+# directly into OpenVINO IR. The verified, reproducible path is to export from
+# the full-precision "openbmb/MiniCPM-V-4_5" source and let NNCF perform its own
+# INT4 weight compression (--weight-format int4 / VLM_PRECISION=int4), writing
+# the result to a locally-named "-int4" directory to reflect the applied
+# precision. This entry documents that convention so setup_models.sh can
+# reproduce the model already present under models/openbmb/MiniCPM-V-4_5-int4.
+SUPPORTED_MODEL_SOURCES["openbmb/MiniCPM-V-4_5-int4"]="openbmb/MiniCPM-V-4_5"
 SUPPORTED_MODEL_SOURCES["openbmb/MiniCPM-V-2_6"]="openbmb/MiniCPM-V-2_6"
 SUPPORTED_MODEL_SOURCES["OpenVINO/Phi-3.5-vision-instruct-int8-ov"]="OpenVINO/Phi-3.5-vision-instruct-int8-ov"
 

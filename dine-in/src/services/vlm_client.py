@@ -541,7 +541,7 @@ class VLMClient:
         # Temporary square-resolution benchmark setting for Qwen.
         # Change only max_size to test 480, 960, or 1440.
         self.preprocessor = ImagePreprocessor(
-            max_size=480,
+            max_size=448,
             jpeg_quality=82,   # High quality compression
             enhance_contrast=True,
             sharpen=True
