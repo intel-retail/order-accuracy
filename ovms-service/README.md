@@ -47,6 +47,12 @@ Supported values for `OVMS_MODEL_NAME`:
 
 - `Qwen/Qwen2.5-VL-7B-Instruct`
 - `openbmb/MiniCPM-V-4_5`
+- `openbmb/MiniCPM-V-4_5-int4`
+- `openbmb/MiniCPM-V-2_6`
+- `OpenVINO/Phi-3.5-vision-instruct-int8-ov`
+
+> This list mirrors `SUPPORTED_MODEL_SOURCES` in `ovms-service/setup_models.sh`,
+> which is the source of truth — check that script if this list appears out of date.
 
 Optional authentication for gated Hugging Face models:
 

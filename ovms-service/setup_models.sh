@@ -368,7 +368,7 @@ export_model() {
         local export_log
         export_log=$(mktemp)
 
-        if ! python "${SCRIPT_DIR}/export_model.py" text_generation \
+        python "${SCRIPT_DIR}/export_model.py" text_generation \
             --source_model "${SOURCE_MODEL}" \
             --weight-format "${VLM_PRECISION_ENV}" \
             --pipeline_type VLM_CB \
@@ -379,7 +379,12 @@ export_model() {
             --enable_prefix_caching True \
             --config_file_path "${MODELS_DIR}/config.json" \
             --model_repository_path "${MODELS_DIR}" \
-            --model_name "${MODEL_NAME}" 2>&1 | tee "${export_log}"; then
+            --model_name "${MODEL_NAME}" 2>&1 | tee "${export_log}"
+        # Use PIPESTATUS[0] instead of $? so the export's own exit code (not
+        # tee's) determines success/failure of the pipeline.
+        local export_status="${PIPESTATUS[0]}"
+
+        if [ "${export_status}" -ne 0 ]; then
 
                 if grep -qiE "gated repo|access to model .* is restricted|401 client error|please log in" "${export_log}"; then
                         echo ""

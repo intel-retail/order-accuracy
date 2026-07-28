@@ -933,7 +933,7 @@ class StationWorker:
                     'timeout', str(timeout_sec),
                     'gst-launch-1.0', '-e',
                     'rtspsrc', f'location={self.rtsp_url}', 'protocols=tcp', 'latency=500',
-                    'timeout=5000000',  # 5 second RTSP timeout
+                    f'timeout={timeout_sec * 1000000}',  # rtspsrc timeout is in microseconds
                     '!', 'fakesink', 'sync=false'
                 ],
                 capture_output=True,

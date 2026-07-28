@@ -29,8 +29,19 @@ def _json_safe(value: Any) -> Any:
     return value
 
 
+def _debug_logging_enabled() -> bool:
+    return os.getenv("VLM_PREDICTION_DEBUG_LOG", "false").lower() == "true"
+
+
 def write_prediction_debug(record: Dict[str, Any]) -> None:
-    """Append one structured debug record to the persistent JSONL log."""
+    """Append one structured debug record to the persistent JSONL log.
+
+    No-op unless VLM_PREDICTION_DEBUG_LOG=true, to avoid unbounded disk
+    growth and extra I/O in production deployments.
+    """
+    if not _debug_logging_enabled():
+        return
+
     try:
         log_path = _log_path()
         log_path.parent.mkdir(parents=True, exist_ok=True)

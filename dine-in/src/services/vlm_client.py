@@ -801,7 +801,7 @@ class VLMClient:
         json_schema_example = cfg.get("json_schema_example", '{"items":[{"name":"item","quantity":1}]}')
 
         if self.model_name.startswith("OpenVINO/Phi"):
-            inventory_list = ", ".join(self.inventory_items) if self.inventory_items else ""
+            inventory_list = "\n".join(self.inventory_items) if self.inventory_items else ""
             template = cfg.get("phi", {}).get("with_inventory_template", "")
             prompt = template.format(
                 inventory_list=inventory_list,
