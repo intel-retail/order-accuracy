@@ -77,6 +77,14 @@ DINEIN_IMAGE_NAME ?= intel/order-accuracy-dine-in
 DINEIN_TAG ?= latest
 DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(DINEIN_TAG)
 
+# Host user identity, passed to the container so the app user is remapped to
+# match. Keeps bind-mounted results/ owned by the invoking user on hosts where
+# that user is not uid 1000 (e.g. EMT). See ITEP-93258.
+HOST_UID ?= $(shell id -u)
+HOST_GID ?= $(shell id -g)
+export HOST_UID
+export HOST_GID
+
 # Registry configuration
 # REGISTRY=false : Build and use local images
 # REGISTRY=true  : Use images from registry (default for up, pull for build)
