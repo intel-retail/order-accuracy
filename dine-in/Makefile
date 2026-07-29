@@ -71,7 +71,11 @@ export TAG = 2026.1.0
 
 # Dine-In image configuration
 DINEIN_IMAGE_NAME ?= intel/order-accuracy-dine-in
-DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(TAG)
+# Tag for the dine-in image only. Kept separate from TAG because TAG also
+# selects the benchmark image (intel/retail-benchmark:$(TAG)), which is
+# published per-version and has no "latest" tag.
+DINEIN_TAG ?= latest
+DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(DINEIN_TAG)
 
 # Registry configuration
 # REGISTRY=false : Build and use local images
@@ -263,7 +267,8 @@ check-device: ## Check that graph.pbtxt device matches TARGET_DEVICE (auto-updat
 
 up: check-device
 	@echo "Starting dine-in services..."
-	@mkdir -p results && chmod 777 results
+	@mkdir -p results
+	@chmod 777 results 2>/dev/null || true
 	@if [ "$(REGISTRY)" = "false" ]; then \
 		echo "$(BLUE)Using locally built image: $(DINEIN_IMAGE)$(NC)"; \
 		DINEIN_IMAGE=$(DINEIN_IMAGE) docker compose up -d --no-build; \

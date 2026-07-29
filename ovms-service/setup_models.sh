@@ -661,7 +661,7 @@ else
 
     mkdir -p "${YOLO_MODEL_DIR}" "${YOLO_DATASETS_DIR}"
 
-        echo "[1/2] Downloading yolo11n.pt and exporting OpenVINO models..."
+        echo "[1/3] Downloading yolo11n.pt and exporting OpenVINO FP32 model..."
         YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" YOLO_DATASETS_DIR="${YOLO_DATASETS_DIR}" \
         python3 - << 'PYEOF'
 import os, sys
@@ -700,26 +700,89 @@ if not fp32_dir.exists():
 else:
     print(f"  FP32 model already exists: {fp32_dir}")
 
-# ── Step 3: INT8 quantization ────────────────────────────────────────────────
-if not int8_dir.exists():
-    print("  Quantizing to OpenVINO INT8 (downloads COCO128 ~7 MB if needed) ...")
-    orig = os.getcwd()
-    os.chdir(str(model_dir))
-    YOLO(str(yolo_pt)).export(format="openvino", int8=True, data="coco128.yaml")
-    # ultralytics exports INT8 to "yolo11n_openvino_model/" in CWD;
-    # rename it so it doesn't overwrite the FP32 export.
-    default_out = Path("yolo11n_openvino_model")
-    if default_out.exists() and not int8_dir.exists():
-        default_out.rename(int8_dir.name)
-    os.chdir(orig)
-    print(f"  ✓ INT8 quantization: {int8_dir}")
-else:
-    print(f"  INT8 model already exists: {int8_dir}")
+# ── Step 3 (INT8 quantization) runs as a separate, isolated invocation ───────
+# See the "[2/3]" block in setup_models.sh: NNCF calibration can abort with
+# SIGSEGV inside the OpenVINO CPU plugin, which must not kill the whole script.
 
-print("YOLO export complete.")
+print("YOLO base + FP32 export complete.")
 PYEOF
 
-        echo "[2/2] Verifying YOLO artifacts..."
+        # ── INT8 quantization: isolated and non-fatal (ITEP-94280) ───────────
+        # NNCF calibration runs real inference through the OpenVINO CPU plugin.
+        # On CPUs the plugin does not yet recognise, that inference can abort with
+        # SIGSEGV during statistics collection. Because this script runs under
+        # `set -e`, an inline crash previously killed setup outright and skipped
+        # artifact verification. Run it in isolation, retry once with a
+        # conservative oneDNN ISA, and degrade to FP32 rather than failing setup.
+        if [ -d "${YOLO_INT8_DIR}" ]; then
+            echo "[2/3] INT8 model already exists, skipping quantization."
+        else
+            echo "[2/3] Quantizing to OpenVINO INT8 (downloads COCO128 ~7 MB if needed)..."
+            _int8_script="$(mktemp /tmp/yolo_int8_XXXXXX.py)"
+            cat > "${_int8_script}" << 'PYEOF'
+import os
+from pathlib import Path
+from ultralytics import YOLO
+
+model_dir    = Path(os.environ["YOLO_MODEL_DIR"])
+datasets_dir = Path(os.environ["YOLO_DATASETS_DIR"])
+
+# Tell ultralytics where to store datasets (needed for INT8 calibration)
+os.environ["YOLO_DATASETS_DIR"] = str(datasets_dir)
+
+yolo_pt  = model_dir / "yolo11n.pt"
+int8_dir = model_dir / "yolo11n_int8_openvino_model"
+
+orig = os.getcwd()
+os.chdir(str(model_dir))
+YOLO(str(yolo_pt)).export(format="openvino", int8=True, data="coco128.yaml")
+# Older ultralytics exports INT8 to "yolo11n_openvino_model/" in CWD;
+# rename it so it doesn't overwrite the FP32 export.
+default_out = Path("yolo11n_openvino_model")
+if default_out.exists() and not int8_dir.exists():
+    default_out.rename(int8_dir.name)
+os.chdir(orig)
+print(f"  INT8 quantization written to: {int8_dir}")
+PYEOF
+
+            _int8_ok=0
+            for _isa in "" "AVX2"; do
+                if [ -n "${_isa}" ]; then
+                    echo "  ⚙ Retrying INT8 quantization with ONEDNN_MAX_CPU_ISA=${_isa} ..."
+                fi
+                set +e
+                env ${_isa:+ONEDNN_MAX_CPU_ISA="${_isa}"} \
+                    YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" \
+                    YOLO_DATASETS_DIR="${YOLO_DATASETS_DIR}" \
+                    python3 "${_int8_script}"
+                _rc=$?
+                set -e
+                if [ "${_rc}" -eq 0 ] && [ -d "${YOLO_INT8_DIR}" ]; then
+                    _int8_ok=1
+                    echo "  ✓ INT8 quantization: ${YOLO_INT8_DIR}"
+                    break
+                fi
+                if [ "${_rc}" -gt 128 ]; then
+                    echo "  ✗ INT8 quantization crashed with signal $(( _rc - 128 )) (exit ${_rc})."
+                else
+                    echo "  ✗ INT8 quantization failed (exit ${_rc})."
+                fi
+                # Remove any half-written IR so it is never loaded at runtime
+                rm -rf "${YOLO_INT8_DIR}"
+            done
+            rm -f "${_int8_script}"
+
+            if [ "${_int8_ok}" -ne 1 ]; then
+                echo ""
+                echo "  ⚠ WARNING: INT8 quantization could not be completed on this CPU."
+                echo "    This is a known OpenVINO CPU-plugin crash during NNCF"
+                echo "    calibration on CPUs the plugin does not yet recognise."
+                echo "    Setup continues: the frame-selector automatically falls back"
+                echo "    to the FP32 OpenVINO model, so take-away remains functional."
+            fi
+        fi
+
+        echo "[3/3] Verifying YOLO artifacts..."
         _ok=1
         if [ -f "${YOLO_PT}" ]; then
             echo "  ✓ yolo11n.pt"
@@ -736,12 +799,14 @@ PYEOF
         if [ -d "${YOLO_INT8_DIR}" ]; then
             echo "  ✓ yolo11n_int8_openvino_model/"
         else
-            echo "  ✗ yolo11n_int8_openvino_model/ missing"
-            _ok=0
+            # Not fatal: CPU inference falls back to the FP32 IR.
+            echo "  ⚠ yolo11n_int8_openvino_model/ missing — using FP32 on CPU"
         fi
 
-        if [ "${_ok}" -eq 1 ]; then
+        if [ "${_ok}" -eq 1 ] && [ -d "${YOLO_INT8_DIR}" ]; then
             echo "✓ YOLO models ready"
+        elif [ "${_ok}" -eq 1 ]; then
+            echo "✓ YOLO models ready (FP32 only — INT8 unavailable on this CPU)"
         else
             echo "✗ Some YOLO artifacts are missing — check ${YOLO_MODEL_DIR}"
         fi
