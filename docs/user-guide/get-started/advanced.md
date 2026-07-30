@@ -66,7 +66,8 @@ LOG_LEVEL=INFO
 # Service Endpoints
 # =============================================================================
 OVMS_ENDPOINT=http://ovms-vlm:8000
-OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
+OVMS_MODEL_NAME=openbmb/MiniCPM-V-4_5-int4
+VLM_PRECISION=int4           # must match the -int4 suffix in OVMS_MODEL_NAME
 SEMANTIC_SERVICE_ENDPOINT=http://semantic-service:8080
 API_TIMEOUT=60
 ```
@@ -106,7 +107,10 @@ API_TIMEOUT=60
 # =============================================================================
 VLM_BACKEND=ovms
 OVMS_ENDPOINT=http://ovms-vlm:8000
-OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
+OVMS_MODEL_NAME=openbmb/MiniCPM-V-4_5-int4
+VLM_PRECISION=int4           # must match the -int4 suffix in OVMS_MODEL_NAME
+VLM_IMAGE_MAX_SIZE=448       # square canvas size submitted to the VLM
+VLM_ENABLE_THINKING=false    # keep MiniCPM's <think> reasoning off
 OPENVINO_DEVICE=GPU          # 'GPU', 'CPU', or 'AUTO'
 
 # =============================================================================

@@ -37,9 +37,10 @@ bash ovms-service/setup_models.sh --app dine-in
 This will:
 
 - Download `export_model.py` and install its dependencies automatically
-- Read `OVMS_MODEL_NAME` from the selected app `.env` (`take-away/.env` or `dine-in/.env`)
+- Read `OVMS_MODEL_NAME` from the selected app `.env` (`take-away/.env` or `dine-in/.env`),
+  falling back to the per-app default (`openbmb/MiniCPM-V-4_5-int4` for both apps)
 - Download that model from HuggingFace
-- Convert to OpenVINO™ IR format with int8 quantization
+- Convert to OpenVINO™ IR format at the `VLM_PRECISION` weight format
 - Save to `ovms-service/models/<model-name>/`
 - Generate `graph.pbtxt` for OVMS configuration
 
@@ -54,12 +55,27 @@ Supported values for `OVMS_MODEL_NAME`:
 > This list mirrors `SUPPORTED_MODEL_SOURCES` in `ovms-service/setup_models.sh`,
 > which is the source of truth — check that script if this list appears out of date.
 
+### Precision (`VLM_PRECISION`)
+
+`VLM_PRECISION` is the weight format passed to the export (`--weight-format`).
+When it is not set, the default is derived from the precision suffix of
+`OVMS_MODEL_NAME` (`-int4` → `int4`, `-int8` → `int8`, otherwise `int8`).
+
+The suffix is only a directory label, so it does not by itself change the exported
+weights. Setting `VLM_PRECISION=int8` while naming the model `...-int4` writes INT8
+weights into an `-int4` directory; the script warns when it detects this mismatch.
+
+> `openbmb/MiniCPM-V-4_5-int4` is exported from the full-precision
+> `openbmb/MiniCPM-V-4_5` source with NNCF INT4 weight compression. The
+> HuggingFace repository of the same name is a bitsandbytes checkpoint that
+> optimum-intel cannot import directly.
+
 Optional authentication for gated Hugging Face models:
 
 - Add `HF_TOKEN=<your_token>` (or `HUGGINGFACE_HUB_TOKEN=<your_token>`) to the selected app `.env`
 - Or run `huggingface-cli login`
 
-Public models (for example Qwen) can be downloaded without authentication.
+Public models (for example MiniCPM-V-4.5) can be downloaded without authentication.
 
 > **ℹ Low-RAM systems:** Set `export CACHE_SIZE=2` before running `setup_models.sh` if you are on a 16 GB system. For first-time export, a 48–64 GB host is recommended to avoid OOM. See [Tuning the KV Cache Size](#tuning-the-kv-cache-size).
 

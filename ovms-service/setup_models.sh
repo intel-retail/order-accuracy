@@ -66,13 +66,20 @@ read_env_value() {
     grep -E "^${key}=" "${file}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r'
 }
 
+# Per-app default model. Both dine-in and take-away run MiniCPM-V-4_5 at INT4;
+# these defaults are only used when OVMS_MODEL_NAME is not set in the shell
+# environment or in the app's .env file.
+declare -A APP_DEFAULT_MODEL
+APP_DEFAULT_MODEL["take-away"]="openbmb/MiniCPM-V-4_5-int4"
+APP_DEFAULT_MODEL["dine-in"]="openbmb/MiniCPM-V-4_5-int4"
+
 ENV_FILE="${PROJECT_ROOT}/${APP}/.env"
 echo "App: ${APP}  →  reading config from ${ENV_FILE}"
 if [ -f "${ENV_FILE}" ]; then
     _OVMS_MODEL_NAME_FILE=$(read_env_value "OVMS_MODEL_NAME" "${ENV_FILE}")
 fi
 # Read OVMS_MODEL_NAME: shell env var takes precedence over app .env
-OVMS_MODEL_NAME_ENV="${OVMS_MODEL_NAME:-${_OVMS_MODEL_NAME_FILE:-Qwen/Qwen2.5-VL-7B-Instruct}}"
+OVMS_MODEL_NAME_ENV="${OVMS_MODEL_NAME:-${_OVMS_MODEL_NAME_FILE:-${APP_DEFAULT_MODEL[${APP}]}}}"
 
 if [ -z "${SUPPORTED_MODEL_SOURCES[${OVMS_MODEL_NAME_ENV}]+x}" ]; then
     echo "ERROR: Unsupported OVMS_MODEL_NAME='${OVMS_MODEL_NAME_ENV}'"
@@ -107,13 +114,36 @@ else
     echo "Hugging Face authentication: no token found; using anonymous access"
 fi
 
-# Read TARGET_DEVICE: shell env var takes precedence over take-away/.env, default GPU
+# Read TARGET_DEVICE: shell env var takes precedence over the app .env, default GPU
 _TARGET_DEVICE_FILE=$(read_env_value "TARGET_DEVICE" "${ENV_FILE}")
 TARGET_DEVICE_ENV="${TARGET_DEVICE:-${_TARGET_DEVICE_FILE:-GPU}}"
 
-# Read VLM_PRECISION: shell env var takes precedence over take-away/.env, default int8
+# Read VLM_PRECISION: shell env var takes precedence over the app .env.
+# The default is derived from the precision suffix of OVMS_MODEL_NAME
+# (e.g. "-int4" → int4), falling back to int8 when there is no suffix.
 _VLM_PRECISION_FILE=$(read_env_value "VLM_PRECISION" "${ENV_FILE}")
-VLM_PRECISION_ENV="${VLM_PRECISION:-${_VLM_PRECISION_FILE:-int8}}"
+case "${OVMS_MODEL_NAME_ENV}" in
+    *-int4) _VLM_PRECISION_DEFAULT="int4" ;;
+    *-int8) _VLM_PRECISION_DEFAULT="int8" ;;
+    *)      _VLM_PRECISION_DEFAULT="int8" ;;
+esac
+VLM_PRECISION_ENV="${VLM_PRECISION:-${_VLM_PRECISION_FILE:-${_VLM_PRECISION_DEFAULT}}}"
+
+# The precision suffix in the model name is only a directory label, so an
+# int8 export written into an "-int4" directory silently produces slower
+# weights than the name advertises.  Warn loudly on a mismatch.
+case "${OVMS_MODEL_NAME_ENV}" in
+    *-int4|*-int8)
+        if [ "${VLM_PRECISION_ENV}" != "${_VLM_PRECISION_DEFAULT}" ]; then
+            echo ""
+            echo "  ⚠ WARNING: OVMS_MODEL_NAME='${OVMS_MODEL_NAME_ENV}' implies"
+            echo "    ${_VLM_PRECISION_DEFAULT} weights, but VLM_PRECISION='${VLM_PRECISION_ENV}'."
+            echo "    The exported weights will NOT match the model directory name."
+            echo "    Set VLM_PRECISION=${_VLM_PRECISION_DEFAULT} in ${ENV_FILE} to align them."
+            echo ""
+        fi
+        ;;
+esac
 
 # Read CACHE_SIZE: KV cache size in GB for OVMS.  Default is 4 GB which is
 # adequate for a single-station app (max_num_seqs=4).  On GPU the KV cache
@@ -242,6 +272,13 @@ migrate_legacy_model() {
 
     if [ -d "${target_path}" ]; then
         return 0  # Already at the new location, nothing to do
+    fi
+
+    # The legacy layout only ever contained Qwen2.5-VL-7B-Instruct, so never
+    # migrate it into a directory named after a different model (e.g. MiniCPM)
+    # — that would serve Qwen weights under the wrong model name.
+    if [ "${target_path}" != "${MODELS_DIR}/Qwen/Qwen2.5-VL-7B-Instruct" ]; then
+        return 1
     fi
 
     local legacy_paths=(
@@ -507,8 +544,8 @@ done
 # export_model.py generates a model_config_list config which does NOT support
 # the /v3/chat/completions endpoint. OVMS LLM/VLM serving requires a
 # mediapipe_config_list entry (pointing at the graph.pbtxt). The model name
-# is read from OVMS_MODEL_NAME in take-away/.env so it always matches what
-# the OA service requests (e.g. "Qwen/Qwen2.5-VL-7B-Instruct").
+# is read from OVMS_MODEL_NAME in the selected app's .env so it always matches
+# what the OA service requests (e.g. "openbmb/MiniCPM-V-4_5-int4").
 ###############################################
 generate_ovms_config() {
     echo ""

@@ -24,7 +24,7 @@ Hardware, software, and network requirements for deploying Dine-In Order Accurac
 | GPU       | Intel® Data Center GPU (for concurrent validation) |
 | Storage   | 200 GB NVMe SSD                                    |
 
-**GPU VRAM guidance:** The Qwen2.5-VL-7B INT8 model requires ~8 GB of VRAM.
+**GPU VRAM guidance:** The MiniCPM-V-4.5 INT4 model requires ~5 GB of VRAM.
 The default `cache_size=4` reserves an additional 4 GB VRAM for the KV cache. Total VRAM needed
 is around 12 GB, which fits in an Intel® Arc™ A770 16 GB. On **integrated GPU** (iGPU)
 platforms such as Wildcat Lake and Meteor Lake, the KV cache is drawn from **system RAM**

@@ -52,7 +52,7 @@ Optimized for validating food trays at serving stations before delivery to table
 - REST API for POS integration
 - Gradio web interface for manual validation
 - Hybrid semantic matching
-- Zero-training deployment with pre-trained Qwen2.5-VL-7B model
+- Zero-training deployment with pre-trained MiniCPM-V-4.5 model
 
 #### Use Case
 
@@ -109,7 +109,7 @@ Optimized for high-throughput drive-through environments with multiple camera st
 
 ### VLM Backend (OVMS)
 
-Both applications use OpenVINO™ Model Server with Qwen2.5-VL for vision-language inference.
+Both applications use OpenVINO™ Model Server with MiniCPM-V-4.5 (INT4) for vision-language inference.
 
 ### Semantic Comparison Service
 

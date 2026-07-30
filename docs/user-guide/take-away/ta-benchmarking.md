@@ -62,6 +62,13 @@ make up
 > make download-sample-video
 > ```
 
+> **Order manifests:** The benchmark validates the orders detected in the video
+> against `config/orders.json`. Order IDs must match the order numbers shown in
+> the video, and each order's expected items must match what is actually visible.
+> A stale manifest reports correct detections as mismatches; an unparseable one
+> (for example a trailing comma) makes every order fail and the benchmark reports
+> zero transactions.
+
 ## Benchmark Commands
 
 ### Fixed Workers Benchmark

@@ -37,12 +37,12 @@ vlm:
   backend: ovms  # Using OVMS backend for VLM inference
   
   # Embedded backend configuration (used when backend: embedded)
-  model_path: /model/Qwen2.5-VL-7B-Instruct
+  model_path: /model/MiniCPM-V-4_5-int4
   device: GPU
   
   # OVMS backend configuration (used when backend: ovms)
   ovms_endpoint: http://ovms-vlm:8000
-  ovms_model: Qwen/Qwen2.5-VL-7B-Instruct
+  ovms_model: openbmb/MiniCPM-V-4_5-int4
 
   # Common configuration
   endpoint: http://order-accuracy:8000/run_vlm
@@ -50,8 +50,8 @@ vlm:
   timeout_sec: 360  # Increased: 7B VLM on iGPU takes ~300s per inference
   max_new_tokens: 100  # Item list is ~30 tokens max; 512 caused KV-cache overflow → OVMS crash
   temperature: 0.2
-  model: Qwen/Qwen2.5-VL-7B-Instruct
-  precision: int8
+  model: openbmb/MiniCPM-V-4_5-int4
+  precision: int4
 
 # Semantic Comparison Service Configuration
 semantic_service:

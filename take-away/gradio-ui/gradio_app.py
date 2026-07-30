@@ -1551,7 +1551,7 @@ with gr.Blocks(
         <div class="footer-info">
             <div style="font-weight: 700; color: #0071C5; font-size: 15px; margin-bottom: 4px;">intel</div>
             <div><strong>AI Solutions</strong> • Take-Away Order Accuracy System</div>
-            <div style="margin-top: 4px; font-size: 12px; color: #64748b;">Powered by Qwen2.5-VL Vision-Language Model on OpenVINO™</div>
+            <div style="margin-top: 4px; font-size: 12px; color: #64748b;">Powered by MiniCPM-V-4.5 Vision-Language Model on OpenVINO™</div>
         </div>
     ''')
 

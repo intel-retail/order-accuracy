@@ -82,7 +82,7 @@ cd ../take-away
 
 This downloads and exports:
 
-- Qwen2.5-VL-7B-Instruct (OpenVINO™ format)
+- MiniCPM-V-4_5 INT4 (OpenVINO™ format)
 - YOLOv11 model (INT8 OpenVINO™)
 - EasyOCR detection and recognition models
 
@@ -112,8 +112,15 @@ make up
 # =============================================================================
 VLM_BACKEND=ovms
 OVMS_ENDPOINT=http://ovms-vlm:8000
-OVMS_MODEL_NAME=Qwen/Qwen2.5-VL-7B-Instruct
+OVMS_MODEL_NAME=openbmb/MiniCPM-V-4_5-int4
+VLM_PRECISION=int4           # must match the -int4 suffix in OVMS_MODEL_NAME
 TARGET_DEVICE=GPU            # 'GPU' or 'CPU' — also set OPENVINO_DEVICE to match
+
+# =============================================================================
+# VLM Image / Decoding Options
+# =============================================================================
+VLM_IMAGE_MAX_SIZE=448       # frames are fitted into a 448x448 square canvas
+VLM_ENABLE_THINKING=false    # keep MiniCPM's <think> reasoning disabled
 
 # =============================================================================
 # Inference Device (must match TARGET_DEVICE)
@@ -137,6 +144,15 @@ MINIO_ENDPOINT=minio:9000
 ```
 
 > **Changing the inference device:** Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU` or `CPU`), then re-run `./setup_models.sh --app take-away` to re-export the model for that device.
+
+> **`VLM_ENABLE_THINKING`:** MiniCPM-V-4.5 is a hybrid reasoning model. Leave this
+> `false`. When enabled, the model spends the whole token budget on a `<think>`
+> reasoning block and the detected-item list is truncated, which shows up as
+> missing items and ~4x higher latency.
+
+> **`VLM_IMAGE_MAX_SIZE`:** Each selected frame is fitted into a square canvas of
+> this size (aspect ratio preserved, white padding), matching the dine-in
+> pipeline. Larger values increase detail but also prompt tokens and latency.
 
 ### Validate Configuration
 
