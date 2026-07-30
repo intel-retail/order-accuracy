@@ -2,6 +2,7 @@
 
 import requests
 import base64
+import re
 import time
 import logging
 import os
@@ -9,7 +10,7 @@ from io import BytesIO
 from typing import List, Optional
 from pathlib import Path
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageEnhance, ImageFilter
 from vlm_metrics_logger import (
     log_start_time, 
     log_end_time, 
@@ -23,6 +24,34 @@ logger = logging.getLogger(__name__)
 VLM_INPUT_DIR = os.environ.get('VLM_INPUT_DIR', '/results/vlm-in')
 SAVE_VLM_INPUT = os.environ.get('SAVE_VLM_INPUT', 'false').lower() in ('true', '1', 'yes')
 
+# Square canvas size fed to the VLM. Matches the dine-in pipeline so both
+# applications submit identically sized images to the same MiniCPM model.
+VLM_IMAGE_MAX_SIZE = int(os.environ.get('VLM_IMAGE_MAX_SIZE', '448'))
+VLM_IMAGE_MIN_SIZE = 224
+VLM_JPEG_QUALITY = int(os.environ.get('VLM_JPEG_QUALITY', '82'))
+
+# MiniCPM-V-4.5 is a hybrid reasoning model: unless thinking is explicitly
+# disabled its chat template opens a <think> block and the whole
+# max_completion_tokens budget is spent on reasoning, leaving the answer
+# truncated. Setting enable_thinking=false makes the template pre-fill an
+# empty <think></think> pair so generation starts with the answer.
+VLM_ENABLE_THINKING = os.environ.get('VLM_ENABLE_THINKING', 'false').lower() in ('true', '1', 'yes')
+
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL | re.IGNORECASE)
+
+
+def strip_think_block(text: str) -> str:
+    """Remove <think>...</think> reasoning emitted by hybrid reasoning VLMs."""
+    if not text:
+        return text
+    cleaned = _THINK_BLOCK_RE.sub("", text)
+    # An unterminated block means generation was cut off mid-reasoning; there
+    # is no usable answer after it, so drop everything from <think> onwards.
+    idx = cleaned.lower().find("<think>")
+    if idx != -1:
+        cleaned = cleaned[:idx]
+    return cleaned.strip()
+
 
 class OVMSVLMClient:
     """
@@ -33,7 +62,7 @@ class OVMSVLMClient:
     def __init__(
         self,
         endpoint: str,
-        model_name: str = "Qwen/Qwen2-VL-2B-Instruct",
+        model_name: str = "openbmb/MiniCPM-V-4_5-int4",
         timeout: int = 120,
         max_new_tokens: int = 512,
         temperature: float = 0.2,
@@ -68,11 +97,41 @@ class OVMSVLMClient:
         """
         # Images arrive as RGB (loaded via PIL in vlm_service.py) — no channel flip needed.
         pil_img = Image.fromarray(image.astype('uint8'))
+        pil_img = self._preprocess_image(pil_img)
         buffer = BytesIO()
-        pil_img.save(buffer, format="JPEG", quality=82, optimize=True)
+        pil_img.save(buffer, format="JPEG", quality=VLM_JPEG_QUALITY, optimize=True)
         img_b64 = base64.b64encode(buffer.getvalue()).decode('utf-8')
         
         return f"data:image/jpeg;base64,{img_b64}"
+
+    @staticmethod
+    def _preprocess_image(img: Image.Image) -> Image.Image:
+        """
+        Fit the frame into a VLM_IMAGE_MAX_SIZE square canvas, mirroring the
+        dine-in ImagePreprocessor so both applications feed the VLM images of
+        identical dimensions.
+
+        Aspect ratio is preserved (LANCZOS downscale) and the remaining canvas
+        is padded white; light contrast enhancement and sharpening improve
+        product-label legibility at this reduced resolution.
+        """
+        if img.mode != 'RGB':
+            img = img.convert('RGB')
+
+        target = VLM_IMAGE_MAX_SIZE
+        width, height = img.size
+        scale = min(target / width, target / height)
+
+        new_width = min(max(int(round(width * scale)), VLM_IMAGE_MIN_SIZE), target)
+        new_height = min(max(int(round(height * scale)), VLM_IMAGE_MIN_SIZE), target)
+
+        resized = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+        resized = ImageEnhance.Contrast(resized).enhance(1.15)
+        resized = resized.filter(ImageFilter.UnsharpMask(radius=1.0, percent=60, threshold=3))
+
+        canvas = Image.new('RGB', (target, target), (255, 255, 255))
+        canvas.paste(resized, ((target - new_width) // 2, (target - new_height) // 2))
+        return canvas
 
     def _save_input_frames(self, images: List, unique_id: str) -> str:
         """
@@ -169,6 +228,9 @@ class OVMSVLMClient:
             ],
             "max_completion_tokens": self.max_new_tokens,
             "temperature": self.temperature,
+            # Hybrid reasoning models (MiniCPM-V-4.5) must be told not to emit a
+            # <think> block, otherwise the token budget is consumed by reasoning.
+            "chat_template_kwargs": {"enable_thinking": VLM_ENABLE_THINKING},
         }
 
         # Save input frames for debugging (before sending request)
@@ -204,6 +266,7 @@ class OVMSVLMClient:
             
             # Extract text from response
             text = result.get("choices", [{}])[0].get("message", {}).get("content", "")
+            text = strip_think_block(text)
             logger.info(f"[OVMS-CLIENT] Response received in {total_latency:.2f}s")
             logger.debug(f"[OVMS-CLIENT] Generated text: {text[:200]}...")
 

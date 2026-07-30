@@ -17,7 +17,7 @@ Take-Away Order Accuracy is an AI-powered vision system that validates drive-thr
 
 - **Real-Time Video Processing**: GStreamer-based pipeline with RTSP support
 - **Multi-Station Parallel Processing**: Concurrent order validation across multiple stations
-- **VLM-Based Item Detection**: Qwen2.5-VL-7B for visual product identification
+- **VLM-Based Item Detection**: MiniCPM-V-4.5 (INT4) for visual product identification
 - **Intelligent Frame Selection**: YOLO-powered frame selection for optimal VLM input
 - **Semantic Matching**: Hybrid exact/semantic matching for robust item comparison
 - **Production-Ready Architecture**: Circuit breaker, exponential backoff, health monitoring
@@ -71,7 +71,7 @@ cd ../take-away
 
 This downloads and exports:
 
-- Qwen2.5-VL-7B-Instruct (OpenVINO™ format)
+- MiniCPM-V-4_5 INT4 (OpenVINO™ format)
 - YOLOv11 model (INT8 OpenVINO™)
 - EasyOCR detection and recognition models
 

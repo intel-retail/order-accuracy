@@ -31,7 +31,7 @@ SCALING_MODE ?= fixed
 # VLM Backend
 VLM_BACKEND ?= ovms
 OVMS_ENDPOINT ?= http://ovms-vlm:8000
-OVMS_MODEL_NAME ?= Qwen/Qwen2.5-VL-7B-Instruct
+OVMS_MODEL_NAME ?= openbmb/MiniCPM-V-4_5-int4
 OPENVINO_DEVICE ?= $(TARGET_DEVICE)
 # Automatically select CPU-only OVMS image when TARGET_DEVICE=CPU
 OVMS_IMAGE ?= $(if $(filter CPU,$(TARGET_DEVICE)),openvino/model_server:latest,openvino/model_server:latest-gpu)

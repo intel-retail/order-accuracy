@@ -60,7 +60,7 @@ cd ../dine-in
 
 > **Note:** Only needed once. Model files are shared between Dine-In and Take-Away.
 
-This downloads Qwen2.5-VL-7B-Instruct (~7 GB) and converts it to OpenVINO™ INT8 format. This is only needed once — the model files are shared with Take-Away.
+This downloads MiniCPM-V-4.5 and converts it to OpenVINO™ INT4 format. This is only needed once — the model files are shared with Take-Away.
 
 ### Step 4: Prepare Test Data
 

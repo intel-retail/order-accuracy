@@ -44,7 +44,7 @@ class VLMBackendFactory:
         from .ovms_client import OVMSVLMClient, MockGenerationConfig
         
         endpoint = config.get("ovms_endpoint", "http://ovms-vlm:8000")
-        model_name = config.get("ovms_model", "Qwen/Qwen2-VL-2B-Instruct")
+        model_name = config.get("ovms_model", "openbmb/MiniCPM-V-4_5-int4")
         timeout = config.get("timeout_sec", 120)
         
         logger.info(f"[BACKEND-FACTORY] Creating OVMS backend: {endpoint}")

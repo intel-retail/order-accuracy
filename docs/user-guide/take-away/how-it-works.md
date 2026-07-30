@@ -15,7 +15,7 @@ flowchart TB
     minio --> selector["Frame Selector<br/>(YOLO11n-CPU)"]
     selector -->|top 3 frames| scheduler["VLM Scheduler<br/>(ThreadPool)"]
     selector -->|top 3 frames| validation["Validation Agent"]
-    scheduler --> ovms["OVMS VLM<br/>(Qwen2.5-VL, GPU-INT8)"]
+    scheduler --> ovms["OVMS VLM<br/>(MiniCPM-V-4.5, GPU-INT4)"]
     validation --> semantic["Semantic Service"]
   end
 
@@ -107,7 +107,7 @@ WORKERS=0
 │                        ▼                                                    │
 │  ┌──────────────────────────────────────────────────────────────────────┐   │
 │  │                           OVMS VLM (GPU)                             │   │
-│  │              Qwen2.5-VL-7B / Continuous Batching                     │   │
+│  │            MiniCPM-V-4.5 INT4 / Continuous Batching                  │   │
 │  └──────────────────────────────────────────────────────────────────────┘   │
 │                                                                             │
 │  Characteristics:                                                           │
@@ -317,7 +317,7 @@ response = requests.post(
      - Store selected frames in MinIO
 
 3. **VLM Processing**:
-   - VLM Scheduler → OVMS (Qwen2.5-VL):
+   - VLM Scheduler → OVMS (MiniCPM-V-4.5):
      - Batch frames by time window
      - Send to OVMS with detection prompt
      - Parse structured item response
@@ -387,7 +387,7 @@ rtspsrc location=<url> latency=0 buffer-mode=0 protocols=tcp ntp-sync=false do-r
 ┌─────────────────────────────────────────────────────────────────────────────────┐
 │                         OVMS VLM INTEGRATION                                     │
 │                                                                                  │
-│  Model: Qwen/Qwen2.5-VL-7B-Instruct                                             │
+│  Model: openbmb/MiniCPM-V-4_5-int4                                              │
 │                                                                                  │
 │  ┌────────────────────────────────────────────────────────────────────────┐    │
 │  │                         OVMS Model Server                               │    │
@@ -395,12 +395,12 @@ rtspsrc location=<url> latency=0 buffer-mode=0 protocols=tcp ntp-sync=false do-r
 │  │  ┌────────────────┐    ┌────────────────┐    ┌────────────────┐       │    │
 │  │  │  Vision        │    │  Language      │    │  Output        │       │    │
 │  │  │  Encoder       │───▶│  Model         │───▶│  Decoder       │       │    │
-│  │  │  (ViT-based)   │    │  (Qwen2.5)     │    │  (JSON)        │       │    │
+│  │  │  (SigLIP)      │    │  (MiniCPM)     │    │  (JSON)        │       │    │
 │  │  └────────────────┘    └────────────────┘    └────────────────┘       │    │
 │  │                                                                         │    │
 │  │  API: OpenAI-compatible /v3/chat/completions                           │    │
 │  │  Port: 8001 (configurable)                                             │    │
-│  │  Precision: INT8 (optimized for inference)                             │    │
+│  │  Precision: INT4 (optimized for inference)                             │    │
 │  └────────────────────────────────────────────────────────────────────────┘    │
 │                                                                                  │
 └─────────────────────────────────────────────────────────────────────────────────┘
@@ -412,7 +412,7 @@ rtspsrc location=<url> latency=0 buffer-mode=0 protocols=tcp ntp-sync=false do-r
 
 ```json
 {
-  "model": "Qwen/Qwen2.5-VL-7B-Instruct",
+  "model": "openbmb/MiniCPM-V-4_5-int4",
   "messages": [
     {
       "role": "user",
@@ -426,9 +426,16 @@ rtspsrc location=<url> latency=0 buffer-mode=0 protocols=tcp ntp-sync=false do-r
     }
   ],
   "max_completion_tokens": 100,
-  "temperature": 0.2
+  "temperature": 0.2,
+  "chat_template_kwargs": { "enable_thinking": false }
 }
 ```
+
+> **`enable_thinking`:** MiniCPM-V-4.5 is a hybrid reasoning model. Unless
+> thinking is explicitly disabled, its chat template opens a `<think>` block and
+> the entire `max_completion_tokens` budget is spent on reasoning, leaving the
+> item list truncated. The service always sends `enable_thinking: false`
+> (configurable via `VLM_ENABLE_THINKING`).
 
 **Response:**
 

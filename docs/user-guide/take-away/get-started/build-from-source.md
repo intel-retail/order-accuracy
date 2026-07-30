@@ -78,7 +78,7 @@ cd ../take-away
 
 This downloads and exports:
 
-- **Qwen2.5-VL-7B-Instruct** (OpenVINO™ INT8) → `ovms-service/models/`
+- **MiniCPM-V-4_5** (OpenVINO™ INT4) → `ovms-service/models/`
 - **EasyOCR** models → `take-away/models/easyocr/`
 - **YOLO11n** (FP32 + INT8 OpenVINO) → `take-away/models/`
 

@@ -30,7 +30,7 @@ In a full-service restaurant:
 
 | Feature                      | Description                                                                      |
 | ---------------------------- | -------------------------------------------------------------------------------- |
-| **Zero-Training Deployment** | Uses pre-trained Qwen2.5-VL-7B model - no fine-tuning required                   |
+| **Zero-Training Deployment** | Uses pre-trained MiniCPM-V-4.5 model - no fine-tuning required                   |
 | **Semantic Matching**        | Fuzzy item matching handles naming variations (e.g., "Big Mac" ↔ "Maharaja Mac") |
 | **Real-Time Validation**     | Sub-15-second end-to-end latency for operational efficiency                      |
 | **Circuit Breaker Pattern**  | Fault-tolerant with automatic service recovery                                   |

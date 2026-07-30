@@ -272,7 +272,7 @@ class VLMComponent:
 backend_config = {
     "ovms_endpoint": os.getenv("OVMS_ENDPOINT", VLM_CFG.get("ovms_endpoint", "http://" \
     ":8000")),
-    "ovms_model": os.getenv("OVMS_MODEL_NAME", VLM_CFG.get("ovms_model", "Qwen/Qwen2.5-VL-7B-Instruct")),
+    "ovms_model": os.getenv("OVMS_MODEL_NAME", VLM_CFG.get("ovms_model", "openbmb/MiniCPM-V-4_5-int4")),
     "timeout_sec": VLM_CFG.get("timeout_sec", 300),
 }
 
@@ -393,7 +393,10 @@ async def _run_vlm_internal(order_id: str, station_id: str):
         for f in frames:
             logger.debug(f"[INTERNAL] Loading frame: {f}")
             data = client.get_object(SELECTED_BUCKET, f)
-            img = Image.open(data).convert("RGB").resize((512, 512))
+            # No resize here: OVMSVLMClient fits each frame into a 448x448
+            # square with the aspect ratio preserved (same as dine-in).
+            # Resizing to a fixed 512x512 first distorted the aspect ratio.
+            img = Image.open(data).convert("RGB")
             images.append(np.array(img))
         
         logger.info(f"[INTERNAL] Loaded {len(images)} images, starting VLM inference for order_id={order_id}")

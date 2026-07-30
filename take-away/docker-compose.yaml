@@ -58,7 +58,7 @@ services:
   # SINGLE Station (per-container): docker compose up -d --scale order-accuracy=4
   # MULTI Station (multi-process in one container): Set SERVICE_MODE=parallel
   order-accuracy:
-    image: intel/order-accuracy-take-away:${TAG}
+    image: ${TAKEAWAY_IMAGE:-intel/order-accuracy-take-away:latest}
     build:
       context: .
       args:
@@ -98,15 +98,22 @@ services:
       
       # VLM Backend (embedded or ovms)
       VLM_BACKEND: ${VLM_BACKEND:-ovms}
-      VLM_MODEL_PATH: ${VLM_MODEL_PATH:-/model/Qwen2.5-VL-7B-Instruct}
+      VLM_MODEL_PATH: ${VLM_MODEL_PATH:-/model/MiniCPM-V-4_5-int4}
       OPENVINO_DEVICE: ${TARGET_DEVICE:-GPU}
       
       # OVMS settings (when VLM_BACKEND=ovms)
       OVMS_ENDPOINT: ${OVMS_ENDPOINT:-http://ovms-vlm:8000}
-      OVMS_MODEL_NAME: ${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct}
-      VLM_PRECISION: ${VLM_PRECISION:-int8}
+      OVMS_MODEL_NAME: ${OVMS_MODEL_NAME:-openbmb/MiniCPM-V-4_5-int4}
+      VLM_PRECISION: ${VLM_PRECISION:-int4}
       VLM_DEVICE: ${TARGET_DEVICE:-GPU}
       OVMS_TIMEOUT: ${OVMS_TIMEOUT:-120}
+      # Square canvas size submitted to the VLM (matches dine-in)
+      VLM_IMAGE_MAX_SIZE: ${VLM_IMAGE_MAX_SIZE:-448}
+      # Keep MiniCPM's <think> reasoning disabled so the token budget is
+      # spent on the answer rather than on reasoning.
+      VLM_ENABLE_THINKING: ${VLM_ENABLE_THINKING:-false}
+      # Debug: save the exact frames submitted to the VLM under /results/vlm-in
+      SAVE_VLM_INPUT: ${SAVE_VLM_INPUT:-false}
       
       # Semantic service
       SEMANTIC_SERVICE_ENDPOINT: ${SEMANTIC_SERVICE_ENDPOINT:-http://semantic-service:8080}
@@ -188,7 +195,7 @@ services:
       - order-accuracy-net
 
   frame-selector:
-    image: intel/order-accuracy-frame-selector:${TAG}
+    image: ${FRAME_SELECTOR_IMAGE:-intel/order-accuracy-frame-selector:latest}
     build:
       context: ./frame-selector-service
       args:
@@ -236,7 +243,7 @@ services:
       - order-accuracy-net
 
   gradio-ui:
-    image: intel/order-accuracy-take-away-ui:${TAG}
+    image: ${TAKEAWAY_UI_IMAGE:-intel/order-accuracy-take-away-ui:latest}
     build:
       context: ./gradio-ui
       args:
@@ -285,12 +292,12 @@ services:
       - VLM_BACKEND=${SEMANTIC_VLM_BACKEND:-ovms}
       # OVMS settings (when VLM_BACKEND=ovms)
       - OVMS_ENDPOINT=http://ovms-vlm:8000
-      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct}
-      - VLM_PRECISION=${VLM_PRECISION:-int8}
+      - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-openbmb/MiniCPM-V-4_5-int4}
+      - VLM_PRECISION=${VLM_PRECISION:-int4}
       - VLM_DEVICE=${TARGET_DEVICE:-GPU}
       - OVMS_TIMEOUT=${OVMS_TIMEOUT:-60}
       # OpenVINO settings (when VLM_BACKEND=openvino)
-      - OPENVINO_MODEL_PATH=${OPENVINO_MODEL_PATH:-/models/Qwen2.5-VL-7B-Instruct}
+      - OPENVINO_MODEL_PATH=${OPENVINO_MODEL_PATH:-/models/MiniCPM-V-4_5-int4}
       - OPENVINO_DEVICE=${TARGET_DEVICE:-GPU}
       # Cache settings
       - CACHE_ENABLED=true
@@ -315,7 +322,7 @@ services:
   # RTSP Streamer - On-demand video streaming via MediaMTX
   # Streams start only when a GStreamer client connects — no sync needed.
   rtsp-streamer:
-    image: intel/order-accuracy-take-away-rtsp:${TAG}
+    image: ${TAKEAWAY_RTSP_IMAGE:-intel/order-accuracy-take-away-rtsp:latest}
     build:
       context: ./rtsp-streamer
       args:

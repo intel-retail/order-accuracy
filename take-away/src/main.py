@@ -151,7 +151,7 @@ def run_parallel_mode():
     scheduler = VLMScheduler(
         queue_manager=queue_mgr,
         ovms_url=os.getenv('OVMS_ENDPOINT', 'http://ovms-vlm:8000'),
-        model_name=os.getenv('OVMS_MODEL_NAME', 'Qwen/Qwen2.5-VL-7B-Instruct'),
+        model_name=os.getenv('OVMS_MODEL_NAME', 'openbmb/MiniCPM-V-4_5-int4'),
         batch_window_ms=100,
         max_batch_size=16,
         max_workers=vlm_workers

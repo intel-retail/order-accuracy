@@ -14,7 +14,7 @@ The Order Accuracy platform is an enterprise AI vision system designed for real-
 
 ### Key Features
 
-- **VLM-Powered Detection**: Uses Qwen2.5-VL-7B for accurate item identification
+- **VLM-Powered Detection**: Uses MiniCPM-V-4.5 (INT4) for accurate item identification
 - **Intel Hardware Optimization**: Optimized for Intel CPUs and GPUs via OpenVINO
 - **Dual Application Support**: Dine-In (image-based) and Take-Away (video stream-based)
 - **Semantic Matching**: Fuzzy matching for item name variations
@@ -44,7 +44,7 @@ graph TB
         end
 
         subgraph "Shared Services"
-            OVMS[OVMS VLM<br>Qwen2.5-VL-7B]
+            OVMS[OVMS VLM<br>MiniCPM-V-4.5]
             SEM[Semantic Service]
             MINIO[MinIO Storage]
         end
@@ -76,7 +76,7 @@ flowchart TB
         DVS --> DMET["Metrics Collector"]
     end
 
-    DVLM --> OVMS["OVMS VLM<br/>(Qwen2.5-VL)"]
+    DVLM --> OVMS["OVMS VLM<br/>(MiniCPM-V-4.5)"]
     DSEM --> SEM["Semantic Service"]
 ```
 
@@ -91,7 +91,7 @@ flowchart TB
     minio --> selector["Frame Selector<br/>(YOLO11n-CPU)"]
     selector -->|top 3 frames| scheduler["VLM Scheduler<br/>(ThreadPool)"]
     selector -->|top 3 frames| validation["Validation Agent"]
-    scheduler --> ovms["OVMS VLM<br/>(Qwen2.5-VL, GPU-INT8)"]
+    scheduler --> ovms["OVMS VLM<br/>(MiniCPM-V-4.5, GPU-INT4)"]
     validation --> semantic["Semantic Service"]
   end
 
@@ -105,12 +105,12 @@ flowchart TB
 
 #### 1. VLM Backend (OVMS)
 
-OpenVINO™ Model Server hosting Qwen2.5-VL-7B for vision-language inference.
+OpenVINO™ Model Server hosting MiniCPM-V-4.5 for vision-language inference.
 
 **Features:**
 
 - OpenAI-compatible API (`/v3/chat/completions`)
-- INT8 quantization for optimized performance
+- INT4 weight compression for optimized performance
 - GPU acceleration via Intel/NVIDIA hardware
 - Shared model instance for both applications
 
@@ -120,7 +120,7 @@ OpenVINO™ Model Server hosting Qwen2.5-VL-7B for vision-language inference.
 response = requests.post(
     f"{OVMS_ENDPOINT}/v3/chat/completions",
     json={
-        "model": "Qwen/Qwen2.5-VL-7B-Instruct",
+        "model": "openbmb/MiniCPM-V-4_5-int4",
         "messages": [
             {
                 "role": "user",
@@ -235,7 +235,7 @@ Request batching scheduler optimizing OVMS throughput.
      - Store selected frames in MinIO
 
 3. **VLM Processing**:
-   - VLM Scheduler → OVMS (Qwen2.5-VL):
+   - VLM Scheduler → OVMS (MiniCPM-V-4.5):
      - Batch frames by time window
      - Send to OVMS with detection prompt
      - Parse structured item response

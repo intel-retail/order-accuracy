@@ -49,7 +49,7 @@
    cd ../dine-in
    ```
 
-   This downloads and converts the Qwen2.5-VL-7B model (~7GB). This only needs to be done once.
+   This downloads and converts the MiniCPM-V-4.5 model to OpenVINO™ INT4. This only needs to be done once.
 
 3. **Prepare Test Data**
    - Add your food tray/plate images to the `images/` folder

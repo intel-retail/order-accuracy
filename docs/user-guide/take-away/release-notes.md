@@ -4,6 +4,36 @@ Version history and changelog for Take-Away Order Accuracy.
 
 ---
 
+## Version 2026.1.0 (Unreleased)
+
+### What's New
+
+- **VLM switched to MiniCPM-V-4.5 (INT4)** — Take-Away now uses
+  `openbmb/MiniCPM-V-4_5-int4` instead of `Qwen/Qwen2.5-VL-7B-Instruct`, aligning it
+  with Dine-In so both applications share a single OVMS model instance.
+  `VLM_PRECISION` defaults to `int4`.
+- **`setup_models.sh` per-app defaults** — `--app take-away` and `--app dine-in` both
+  default to MiniCPM-V-4.5 INT4. `VLM_PRECISION` is now derived from the precision
+  suffix of `OVMS_MODEL_NAME`, and a mismatch between the two emits a warning.
+- **Reasoning disabled by default** — MiniCPM-V-4.5 is a hybrid reasoning model; the
+  service now sends `chat_template_kwargs.enable_thinking=false` (configurable via
+  `VLM_ENABLE_THINKING`) so the token budget is spent on the answer instead of a
+  `<think>` block. Any stray `<think>` output is stripped before parsing.
+- **Aspect-preserving image preprocessing** — frames are fitted into a 448x448 square
+  canvas (LANCZOS downscale, white padding, light contrast/sharpening) matching the
+  Dine-In pipeline, configurable via `VLM_IMAGE_MAX_SIZE`. This replaces the previous
+  fixed 512x512 resize, which distorted the aspect ratio.
+
+### Fixed
+
+- Frames are no longer stretched to 512x512, which distorted product shapes.
+- Detections are no longer truncated by reasoning output, which previously caused
+  missing items and roughly 4x higher VLM latency.
+- `setup_models.sh` no longer migrates legacy Qwen weights into a directory named
+  after a different model.
+
+---
+
 ## Version 2026.0.0 (March 2026)
 
 **General Availability Release**

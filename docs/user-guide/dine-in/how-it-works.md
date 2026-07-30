@@ -36,7 +36,7 @@ This document provides a comprehensive technical overview of the system architec
           ┌─────────────────┐     ┌─────────────────┐
           │                 │     │                 │
           │   OVMS VLM      │     │   Semantic      │
-          │   (Qwen2.5-VL)  │     │   Service       │
+          │  (MiniCPM-V4.5) │     │   Service       │
           │   Port 8000     │     │   Port 8080     │
           │                 │     │                 │
           └─────────────────┘     └─────────────────┘
