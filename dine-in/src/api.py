@@ -11,7 +11,7 @@ import asyncio
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from io import BytesIO
 from collections import OrderedDict
 
@@ -182,24 +182,62 @@ def _extract_peak_from_series(
     start_iso: str,
     end_iso: str,
     value_index: int = 1,
-) -> float:
+    stale_tolerance_s: float = 10.0,
+) -> Tuple[Optional[float], str]:
     """
-    Return the peak value from a time-series list within [start_iso, end_iso].
+    Return (peak_value, status) from a time-series within [start_iso, end_iso].
 
-    Each entry is [timestamp_str, value, ...].  Falls back to the last entry
-    if no samples fall inside the window.
+    Each entry is [timestamp_str, value, ...].
+
+    Returning a status alongside the value is deliberate: a genuine "0 % measured"
+    and "the collector gave us nothing" are very different facts, and collapsing
+    both to 0.0 is what made this metric untrustworthy (ITEP-91371).
+
+    status is one of:
+      "ok"          - at least one sample fell inside the inference window
+      "approximate" - no in-window sample, but one within *stale_tolerance_s*
+                      of the window was used instead
+      "no-data"     - the series was empty
+      "stale"       - the series exists but is too old to describe this window
     """
+    if not series:
+        return None, "no-data"
+
     peak = None
     for entry in series:
-        ts = entry[0]
-        if start_iso <= ts <= end_iso:
+        if start_iso <= entry[0] <= end_iso:
             val = entry[value_index]
             if peak is None or val > peak:
                 peak = val
     if peak is not None:
-        return peak
-    # Fallback: return the last value if the window yielded nothing
-    return series[-1][value_index] if series else 0.0
+        return peak, "ok"
+
+    # No sample inside the window. The previous implementation silently returned
+    # the last sample of the series; for GPU that is the post-inference idle
+    # reading (or an arbitrarily old cached one), which is how a busy GPU came
+    # to be reported as 0.0 %. Only accept a nearby sample, and say so.
+    def _parse(ts: str) -> Optional[datetime]:
+        try:
+            return datetime.fromisoformat(ts)
+        except (ValueError, TypeError):
+            return None
+
+    win_start, win_end = _parse(start_iso), _parse(end_iso)
+    if win_start is None or win_end is None:
+        return None, "stale"
+
+    nearest_val, nearest_gap = None, None
+    for entry in series:
+        ts = _parse(entry[0])
+        if ts is None:
+            continue
+        gap = (win_start - ts).total_seconds() if ts < win_start else (ts - win_end).total_seconds()
+        if nearest_gap is None or gap < nearest_gap:
+            nearest_gap, nearest_val = gap, entry[value_index]
+
+    if nearest_val is not None and nearest_gap is not None and nearest_gap <= stale_tolerance_s:
+        return nearest_val, "approximate"
+    return None, "stale"
 
 
 async def call_metrics_collector(
@@ -235,31 +273,68 @@ async def call_metrics_collector(
             gpu_series = metrics_data.get('gpu_utilization', [])
             memory_series = metrics_data.get('memory', [])
 
+            statuses: Dict[str, str] = {}
+
             if inference_start_iso and inference_end_iso:
                 # Peak utilization during the inference window
-                cpu_util = _extract_peak_from_series(
+                cpu_util, statuses["cpu_utilization"] = _extract_peak_from_series(
                     cpu_series, inference_start_iso, inference_end_iso)
-                gpu_util = _extract_peak_from_series(
+                gpu_util, statuses["gpu_utilization"] = _extract_peak_from_series(
                     gpu_series, inference_start_iso, inference_end_iso)
                 # Memory: percent is at index 4
-                memory_util = _extract_peak_from_series(
-                    memory_series, inference_start_iso, inference_end_iso,
-                    value_index=4) if memory_series and len(memory_series[0]) > 4 else 0.0
+                if memory_series and len(memory_series[0]) > 4:
+                    memory_util, statuses["memory_utilization"] = _extract_peak_from_series(
+                        memory_series, inference_start_iso, inference_end_iso,
+                        value_index=4)
+                else:
+                    memory_util, statuses["memory_utilization"] = None, "no-data"
                 mode = "peak-in-window"
             else:
                 # Snapshot: latest values (original behaviour)
-                cpu_util = cpu_series[-1][1] if cpu_series else 0.0
-                gpu_util = gpu_series[-1][1] if gpu_series else 0.0
+                cpu_util = cpu_series[-1][1] if cpu_series else None
+                gpu_util = gpu_series[-1][1] if gpu_series else None
                 memory_util = (memory_series[-1][4]
                                if memory_series and len(memory_series[-1]) > 4
-                               else 0.0)
+                               else None)
+                for name, val in (("cpu_utilization", cpu_util),
+                                  ("gpu_utilization", gpu_util),
+                                  ("memory_utilization", memory_util)):
+                    statuses[name] = "ok" if val is not None else "no-data"
                 mode = "latest-snapshot"
 
+            # gpu_memory_utilization is not exposed by the metrics-collector at all.
+            statuses["gpu_memory_utilization"] = "unsupported"
+
+            # Unavailable metrics are reported as 0.0 to keep the response schema
+            # stable, but the accompanying status says why, and a warning is
+            # logged so a broken collector is visible instead of silent.
+            # "unsupported" is a known permanent gap, not a fault, so it is not warned about.
+            unavailable = {n: s for n, s in statuses.items()
+                           if s not in ("ok", "approximate", "unsupported")}
+            if unavailable:
+                logger.warning(
+                    f"[METRICS] Utilization unavailable for {sorted(unavailable)} "
+                    f"(status={unavailable}); reported as 0.0. "
+                    f"series sizes: cpu={len(cpu_series)} gpu={len(gpu_series)} "
+                    f"memory={len(memory_series)}. "
+                    f"window={inference_start_iso}..{inference_end_iso}. "
+                    f"If the GPU is known to be busy, check that qmassa is running "
+                    f"in the metrics-collector container (/tmp/results/"
+                    f"qmassa1-*-tool-generated.json and qmassa_error.log)."
+                )
+            approximate = [n for n, s in statuses.items() if s == "approximate"]
+            if approximate:
+                logger.info(
+                    f"[METRICS] No in-window samples for {sorted(approximate)}; "
+                    f"used the nearest sample outside the window."
+                )
+
             metrics_response = {
-                "cpu_utilization": round(cpu_util, 2),
-                "gpu_utilization": round(gpu_util, 2),
-                "memory_utilization": round(memory_util, 2),
+                "cpu_utilization": round(cpu_util, 2) if cpu_util is not None else 0.0,
+                "gpu_utilization": round(gpu_util, 2) if gpu_util is not None else 0.0,
+                "memory_utilization": round(memory_util, 2) if memory_util is not None else 0.0,
                 "gpu_memory_utilization": 0.0,  # Not provided by metrics-collector
+                "metrics_status": statuses,
             }
 
             logger.info(f"[METRICS] System metrics ({mode}): {metrics_response}")
@@ -273,6 +348,12 @@ async def call_metrics_collector(
             "gpu_utilization": 0.0,
             "memory_utilization": 0.0,
             "gpu_memory_utilization": 0.0,
+            "metrics_status": {
+                "cpu_utilization": "collector-unreachable",
+                "gpu_utilization": "collector-unreachable",
+                "memory_utilization": "collector-unreachable",
+                "gpu_memory_utilization": "collector-unreachable",
+            },
         }
 
 
@@ -480,7 +561,8 @@ async def validate_plate(
             image_bytes=image_bytes,
             order_manifest=order_manifest.model_dump(),
             image_id=image_id,
-            request_id=request_id
+            request_id=request_id,
+            image_filename=image.filename
         )
         
         inference_end_iso = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")
@@ -513,7 +595,10 @@ async def validate_plate(
                 "cpu_utilization": system_metrics.get("cpu_utilization", 0.0),
                 "gpu_utilization": system_metrics.get("gpu_utilization", 0.0),
                 "memory_utilization": system_metrics.get("memory_utilization", 0.0),
-                "gpu_memory_utilization": system_metrics.get("gpu_memory_utilization", 0.0)
+                "gpu_memory_utilization": system_metrics.get("gpu_memory_utilization", 0.0),
+                # Per-metric availability, so "0.0" can be told apart from
+                # "the collector had nothing for this window" (ITEP-91371).
+                "metrics_status": system_metrics.get("metrics_status", {}),
             }
             logger.info(f"[API] Metrics for {request_id}: e2e={end_to_end_ms:.0f}ms, decode={image_decode_ms:.0f}ms, vlm={vlm_latency_ms}ms, semantic={semantic_matching_ms}ms")
         
@@ -600,7 +685,8 @@ async def validate_batch(
                 result = await validation_service.validate_plate(
                     image_bytes=image_bytes,
                     order_manifest=order_manifest.model_dump(),
-                    image_id=image_id
+                    image_id=image_id,
+                    image_filename=image.filename
                 )
                 
                 # Build response
@@ -813,6 +899,13 @@ async def startup_event():
     
     # Check VLM service health
     await _check_vlm_health()
+
+    # Warm up the VLM so the first real request avoids the lazy-init penalty
+    try:
+        validation_service = get_validation_service()
+        await validation_service.vlm_client.warmup()
+    except Exception as e:
+        logger.warning(f"[STARTUP] VLM warmup skipped: {e}")
 
 
 async def _check_vlm_health():

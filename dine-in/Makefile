@@ -71,7 +71,19 @@ export TAG = 2026.1.0
 
 # Dine-In image configuration
 DINEIN_IMAGE_NAME ?= intel/order-accuracy-dine-in
-DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(TAG)
+# Tag for the dine-in image only. Kept separate from TAG because TAG also
+# selects the benchmark image (intel/retail-benchmark:$(TAG)), which is
+# published per-version and has no "latest" tag.
+DINEIN_TAG ?= latest
+DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(DINEIN_TAG)
+
+# Host user identity, passed to the container so the app user is remapped to
+# match. Keeps bind-mounted results/ owned by the invoking user on hosts where
+# that user is not uid 1000 (e.g. EMT). See ITEP-93258.
+HOST_UID ?= $(shell id -u)
+HOST_GID ?= $(shell id -g)
+export HOST_UID
+export HOST_GID
 
 # Registry configuration
 # REGISTRY=false : Build and use local images
@@ -83,7 +95,7 @@ REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(TAG)
 
 # Benchmark Order Accuracy settings
 BENCHMARK_WORKERS ?= 1
-BENCHMARK_ITERATIONS ?= 1
+BENCHMARK_ITERATIONS ?= 8
 BENCHMARK_DURATION ?= 180
 BENCHMARK_TARGET_FPS ?= 15.0
 TARGET_DEVICE ?= GPU
@@ -263,7 +275,8 @@ check-device: ## Check that graph.pbtxt device matches TARGET_DEVICE (auto-updat
 
 up: check-device
 	@echo "Starting dine-in services..."
-	@mkdir -p results && chmod 777 results
+	@mkdir -p results
+	@chmod 777 results 2>/dev/null || true
 	@if [ "$(REGISTRY)" = "false" ]; then \
 		echo "$(BLUE)Using locally built image: $(DINEIN_IMAGE)$(NC)"; \
 		DINEIN_IMAGE=$(DINEIN_IMAGE) docker compose up -d --no-build; \
@@ -440,6 +453,9 @@ benchmark: check-device
 	@echo "Target Device: $(TARGET_DEVICE)"
 	@echo "Results Dir: $(RESULTS_DIR)"
 	@echo ""
+	@echo "Cleaning up any stale containers from previous runs..."
+	@docker rm -f metrics-collector dinein_app dinein_ovms_vlm dinein_semantic_service >/dev/null 2>&1 || true
+	@docker compose -f $(COMPOSE_FILE) --profile benchmark down --remove-orphans >/dev/null 2>&1 || true
 	mkdir -p $(RESULTS_DIR)
 	cd $(PERF_TOOLS_DIR) && \
 	( \

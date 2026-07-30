@@ -729,8 +729,18 @@ except Exception as _e:
     logger.warning(f"Could not patch OpenVINO compile_model ({_e}); device selection relies on AUTO")
 
 if _target_device == "CPU":
-    _yolo_model_path = openvino_int8_path
-    logger.info("Loading INT8 OpenVINO model (CPU)")
+    # INT8 is preferred on CPU, but quantization can be unavailable on CPUs the
+    # OpenVINO CPU plugin does not yet recognise (setup_models.sh degrades to
+    # FP32 in that case — ITEP-94280). Fall back rather than failing to start.
+    if openvino_int8_path.exists():
+        _yolo_model_path = openvino_int8_path
+        logger.info("Loading INT8 OpenVINO model (CPU)")
+    else:
+        _yolo_model_path = openvino_fp32_path
+        logger.warning(
+            f"INT8 model not found at {openvino_int8_path}; "
+            "falling back to FP32 OpenVINO model on CPU"
+        )
 else:
     _yolo_model_path = openvino_fp32_path
     logger.info(f"Loading FP32 OpenVINO model ({_target_device})")

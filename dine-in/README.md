@@ -63,8 +63,11 @@ cd ../dine-in
 
 This step:
 
-- Downloads Qwen2.5-VL-7B-Instruct from HuggingFace (~7 GB)
+- Reads `OVMS_MODEL_NAME` from `dine-in/.env` (default: `openbmb/MiniCPM-V-4_5`)
+- Downloads the selected model from HuggingFace
 - Converts to OpenVINO™ INT8 format
+
+If the selected model is gated on Hugging Face, add `HF_TOKEN=<your_token>` to `dine-in/.env` (or run `huggingface-cli login`). Public models such as `Qwen/Qwen2.5-VL-7B-Instruct` do not require authentication.
 
 ### 3. Build and Start
 

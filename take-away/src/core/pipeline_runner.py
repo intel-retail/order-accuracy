@@ -4,6 +4,34 @@ import threading
 import logging
 from minio import Minio
 
+def _int_env(name: str, default: int, minimum: int = 0) -> int:
+    """Read an integer env var, falling back to `default` when unset/invalid.
+
+    Values from the environment are interpolated into a shell-executed
+    GStreamer pipeline string, so they must be strictly validated as integers.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(str(raw).strip())
+    except (TypeError, ValueError):
+        logging.getLogger(__name__).warning(
+            f"Invalid {name}={raw!r}; falling back to {default}"
+        )
+        return default
+    if value < minimum:
+        logging.getLogger(__name__).warning(
+            f"{name}={value} below minimum {minimum}; falling back to {default}"
+        )
+        return default
+    return value
+
+
+RTSP_DEFAULT_LATENCY = _int_env("RTSP_LATENCY", 500)
+CAPTURE_FPS = _int_env("CAPTURE_FPS", 10, minimum=1)
+queue_params = "max-size-time=0 max-size-bytes=0 max-size-buffers=200 leaky=no"
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -19,7 +47,7 @@ def build_gstreamer_pipeline(source_type: str, source: str) -> str:
 
     elif source_type == "rtsp":
         source = normalize_rtsp_url(source)
-        src = f"rtspsrc location={source} protocols=tcp latency=200"
+        src = f"rtspsrc location={source} protocols=tcp latency={RTSP_DEFAULT_LATENCY} timeout=5000000 drop-on-latency=true retry=3"
 
     elif source_type == "webcam":
         src = f"v4l2src device={source}"
@@ -37,10 +65,10 @@ def build_gstreamer_pipeline(source_type: str, source: str) -> str:
         "! videoconvert "
         "! video/x-raw,format=BGR "
         "! videorate "
-        "! video/x-raw,framerate=10/1 "
-        "! queue max-size-time=0 max-size-bytes=0 max-size-buffers=1000 leaky=no "
+        f"! video/x-raw,framerate={CAPTURE_FPS}/1 "
+        f"! queue {queue_params} "
         "! gvapython module=frame_pipeline function=process_frame "
-        "! fakesink sync=true"  # sync=true ensures real-time playback so OCR can keep up
+        "! fakesink sync=true"
     )
 
     logger.info(f"GStreamer pipeline built: {pipeline[:100]}...")

@@ -73,7 +73,7 @@ services:
 
   # Dine-In Order Accuracy Gradio UI
   dine-in:
-    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.1.0}
+    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -93,6 +93,10 @@ services:
       - ./results:/app/results
       - ./configs:/app/configs:ro
     environment:
+      # Align the container's app user with the host user so bind-mounted
+      # results/ stays owned by the invoking user (ITEP-93258).
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
       - SEMANTIC_SERVICE_ENDPOINT=${SEMANTIC_SERVICE_ENDPOINT:-http://semantic-service:8080}
       - OVMS_ENDPOINT=${OVMS_ENDPOINT:-http://ovms-vlm:8000}
       - OVMS_MODEL_NAME=${OVMS_MODEL_NAME:-Qwen/Qwen2.5-VL-7B-Instruct}
@@ -116,7 +120,7 @@ services:
   # Scale with: docker compose up -d --scale dinein-worker=4
   # Or set WORKERS env variable and use profile: docker compose --profile benchmark up -d
   dinein-worker:
-    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.1.0}
+    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:latest}
     build:
       context: .
       dockerfile: Dockerfile
@@ -137,6 +141,10 @@ services:
       - ./results:/app/results
       - ./configs:/app/configs:ro
     environment:
+      # Align the container's app user with the host user so bind-mounted
+      # results/ stays owned by the invoking user (ITEP-93258).
+      - HOST_UID=${HOST_UID:-1000}
+      - HOST_GID=${HOST_GID:-1000}
       - WORKERS=${WORKERS:-1}
       - ITERATIONS=${ITERATIONS:-0}
       - REQUEST_DELAY=${REQUEST_DELAY:-0}

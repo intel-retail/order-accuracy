@@ -1,0 +1,22 @@
+{
+  "$schema_version": "1.0",
+  "_comment": "VLM prompt templates for food item detection. Edit this file to tune wording/rules without touching code or rebuilding the container. Templates support the placeholder {inventory_list} (Phi variant, newline list) or {inventory_text} (generic variant, comma-separated) which is substituted with the live contents of inventory.json at request time. Restart the dine-in container to pick up changes (no rebuild required — this file is read at runtime).",
+
+  "max_output_tokens": 96,
+
+  "quantity_rule": "\"quantity\" = number of separate ORDER SERVINGS (boxes/wrappers), NEVER the piece count inside one serving. Do NOT count individual nuggets, fries, or pieces. Example: a box containing 6 nuggets is quantity 1, not 6. Only increase quantity if you see 2+ separate boxes/wrappers of the same item.",
+
+  "quantity_field_description": "Number of separate order servings (boxes/wrappers), NOT the piece count inside one serving. One box of nuggets or fries = 1, regardless of how many pieces are visible inside it.",
+
+  "json_schema_example": "{\"items\":[{\"name\":\"item\",\"quantity\":1}]}",
+
+  "phi": {
+    "with_inventory_template": "You are a food item detector for a restaurant tray.\n\nInventory (the ONLY item names you may use):\n{inventory_list}\n\nTask: Identify which of the inventory items above are present in the image.\n\nReturn ONLY valid JSON using exactly this schema:\n{json_schema_example}\n\nRules:\n- Only detect items from the inventory list above. Never invent names outside this list.\n- Match each visible food item to the closest inventory item name and use that exact name.\n- Carefully scan the entire image before answering.\n- Use all visual evidence in the scene before deciding items.\n- Read visible text on wrappers, cartons, drink cups, and packaging.\n- If product names are visible on packaging, use those names to match an inventory item.\n- Do not rely only on food appearance.\n- Detect every visible food item before generating the response.\n- Do not stop after finding the first item.\n- Include partially visible food items when reasonably confident.\n- Ignore trays, napkins, and background objects.\n- Detect only food items clearly visible in the image.\n- {quantity_rule}\n- Return only valid JSON.\n- Do not output explanations.\n- Do not output reasoning.\n- Never repeat or explain the prompt.\n- Never include markdown.\n- If no inventory items are detected, return exactly: {{\"items\":[]}}"
+  },
+
+  "generic": {
+    "with_inventory_template": "Inventory (the ONLY item names you may use): {inventory_text}\n\nIdentify which of the inventory items above are CLEARLY VISIBLE in this image.\nUse only names from the inventory list. Do NOT guess or include items you cannot see.\n{quantity_rule}\nRespond with MINIFIED JSON on a single line only (no spaces, no newlines, no markdown).\nJSON schema: {json_schema_example}",
+
+    "without_inventory_template": "ONLY list food items CLEARLY VISIBLE in this image. Do NOT guess.\n{quantity_rule}\nRespond with MINIFIED JSON on a single line only (no spaces, no newlines, no markdown).\nJSON: {json_schema_example}"
+  }
+}

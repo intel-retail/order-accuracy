@@ -272,7 +272,8 @@ class DineInWorker:
                 image_bytes=image_bytes,
                 order_manifest={"items": order_data.get("items", [])},
                 image_id=image_id,
-                request_id=request_id
+                request_id=request_id,
+                image_filename=image_path.name
             )
             
             # Extract metrics

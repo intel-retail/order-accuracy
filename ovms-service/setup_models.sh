@@ -32,12 +32,24 @@ if [ "${APP}" != "take-away" ] && [ "${APP}" != "dine-in" ]; then
 fi
 
 ###############################################
-# HARD CODED MODEL REGISTRY
+# SUPPORTED MODEL REGISTRY
 # key = model_name passed to --model_name (also used as path under MODELS_DIR)
 # value = HuggingFace source passed to --source_model
 ###############################################
-declare -A MODEL_SOURCES
-MODEL_SOURCES["Qwen/Qwen2.5-VL-7B-Instruct"]="Qwen/Qwen2.5-VL-7B-Instruct"
+declare -A SUPPORTED_MODEL_SOURCES
+SUPPORTED_MODEL_SOURCES["Qwen/Qwen2.5-VL-7B-Instruct"]="Qwen/Qwen2.5-VL-7B-Instruct"
+SUPPORTED_MODEL_SOURCES["openbmb/MiniCPM-V-4_5"]="openbmb/MiniCPM-V-4_5"
+# NOTE: "openbmb/MiniCPM-V-4_5-int4" on Hugging Face is a bitsandbytes-quantized
+# PyTorch checkpoint (tagged "8-bit"), which optimum-intel/NNCF cannot import
+# directly into OpenVINO IR. The verified, reproducible path is to export from
+# the full-precision "openbmb/MiniCPM-V-4_5" source and let NNCF perform its own
+# INT4 weight compression (--weight-format int4 / VLM_PRECISION=int4), writing
+# the result to a locally-named "-int4" directory to reflect the applied
+# precision. This entry documents that convention so setup_models.sh can
+# reproduce the model already present under models/openbmb/MiniCPM-V-4_5-int4.
+SUPPORTED_MODEL_SOURCES["openbmb/MiniCPM-V-4_5-int4"]="openbmb/MiniCPM-V-4_5"
+SUPPORTED_MODEL_SOURCES["openbmb/MiniCPM-V-2_6"]="openbmb/MiniCPM-V-2_6"
+SUPPORTED_MODEL_SOURCES["OpenVINO/Phi-3.5-vision-instruct-int8-ov"]="OpenVINO/Phi-3.5-vision-instruct-int8-ov"
 
 POTENTIAL_SOURCE_DIRS=(
     "${HOME}/ovms-vlm/models"
@@ -48,20 +60,59 @@ POTENTIAL_SOURCE_DIRS=(
 ###############################################
 # LOAD CONFIG FROM APP-SPECIFIC .env
 ###############################################
+read_env_value() {
+    local key="$1"
+    local file="$2"
+    grep -E "^${key}=" "${file}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r'
+}
+
 ENV_FILE="${PROJECT_ROOT}/${APP}/.env"
 echo "App: ${APP}  →  reading config from ${ENV_FILE}"
 if [ -f "${ENV_FILE}" ]; then
-    OVMS_MODEL_NAME_ENV=$(grep -E '^OVMS_MODEL_NAME=' "${ENV_FILE}" | head -1 | cut -d'=' -f2- | tr -d '"\r')
+    _OVMS_MODEL_NAME_FILE=$(read_env_value "OVMS_MODEL_NAME" "${ENV_FILE}")
 fi
-# Fall back to the hard-coded source model if .env is missing or unset
-OVMS_MODEL_NAME_ENV="${OVMS_MODEL_NAME_ENV:-Qwen/Qwen2.5-VL-7B-Instruct}"
+# Read OVMS_MODEL_NAME: shell env var takes precedence over app .env
+OVMS_MODEL_NAME_ENV="${OVMS_MODEL_NAME:-${_OVMS_MODEL_NAME_FILE:-Qwen/Qwen2.5-VL-7B-Instruct}}"
+
+if [ -z "${SUPPORTED_MODEL_SOURCES[${OVMS_MODEL_NAME_ENV}]+x}" ]; then
+    echo "ERROR: Unsupported OVMS_MODEL_NAME='${OVMS_MODEL_NAME_ENV}'"
+    echo "Supported models:"
+    for supported_model in "${!SUPPORTED_MODEL_SOURCES[@]}"; do
+        echo "  - ${supported_model}"
+    done
+    echo "Set OVMS_MODEL_NAME in ${ENV_FILE} to one of the values above."
+    exit 1
+fi
+
+declare -A MODEL_SOURCES
+MODEL_SOURCES["${OVMS_MODEL_NAME_ENV}"]="${SUPPORTED_MODEL_SOURCES[${OVMS_MODEL_NAME_ENV}]}"
+
+# Optional Hugging Face token loading from the selected app .env.
+# If present, export both names for broad compatibility:
+# - HF_TOKEN
+# - HUGGINGFACE_HUB_TOKEN
+_HF_TOKEN_FILE=""
+_HUGGINGFACE_HUB_TOKEN_FILE=""
+if [ -f "${ENV_FILE}" ]; then
+    _HF_TOKEN_FILE=$(read_env_value "HF_TOKEN" "${ENV_FILE}")
+    _HUGGINGFACE_HUB_TOKEN_FILE=$(read_env_value "HUGGINGFACE_HUB_TOKEN" "${ENV_FILE}")
+fi
+
+HF_TOKEN_ENV="${HF_TOKEN:-${HUGGINGFACE_HUB_TOKEN:-${_HF_TOKEN_FILE:-${_HUGGINGFACE_HUB_TOKEN_FILE:-}}}}"
+if [ -n "${HF_TOKEN_ENV}" ]; then
+    export HF_TOKEN="${HF_TOKEN_ENV}"
+    export HUGGINGFACE_HUB_TOKEN="${HF_TOKEN_ENV}"
+    echo "Hugging Face authentication: token loaded from environment/.env"
+else
+    echo "Hugging Face authentication: no token found; using anonymous access"
+fi
 
 # Read TARGET_DEVICE: shell env var takes precedence over take-away/.env, default GPU
-_TARGET_DEVICE_FILE=$(grep -E '^TARGET_DEVICE=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+_TARGET_DEVICE_FILE=$(read_env_value "TARGET_DEVICE" "${ENV_FILE}")
 TARGET_DEVICE_ENV="${TARGET_DEVICE:-${_TARGET_DEVICE_FILE:-GPU}}"
 
 # Read VLM_PRECISION: shell env var takes precedence over take-away/.env, default int8
-_VLM_PRECISION_FILE=$(grep -E '^VLM_PRECISION=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+_VLM_PRECISION_FILE=$(read_env_value "VLM_PRECISION" "${ENV_FILE}")
 VLM_PRECISION_ENV="${VLM_PRECISION:-${_VLM_PRECISION_FILE:-int8}}"
 
 # Read CACHE_SIZE: KV cache size in GB for OVMS.  Default is 4 GB which is
@@ -70,7 +121,7 @@ VLM_PRECISION_ENV="${VLM_PRECISION:-${_VLM_PRECISION_FILE:-int8}}"
 # consumes ~8 GB, so values above 8 will overflow to system RAM and can cause
 # OOM on 32 GB platforms (ITEP-91499).  Users with more VRAM/RAM can raise
 # this via `export CACHE_SIZE=8` before running setup_models.sh.
-_CACHE_SIZE_FILE=$(grep -E '^CACHE_SIZE=' "${ENV_FILE}" 2>/dev/null | head -1 | cut -d'=' -f2- | tr -d '"\r')
+_CACHE_SIZE_FILE=$(read_env_value "CACHE_SIZE" "${ENV_FILE}")
 CACHE_SIZE_ENV="${CACHE_SIZE:-${_CACHE_SIZE_FILE:-4}}"
 # Validate CACHE_SIZE_ENV is a non-negative integer (0 = dynamic allocation)
 if ! echo "${CACHE_SIZE_ENV}" | grep -qE '^[0-9]+$'; then
@@ -314,18 +365,43 @@ export_model() {
         target_device_args=(--target_device "${TARGET_DEVICE_ENV}")
     fi
 
-    python "${SCRIPT_DIR}/export_model.py" text_generation \
-      --source_model "${SOURCE_MODEL}" \
-      --weight-format "${VLM_PRECISION_ENV}" \
-      --pipeline_type VLM_CB \
-      "${target_device_args[@]}" \
-      --cache_size "${CACHE_SIZE_ENV}" \
-      --max_num_seqs 4 \
-      --max_num_batched_tokens 8192 \
-      --enable_prefix_caching True \
-      --config_file_path "${MODELS_DIR}/config.json" \
-      --model_repository_path "${MODELS_DIR}" \
-      --model_name "${MODEL_NAME}"
+        local export_log
+        export_log=$(mktemp)
+
+        python "${SCRIPT_DIR}/export_model.py" text_generation \
+            --source_model "${SOURCE_MODEL}" \
+            --weight-format "${VLM_PRECISION_ENV}" \
+            --pipeline_type VLM_CB \
+            "${target_device_args[@]}" \
+            --cache_size "${CACHE_SIZE_ENV}" \
+            --max_num_seqs 4 \
+            --max_num_batched_tokens 8192 \
+            --enable_prefix_caching True \
+            --config_file_path "${MODELS_DIR}/config.json" \
+            --model_repository_path "${MODELS_DIR}" \
+            --model_name "${MODEL_NAME}" 2>&1 | tee "${export_log}"
+        # Use PIPESTATUS[0] instead of $? so the export's own exit code (not
+        # tee's) determines success/failure of the pipeline.
+        local export_status="${PIPESTATUS[0]}"
+
+        if [ "${export_status}" -ne 0 ]; then
+
+                if grep -qiE "gated repo|access to model .* is restricted|401 client error|please log in" "${export_log}"; then
+                        echo ""
+                        echo "ERROR: Model download/export requires Hugging Face authentication."
+                        echo "The selected model may be gated."
+                        echo ""
+                        echo "Fix options:"
+                        echo "  1) Add HF_TOKEN=<your_token> (or HUGGINGFACE_HUB_TOKEN=<your_token>) to ${ENV_FILE}"
+                        echo "  2) Or run: huggingface-cli login"
+                        echo ""
+                fi
+
+                rm -f "${export_log}"
+                return 1
+        fi
+
+        rm -f "${export_log}"
 }
 
 ###############################################
@@ -585,7 +661,7 @@ else
 
     mkdir -p "${YOLO_MODEL_DIR}" "${YOLO_DATASETS_DIR}"
 
-        echo "[1/2] Downloading yolo11n.pt and exporting OpenVINO models..."
+        echo "[1/3] Downloading yolo11n.pt and exporting OpenVINO FP32 model..."
         YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" YOLO_DATASETS_DIR="${YOLO_DATASETS_DIR}" \
         python3 - << 'PYEOF'
 import os, sys
@@ -624,26 +700,89 @@ if not fp32_dir.exists():
 else:
     print(f"  FP32 model already exists: {fp32_dir}")
 
-# ── Step 3: INT8 quantization ────────────────────────────────────────────────
-if not int8_dir.exists():
-    print("  Quantizing to OpenVINO INT8 (downloads COCO128 ~7 MB if needed) ...")
-    orig = os.getcwd()
-    os.chdir(str(model_dir))
-    YOLO(str(yolo_pt)).export(format="openvino", int8=True, data="coco128.yaml")
-    # ultralytics exports INT8 to "yolo11n_openvino_model/" in CWD;
-    # rename it so it doesn't overwrite the FP32 export.
-    default_out = Path("yolo11n_openvino_model")
-    if default_out.exists() and not int8_dir.exists():
-        default_out.rename(int8_dir.name)
-    os.chdir(orig)
-    print(f"  ✓ INT8 quantization: {int8_dir}")
-else:
-    print(f"  INT8 model already exists: {int8_dir}")
+# ── Step 3 (INT8 quantization) runs as a separate, isolated invocation ───────
+# See the "[2/3]" block in setup_models.sh: NNCF calibration can abort with
+# SIGSEGV inside the OpenVINO CPU plugin, which must not kill the whole script.
 
-print("YOLO export complete.")
+print("YOLO base + FP32 export complete.")
 PYEOF
 
-        echo "[2/2] Verifying YOLO artifacts..."
+        # ── INT8 quantization: isolated and non-fatal (ITEP-94280) ───────────
+        # NNCF calibration runs real inference through the OpenVINO CPU plugin.
+        # On CPUs the plugin does not yet recognise, that inference can abort with
+        # SIGSEGV during statistics collection. Because this script runs under
+        # `set -e`, an inline crash previously killed setup outright and skipped
+        # artifact verification. Run it in isolation, retry once with a
+        # conservative oneDNN ISA, and degrade to FP32 rather than failing setup.
+        if [ -d "${YOLO_INT8_DIR}" ]; then
+            echo "[2/3] INT8 model already exists, skipping quantization."
+        else
+            echo "[2/3] Quantizing to OpenVINO INT8 (downloads COCO128 ~7 MB if needed)..."
+            _int8_script="$(mktemp /tmp/yolo_int8_XXXXXX.py)"
+            cat > "${_int8_script}" << 'PYEOF'
+import os
+from pathlib import Path
+from ultralytics import YOLO
+
+model_dir    = Path(os.environ["YOLO_MODEL_DIR"])
+datasets_dir = Path(os.environ["YOLO_DATASETS_DIR"])
+
+# Tell ultralytics where to store datasets (needed for INT8 calibration)
+os.environ["YOLO_DATASETS_DIR"] = str(datasets_dir)
+
+yolo_pt  = model_dir / "yolo11n.pt"
+int8_dir = model_dir / "yolo11n_int8_openvino_model"
+
+orig = os.getcwd()
+os.chdir(str(model_dir))
+YOLO(str(yolo_pt)).export(format="openvino", int8=True, data="coco128.yaml")
+# Older ultralytics exports INT8 to "yolo11n_openvino_model/" in CWD;
+# rename it so it doesn't overwrite the FP32 export.
+default_out = Path("yolo11n_openvino_model")
+if default_out.exists() and not int8_dir.exists():
+    default_out.rename(int8_dir.name)
+os.chdir(orig)
+print(f"  INT8 quantization written to: {int8_dir}")
+PYEOF
+
+            _int8_ok=0
+            for _isa in "" "AVX2"; do
+                if [ -n "${_isa}" ]; then
+                    echo "  ⚙ Retrying INT8 quantization with ONEDNN_MAX_CPU_ISA=${_isa} ..."
+                fi
+                set +e
+                env ${_isa:+ONEDNN_MAX_CPU_ISA="${_isa}"} \
+                    YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" \
+                    YOLO_DATASETS_DIR="${YOLO_DATASETS_DIR}" \
+                    python3 "${_int8_script}"
+                _rc=$?
+                set -e
+                if [ "${_rc}" -eq 0 ] && [ -d "${YOLO_INT8_DIR}" ]; then
+                    _int8_ok=1
+                    echo "  ✓ INT8 quantization: ${YOLO_INT8_DIR}"
+                    break
+                fi
+                if [ "${_rc}" -gt 128 ]; then
+                    echo "  ✗ INT8 quantization crashed with signal $(( _rc - 128 )) (exit ${_rc})."
+                else
+                    echo "  ✗ INT8 quantization failed (exit ${_rc})."
+                fi
+                # Remove any half-written IR so it is never loaded at runtime
+                rm -rf "${YOLO_INT8_DIR}"
+            done
+            rm -f "${_int8_script}"
+
+            if [ "${_int8_ok}" -ne 1 ]; then
+                echo ""
+                echo "  ⚠ WARNING: INT8 quantization could not be completed on this CPU."
+                echo "    This is a known OpenVINO CPU-plugin crash during NNCF"
+                echo "    calibration on CPUs the plugin does not yet recognise."
+                echo "    Setup continues: the frame-selector automatically falls back"
+                echo "    to the FP32 OpenVINO model, so take-away remains functional."
+            fi
+        fi
+
+        echo "[3/3] Verifying YOLO artifacts..."
         _ok=1
         if [ -f "${YOLO_PT}" ]; then
             echo "  ✓ yolo11n.pt"
@@ -660,12 +799,14 @@ PYEOF
         if [ -d "${YOLO_INT8_DIR}" ]; then
             echo "  ✓ yolo11n_int8_openvino_model/"
         else
-            echo "  ✗ yolo11n_int8_openvino_model/ missing"
-            _ok=0
+            # Not fatal: CPU inference falls back to the FP32 IR.
+            echo "  ⚠ yolo11n_int8_openvino_model/ missing — using FP32 on CPU"
         fi
 
-        if [ "${_ok}" -eq 1 ]; then
+        if [ "${_ok}" -eq 1 ] && [ -d "${YOLO_INT8_DIR}" ]; then
             echo "✓ YOLO models ready"
+        elif [ "${_ok}" -eq 1 ]; then
+            echo "✓ YOLO models ready (FP32 only — INT8 unavailable on this CPU)"
         else
             echo "✗ Some YOLO artifacts are missing — check ${YOLO_MODEL_DIR}"
         fi
