@@ -699,50 +699,88 @@ else
     mkdir -p "${YOLO_MODEL_DIR}" "${YOLO_DATASETS_DIR}"
 
         echo "[1/3] Downloading yolo11n.pt and exporting OpenVINO FP32 model..."
-        YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" YOLO_DATASETS_DIR="${YOLO_DATASETS_DIR}" \
-        python3 - << 'PYEOF'
-import os, sys
+
+        # ── Download base weights (no OpenVINO plugin involved; safe inline) ─
+        if [ ! -f "${YOLO_PT}" ]; then
+            echo "  Downloading yolo11n.pt ..."
+            YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" python3 -c "
+import os
 from pathlib import Path
 from ultralytics import YOLO
 
-model_dir    = Path(os.environ["YOLO_MODEL_DIR"])
-datasets_dir = Path(os.environ["YOLO_DATASETS_DIR"])
+model_dir = Path(os.environ['YOLO_MODEL_DIR'])
+orig = os.getcwd()
+os.chdir(str(model_dir))
+YOLO('yolo11n.pt')   # ultralytics downloads to CWD when the file is absent
+os.chdir(orig)
+"
+            echo "  ✓ Downloaded: ${YOLO_PT}"
+        else
+            echo "  yolo11n.pt already exists: ${YOLO_PT}"
+        fi
 
-# Tell ultralytics where to store datasets (needed for INT8 calibration)
-os.environ["YOLO_DATASETS_DIR"] = str(datasets_dir)
+        # ── FP32 OpenVINO export: isolated and retried (ITEP-94280) ──────────
+        # Exporting through ultralytics invokes the OpenVINO CPU plugin, which
+        # can abort with SIGSEGV on CPUs it does not yet recognise — the same
+        # crash documented for INT8 quantization below. Because this script
+        # runs under `set -e`, an inline crash here previously killed setup
+        # outright with a bare "Segmentation fault (core dumped)" and no
+        # chance to retry or report a clear error. Run it in isolation and
+        # retry once with a conservative oneDNN ISA before giving up.
+        if [ -d "${YOLO_FP32_DIR}" ]; then
+            echo "  FP32 model already exists: ${YOLO_FP32_DIR}"
+        else
+            echo "  Exporting to OpenVINO FP32 ..."
+            _fp32_script="$(mktemp /tmp/yolo_fp32_XXXXXX.py)"
+            cat > "${_fp32_script}" << 'PYEOF'
+import os
+from pathlib import Path
+from ultralytics import YOLO
 
+model_dir = Path(os.environ["YOLO_MODEL_DIR"])
 yolo_pt   = model_dir / "yolo11n.pt"
-fp32_dir  = model_dir / "yolo11n_openvino_model"
-int8_dir  = model_dir / "yolo11n_int8_openvino_model"
 
-# ── Step 1: Download base weights ────────────────────────────────────────────
-if not yolo_pt.exists():
-    print("  Downloading yolo11n.pt ...")
-    orig = os.getcwd()
-    os.chdir(str(model_dir))
-    YOLO("yolo11n.pt")   # ultralytics downloads to CWD when the file is absent
-    os.chdir(orig)
-    print(f"  ✓ Downloaded: {yolo_pt}")
-else:
-    print(f"  yolo11n.pt already exists: {yolo_pt}")
-
-# ── Step 2: FP32 OpenVINO export ─────────────────────────────────────────────
-if not fp32_dir.exists():
-    print("  Exporting to OpenVINO FP32 ...")
-    orig = os.getcwd()
-    os.chdir(str(model_dir))
-    YOLO(str(yolo_pt)).export(format="openvino", half=False)
-    os.chdir(orig)
-    print(f"  ✓ FP32 export: {fp32_dir}")
-else:
-    print(f"  FP32 model already exists: {fp32_dir}")
-
-# ── Step 3 (INT8 quantization) runs as a separate, isolated invocation ───────
-# See the "[2/3]" block in setup_models.sh: NNCF calibration can abort with
-# SIGSEGV inside the OpenVINO CPU plugin, which must not kill the whole script.
-
-print("YOLO base + FP32 export complete.")
+orig = os.getcwd()
+os.chdir(str(model_dir))
+YOLO(str(yolo_pt)).export(format="openvino", half=False)
+os.chdir(orig)
 PYEOF
+
+            _fp32_ok=0
+            for _isa in "" "AVX2"; do
+                if [ -n "${_isa}" ]; then
+                    echo "  ⚙ Retrying FP32 export with ONEDNN_MAX_CPU_ISA=${_isa} ..."
+                fi
+                set +e
+                env ${_isa:+ONEDNN_MAX_CPU_ISA="${_isa}"} \
+                    YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" \
+                    python3 "${_fp32_script}"
+                _rc=$?
+                set -e
+                if [ "${_rc}" -eq 0 ] && [ -d "${YOLO_FP32_DIR}" ]; then
+                    _fp32_ok=1
+                    echo "  ✓ FP32 export: ${YOLO_FP32_DIR}"
+                    break
+                fi
+                if [ "${_rc}" -gt 128 ]; then
+                    echo "  ✗ FP32 export crashed with signal $(( _rc - 128 )) (exit ${_rc})."
+                else
+                    echo "  ✗ FP32 export failed (exit ${_rc})."
+                fi
+                # Remove any half-written IR so it is never loaded at runtime
+                rm -rf "${YOLO_FP32_DIR}"
+            done
+            rm -f "${_fp32_script}"
+
+            if [ "${_fp32_ok}" -ne 1 ]; then
+                echo ""
+                echo "  ✗ ERROR: FP32 OpenVINO export could not be completed on this CPU."
+                echo "    This is a known OpenVINO CPU-plugin crash (ITEP-94280) during"
+                echo "    model export/inference on CPUs the plugin does not yet recognise."
+                echo "    The FP32 model is required for the take-away frame-selector."
+                exit 1
+            fi
+        fi
 
         # ── INT8 quantization: isolated and non-fatal (ITEP-94280) ───────────
         # NNCF calibration runs real inference through the OpenVINO CPU plugin.
@@ -760,12 +798,19 @@ PYEOF
 import os
 from pathlib import Path
 from ultralytics import YOLO
+from ultralytics.utils import SETTINGS
 
 model_dir    = Path(os.environ["YOLO_MODEL_DIR"])
 datasets_dir = Path(os.environ["YOLO_DATASETS_DIR"])
+datasets_dir.mkdir(parents=True, exist_ok=True)
 
-# Tell ultralytics where to store datasets (needed for INT8 calibration)
-os.environ["YOLO_DATASETS_DIR"] = str(datasets_dir)
+# Ultralytics reads datasets_dir from its persisted settings.json, not from
+# an environment variable — a stale settings.json (e.g. baked into a CI/base
+# image with paths like "/home/runner/datasets") silently overrides any env
+# var and can point INT8 calibration downloads at an unwritable directory
+# (PermissionError: [Errno 13]). Explicitly repoint it here so calibration
+# data always lands under our own YOLO_DATASETS_DIR.
+SETTINGS.update({"datasets_dir": str(datasets_dir)})
 
 yolo_pt  = model_dir / "yolo11n.pt"
 int8_dir = model_dir / "yolo11n_int8_openvino_model"
