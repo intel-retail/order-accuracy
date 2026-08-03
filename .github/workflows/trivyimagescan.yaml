@@ -31,14 +31,14 @@ jobs:
       - name: Read dine in TAG from Makefile
         id: vars
         run: |
-          TAG=$(grep -E '^TAG\s*[:?]?=' dine-in/Makefile | head -n1 | sed -E 's/^TAG\s*[:?]?=\s*//')
+          TAG=$(grep -E '^(export\s+)?TAG\s*[:?]?=' dine-in/Makefile | head -n1 | sed -E 's/^(export\s+)?TAG\s*[:?]?=\s*//')
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
           echo "Using tag $TAG"
           
       - name: Read take away in TAG from Makefile
         id: take-away-vars
         run: |
-          TAG=$(grep -E '^TAG\s*[:?]?=' take-away/Makefile | head -n1 | sed -E 's/^TAG\s*[:?]?=\s*//')
+          TAG=$(grep -E '^(export\s+)?TAG\s*[:?]?=' dine-in/Makefile | head -n1 | sed -E 's/^(export\s+)?TAG\s*[:?]?=\s*//')
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
           echo "Using tag $TAG"
            
