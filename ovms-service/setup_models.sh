@@ -751,8 +751,7 @@ PYEOF
                 if [ -n "${_isa}" ]; then
                     echo "  ⚙ Retrying FP32 export with ONEDNN_MAX_CPU_ISA=${_isa} ..."
                 fi
-                set +e
-                env ${_isa:+ONEDNN_MAX_CPU_ISA="${_isa}"} \
+                env ${_isa:+ONEDNN_MAX_CPU_ISA=${_isa}} \
                     YOLO_MODEL_DIR="${YOLO_MODEL_DIR}" \
                     python3 "${_fp32_script}"
                 _rc=$?
