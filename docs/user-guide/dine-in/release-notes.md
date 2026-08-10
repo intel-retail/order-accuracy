@@ -1,5 +1,19 @@
 # Release Notes: Dine-In Order Accuracy
 
+## Version 2026.2.0-rc1
+
+### What's New
+
+- **DLStreamer base image updated** to `intel/dlstreamer:2026.2.0-ubuntu24-rc1`.
+
+### Published Images
+
+| Image                           | Tag              |
+| ------------------------------- | ---------------- |
+| `intel/order-accuracy-dine-in` | `2026.2.0-rc1` |
+
+---
+
 ## Version 2026.0.0 (March 2026)
 
 **General Availability Release**
