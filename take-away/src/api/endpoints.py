@@ -62,8 +62,8 @@ logger.info(f"[API] Uploads dir:       {UPLOADS_DIR}")
 
 def _sanitize_path_segment(value: str, fallback: str) -> str:
     """Return a filesystem-safe single path segment."""
-    sanitized = re.sub(r"[^a-zA-Z0-9_.\-]", "_", value or "")
-    return sanitized or fallback
+    sanitized = re.sub(r"[^a-zA-Z0-9_.\-]", "_", value or "").strip("._-")
+    return fallback if sanitized in {"", ".", ".."} else sanitized
 
 
 def _is_within_root(path: Path, root: Path) -> bool:
