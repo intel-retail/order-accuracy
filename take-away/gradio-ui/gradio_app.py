@@ -1262,7 +1262,7 @@ def recall_order_fn(order_id: str):
             if video_resp.status_code == 200:
                 tmp = tempfile.NamedTemporaryFile(
                     delete=False,
-                    suffix=f"_order_{safe_order_id}_replay.mp4",
+                    suffix="_replay.mp4",
                     dir="/tmp"
                 )
                 for chunk in video_resp.iter_content(chunk_size=8192):
