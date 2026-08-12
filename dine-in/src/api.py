@@ -391,8 +391,9 @@ async def health_check():
                 vlm_status = f"error_{response.status_code}"
     except httpx.ConnectError:
         vlm_status = "connection_failed"
-    except Exception as e:
-        vlm_status = f"error: {str(e)[:50]}"
+    except Exception:
+        logger.exception("Unexpected error while checking VLM health")
+        vlm_status = "error"
     
     overall_status = "healthy" if vlm_status == "healthy" else "degraded"
     

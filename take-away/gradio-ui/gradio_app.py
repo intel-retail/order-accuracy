@@ -6,6 +6,8 @@ import time
 import math
 import tempfile
 import os
+import re
+from urllib.parse import quote
 import numpy as np
 from typing import Optional, List, Dict
 from PIL import Image
@@ -1188,6 +1190,8 @@ def recall_order_fn(order_id: str):
         (details_html, video_path_or_None)
     """
     order_id = (order_id or '').strip()
+    encoded_order_id = quote(order_id, safe="")
+    safe_order_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", order_id)
 
     if not order_id:
         return (
@@ -1199,7 +1203,7 @@ def recall_order_fn(order_id: str):
 
     # ── Call backend recall endpoint ──────────────────────────────────────────
     try:
-        resp = _api.get(f"{API_BASE}/orders/{order_id}/recall", timeout=10)
+        resp = _api.get(f"{API_BASE}/orders/{encoded_order_id}/recall", timeout=10)
         data = resp.json()
     except Exception as e:
         return (
@@ -1251,14 +1255,14 @@ def recall_order_fn(order_id: str):
     if has_replay:
         try:
             video_resp = _api.get(
-                f"{API_BASE}/orders/{order_id}/replay",
+                f"{API_BASE}/orders/{encoded_order_id}/replay",
                 timeout=60,
                 stream=True
             )
             if video_resp.status_code == 200:
                 tmp = tempfile.NamedTemporaryFile(
                     delete=False,
-                    suffix=f"_order_{order_id}_replay.mp4",
+                    suffix=f"_order_{safe_order_id}_replay.mp4",
                     dir="/tmp"
                 )
                 for chunk in video_resp.iter_content(chunk_size=8192):
