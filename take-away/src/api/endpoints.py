@@ -394,10 +394,8 @@ def create_app() -> FastAPI:
             return recall
 
         # Check whether frame-selector frames exist for this order.
-        # Check whether frame-selector frames exist for this order.
         station_id = _sanitize_path_segment(str(recall.get('station_id', 'station_1')), "station_1")
-        safe_order_id = os.path.basename(re.sub(r"[^a-zA-Z0-9_\-]", "_", order_id))
-        order_frame_dir = _find_order_frame_dir(safe_order_id)
+        order_frame_dir = _find_order_frame_dir(order_id, station_id)
         frame_files = _sorted_frames(order_frame_dir) if order_frame_dir else []
 
         recall['frames_available'] = len(frame_files)
@@ -424,13 +422,13 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=410, detail=f"Order {order_id} recall window has expired")
 
         safe_filename = _sanitize_path_segment(os.path.basename(filename), "frame.jpg")
-        safe_order_id = os.path.basename(re.sub(r"[^a-zA-Z0-9_\-]", "_", order_id))
-        order_frame_dir = _find_order_frame_dir(safe_order_id)
+        station_id = _sanitize_path_segment(str(recall.get('station_id', 'station_1')), "station_1")
+        order_frame_dir = _find_order_frame_dir(order_id, station_id)
         if not order_frame_dir:
             raise HTTPException(status_code=404, detail=f"No frames found for order {order_id}")
 
         frame_path = (order_frame_dir / safe_filename).resolve()
-        if not _is_within_root(frame_path, FRAME_SELECTOR_DIR):
+        if not _is_within_root(frame_path, order_frame_dir):
             raise HTTPException(status_code=400, detail="Invalid frame path")
 
         if not frame_path.exists() or not frame_path.is_file():
@@ -468,7 +466,7 @@ def create_app() -> FastAPI:
 
         if not cached_path.exists():
             # Locate the frame directory
-            order_frame_dir = _find_order_frame_dir(safe_order_id)
+            order_frame_dir = _find_order_frame_dir(order_id, station_id)
             if not order_frame_dir:
                 raise HTTPException(
                     status_code=404,
@@ -513,14 +511,17 @@ def create_app() -> FastAPI:
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
-def _find_order_frame_dir(order_id: str) -> Optional[Path]:
+def _find_order_frame_dir(order_id: str, station_id: Optional[str] = None) -> Optional[Path]:
     """Return the Path to the frame-selector debug folder for this order.
 
     Enumerates the filesystem rather than constructing paths from user input so
     the returned Path is always filesystem-sourced and cannot carry taint from
     the caller's order_id value.
     """
-    safe_order_id = _sanitize_path_segment(order_id, "order")
+    raw_order_id = os.path.basename(order_id or "")
+    safe_order_id = _sanitize_path_segment(raw_order_id, "order")
+    candidate_names = {raw_order_id, safe_order_id}
+    candidate_names.discard("")
     root_dir = FRAME_SELECTOR_DIR.resolve()
 
     if not root_dir.is_dir():
@@ -528,11 +529,19 @@ def _find_order_frame_dir(order_id: str) -> Optional[Path]:
         return None
 
     # Enumerate station dirs from the filesystem only.
+    # Prefer the known station first when provided.
     station_dirs: list = []
+    station_candidates = set()
+    if station_id:
+        station_candidates.add(os.path.basename(station_id))
+        station_candidates.add(_sanitize_path_segment(station_id, "station_1"))
     try:
         for d in root_dir.iterdir():
             if d.is_dir():
-                station_dirs.append(d)
+                if station_candidates and d.name in station_candidates:
+                    station_dirs.insert(0, d)
+                else:
+                    station_dirs.append(d)
     except OSError:
         pass
 
@@ -543,7 +552,7 @@ def _find_order_frame_dir(order_id: str) -> Optional[Path]:
                 # from user input — so the returned value carries no taint.
                 if not order_dir.is_dir():
                     continue
-                if order_dir.name != safe_order_id:
+                if order_dir.name not in candidate_names:
                     continue
                 resolved = order_dir.resolve()
                 try:
