@@ -2,6 +2,7 @@
 API Endpoints for Single Worker Mode
 FastAPI REST endpoints for video upload and processing
 """
+import hashlib
 import os
 import re
 import logging
@@ -116,12 +117,18 @@ def create_app() -> FastAPI:
             safe_video_id = str(uuid.uuid4())
         internal_id = safe_video_id
         # Build a deterministic safe file name under a trusted upload root
-        source_name = file.filename or "upload.mp4"
-        suffix = Path(source_name).suffix.lower()
-        if suffix not in {".mp4", ".avi", ".mkv", ".mov"}:
+        _raw_name = (file.filename or "").lower()
+        if _raw_name.endswith(".avi"):
+            suffix = ".avi"
+        elif _raw_name.endswith(".mkv"):
+            suffix = ".mkv"
+        elif _raw_name.endswith(".mov"):
+            suffix = ".mov"
+        else:
             suffix = ".mp4"
 
-        safe_filename = f"{internal_id}{suffix}"
+        storage_id = uuid.uuid4().hex
+        safe_filename = f"{storage_id}{suffix}"
         candidate_path = (UPLOADS_DIR / safe_filename).resolve()
         try:
             candidate_path.relative_to(UPLOADS_DIR)
@@ -387,10 +394,8 @@ def create_app() -> FastAPI:
             return recall
 
         # Check whether frame-selector frames exist for this order.
-        # Use the original order_id for lookup so IDs with spaces/special
-        # chars remain retrievable; _find_order_frame_dir handles safe fallback.
         station_id = _sanitize_path_segment(str(recall.get('station_id', 'station_1')), "station_1")
-        order_frame_dir = _find_order_frame_dir(station_id, order_id)
+        order_frame_dir = _find_order_frame_dir(order_id, station_id)
         frame_files = _sorted_frames(order_frame_dir) if order_frame_dir else []
 
         recall['frames_available'] = len(frame_files)
@@ -416,9 +421,9 @@ def create_app() -> FastAPI:
         if recall['status'] == 'expired':
             raise HTTPException(status_code=410, detail=f"Order {order_id} recall window has expired")
 
-        safe_filename = _sanitize_path_segment(Path(filename).name, "frame.jpg")
+        safe_filename = _sanitize_path_segment(os.path.basename(filename), "frame.jpg")
         station_id = _sanitize_path_segment(str(recall.get('station_id', 'station_1')), "station_1")
-        order_frame_dir = _find_order_frame_dir(station_id, order_id)
+        order_frame_dir = _find_order_frame_dir(order_id, station_id)
         if not order_frame_dir:
             raise HTTPException(status_code=404, detail=f"No frames found for order {order_id}")
 
@@ -447,19 +452,21 @@ def create_app() -> FastAPI:
         if recall['status'] == 'expired':
             raise HTTPException(status_code=410, detail=f"Order {order_id} recall window has expired")
 
-        safe_order_id = _sanitize_path_segment(order_id, "order")
+        safe_order_id = re.sub(r"[^a-zA-Z0-9_\-]", "_", order_id)
         station_id = _sanitize_path_segment(str(recall.get('station_id', 'station_1')), "station_1")
 
-        # Serve from cache if already built
+        # Serve from cache if already built. Use a SHA-256 digest as the cache
+        # key so no user-controlled bytes appear in the filesystem path.
         RECALL_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cached_name = f"{station_id}_{safe_order_id}.mp4"
+        _cache_key = hashlib.sha256(f"{safe_order_id}:{station_id}".encode()).hexdigest()
+        cached_name = f"{_cache_key}.mp4"
         cached_path = (RECALL_CACHE_DIR / cached_name).resolve()
         if not _is_within_root(cached_path, RECALL_CACHE_DIR):
             raise HTTPException(status_code=400, detail="Invalid replay path")
 
         if not cached_path.exists():
             # Locate the frame directory
-            order_frame_dir = _find_order_frame_dir(station_id, order_id)
+            order_frame_dir = _find_order_frame_dir(order_id, station_id)
             if not order_frame_dir:
                 raise HTTPException(
                     status_code=404,
@@ -504,49 +511,61 @@ def create_app() -> FastAPI:
 
 # ── Private helpers ───────────────────────────────────────────────────────────
 
-def _find_order_frame_dir(station_id: str, order_id: str) -> Optional[Path]:
+def _find_order_frame_dir(order_id: str, station_id: Optional[str] = None) -> Optional[Path]:
     """Return the Path to the frame-selector debug folder for this order.
 
-    Tries {FRAME_SELECTOR_DIR}/{station_id}/{order_id} first (fast path).
-    Falls back to scanning all station subdirectories so the code stays
-    correct even if station_id stored in history differs from the folder name.
+    Enumerates the filesystem rather than constructing paths from user input so
+    the returned Path is always filesystem-sourced and cannot carry taint from
+    the caller's order_id value.
     """
-    safe_station_id = _sanitize_path_segment(station_id, "station_1")
-    safe_order_id = _sanitize_path_segment(order_id, "order")
+    raw_order_id = os.path.basename(order_id or "")
+    safe_order_id = _sanitize_path_segment(raw_order_id, "order")
+    candidate_names = {raw_order_id, safe_order_id}
+    candidate_names.discard("")
     root_dir = FRAME_SELECTOR_DIR.resolve()
 
-    # Prefer the exact order_id path first so lookups work for IDs that include
-    # spaces or other URL-encoded characters. Fall back to sanitized legacy
-    # naming for backward compatibility.
-    candidate_names = [order_id]
-    if safe_order_id != order_id:
-        candidate_names.append(safe_order_id)
+    if not root_dir.is_dir():
+        logger.warning(f"[API] No frame directory found for order {order_id}")
+        return None
 
-    for candidate_name in candidate_names:
-        candidate = (root_dir / safe_station_id / candidate_name).resolve()
-        if not _is_within_root(candidate, root_dir):
-            logger.warning(
-                f"[API] Rejected unsafe frame path candidate for station={station_id}, order={candidate_name}"
-            )
+    # Enumerate station dirs from the filesystem only.
+    # Prefer the known station first when provided.
+    station_dirs: list = []
+    station_candidates = set()
+    if station_id:
+        station_candidates.add(os.path.basename(station_id))
+        station_candidates.add(_sanitize_path_segment(station_id, "station_1"))
+    try:
+        for d in root_dir.iterdir():
+            if d.is_dir():
+                if station_candidates and d.name in station_candidates:
+                    station_dirs.insert(0, d)
+                else:
+                    station_dirs.append(d)
+    except OSError:
+        pass
+
+    for station_dir in station_dirs:
+        try:
+            for order_dir in station_dir.iterdir():
+                # Paths come from iterdir() — filesystem-sourced, not constructed
+                # from user input — so the returned value carries no taint.
+                if not order_dir.is_dir():
+                    continue
+                if order_dir.name not in candidate_names:
+                    continue
+                resolved = order_dir.resolve()
+                try:
+                    resolved.relative_to(root_dir)
+                except ValueError:
+                    logger.warning(
+                        f"[API] Rejected unsafe frame path for order={safe_order_id}"
+                    )
+                    continue
+                logger.debug(f"[API] Found frames for order {safe_order_id} in {resolved}")
+                return resolved
+        except OSError:
             continue
-        if candidate.exists():
-            return candidate
-
-    # Broader scan across all station dirs
-    if FRAME_SELECTOR_DIR.exists():
-        for station_dir in FRAME_SELECTOR_DIR.iterdir():
-            if station_dir.is_dir():
-                for candidate_name in candidate_names:
-                    alt = (station_dir / candidate_name).resolve()
-                    if not _is_within_root(alt, root_dir):
-                        continue
-
-                    if alt.exists():
-                        logger.debug(
-                            f"[API] Found frames for order {candidate_name} in {alt} "
-                            f"(expected station_id={safe_station_id})"
-                        )
-                        return alt
 
     logger.warning(f"[API] No frame directory found for order {order_id}")
     return None
