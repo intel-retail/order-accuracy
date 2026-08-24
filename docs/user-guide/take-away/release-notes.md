@@ -4,20 +4,20 @@ Version history and changelog for Take-Away Order Accuracy.
 
 ---
 
-## Version 2026.2.0-rc1
+## Version 2026.2.0-rc2
 
 ### What's New
 
-- **DLStreamer base image updated** to `intel/dlstreamer:2026.2.0-ubuntu24-rc1`.
+- **DLStreamer base image updated** to `intel/dlstreamer:2026.2.0-ubuntu24-rc2`.
 
 ### Published Images
 
 | Image                                 | Tag             |
 | -------------------------------------- | --------------- |
-| `intel/order-accuracy-take-away`      | `2026.2.0-rc1` |
-| `intel/order-accuracy-frame-selector` | `2026.2.0-rc1` |
-| `intel/order-accuracy-take-away-ui`   | `2026.2.0-rc1` |
-| `intel/order-accuracy-take-away-rtsp` | `2026.2.0-rc1` |
+| `intel/order-accuracy-take-away`      | `2026.2.0-rc2` |
+| `intel/order-accuracy-frame-selector` | `2026.2.0-rc2` |
+| `intel/order-accuracy-take-away-ui`   | `2026.2.0-rc2` |
+| `intel/order-accuracy-take-away-rtsp` | `2026.2.0-rc2` |
 
 ---
 
@@ -89,13 +89,13 @@ This is the first GA release of Take-Away Order Accuracy, promoted from `2026.0-
 | `intel/order-accuracy-take-away`      | `2026.0-rc2` |
 | `intel/order-accuracy-frame-selector` | `2026.0-rc2` |
 | `intel/order-accuracy-take-away-ui`   | `2026.0-rc2` |
-| `intel/order-accuracy-take-away-rtsp` | `2026.0-rc1` |
+| `intel/order-accuracy-take-away-rtsp` | `2026.0-rc2` |
 
-> `rtsp-streamer` image tag remains `2026.0-rc1` — no changes in this release.
+> `rtsp-streamer` image tag remains `2026.0-rc2` — no changes in this release.
 
 ---
 
-## Version 2026.0-rc1 (March 2026)
+## Version 2026.0-rc2 (March 2026)
 
 **Initial Release Candidate**
 
@@ -112,10 +112,10 @@ This is the first GA release of Take-Away Order Accuracy, promoted from `2026.0-
 
 | Image                                 | Tag          | Size   |
 | ------------------------------------- | ------------ | ------ |
-| `intel/order-accuracy-take-away`      | `2026.0-rc1` | 9.64GB |
-| `intel/order-accuracy-frame-selector` | `2026.0-rc1` | 1.96GB |
-| `intel/order-accuracy-take-away-ui`   | `2026.0-rc1` | 1.3GB  |
-| `intel/order-accuracy-take-away-rtsp` | `2026.0-rc1` | 227MB  |
+| `intel/order-accuracy-take-away`      | `2026.0-rc2` | 9.64GB |
+| `intel/order-accuracy-frame-selector` | `2026.0-rc2` | 1.96GB |
+| `intel/order-accuracy-take-away-ui`   | `2026.0-rc2` | 1.3GB  |
+| `intel/order-accuracy-take-away-rtsp` | `2026.0-rc2` | 227MB  |
 
 ### Features
 

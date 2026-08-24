@@ -1,16 +1,16 @@
 # Release Notes: Dine-In Order Accuracy
 
-## Version 2026.2.0-rc1
+## Version 2026.2.0-rc2
 
 ### What's New
 
-- **DLStreamer base image updated** to `intel/dlstreamer:2026.2.0-ubuntu24-rc1`.
+- **DLStreamer base image updated** to `intel/dlstreamer:2026.2.0-ubuntu24-rc2`.
 
 ### Published Images
 
 | Image                           | Tag              |
 | ------------------------------- | ---------------- |
-| `intel/order-accuracy-dine-in` | `2026.2.0-rc1` |
+| `intel/order-accuracy-dine-in` | `2026.2.0-rc2` |
 
 ---
 
@@ -45,7 +45,7 @@ Promoted from `2026.0-rc2` with no code changes. All functionality is identical 
 
 ---
 
-## Version 2026.0-rc1 (March 2026)
+## Version 2026.0-rc2 (March 2026)
 
 ### New Features
 
@@ -56,16 +56,16 @@ Promoted from `2026.0-rc2` with no code changes. All functionality is identical 
   - `make up` - Run with registry image (default)
 
 - **Docker Image Tagging**: Standardized image naming
-  - Image: `intel/order-accuracy-dine-in:2026.0-rc1`
+  - Image: `intel/order-accuracy-dine-in:2026.0-rc2`
   - Configurable via `TAG` and `DINEIN_IMAGE_NAME` variables
 
 ### Configuration Changes
 
 | Variable       | Old Default | New Default                             |
 | -------------- | ----------- | --------------------------------------- |
-| `TAG`          | 1.0.0       | 2026.0-rc1                              |
+| `TAG`          | 1.0.0       | 2026.0-rc2                              |
 | `REGISTRY`     | false       | true                                    |
-| `DINEIN_IMAGE` | -           | intel/order-accuracy-dine-in:2026.0-rc1 |
+| `DINEIN_IMAGE` | -           | intel/order-accuracy-dine-in:2026.0-rc2 |
 
 ### Migration Notes
 
