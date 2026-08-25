@@ -29,9 +29,12 @@ Version history and changelog for Take-Away Order Accuracy.
 
 ### Published Images
 
-| Image                           | Tag              |
-| ------------------------------- | ---------------- |
-| `intel/order-accuracy-dine-in` | `2026.2.0-rc1` |
+| Image                                 | Tag             |
+| -------------------------------------- | --------------- |
+| `intel/order-accuracy-take-away`      | `2026.2.0-rc1` |
+| `intel/order-accuracy-frame-selector` | `2026.2.0-rc1` |
+| `intel/order-accuracy-take-away-ui`   | `2026.2.0-rc1` |
+| `intel/order-accuracy-take-away-rtsp` | `2026.2.0-rc1` |
 
 ---
 
