@@ -355,9 +355,6 @@ services:
       - order-accuracy-net
 
   metrics-collector:
-    build:
-      context: ../performance-tools/docker
-      dockerfile: Dockerfile
     image: intel/retail-benchmark:${TAG}
     container_name: metrics-collector
     profiles:
