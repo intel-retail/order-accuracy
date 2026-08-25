@@ -73,7 +73,7 @@ services:
 
   # Dine-In Order Accuracy Gradio UI
   dine-in:
-    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.2.0-rc1}
+    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.2.0-rc2}
     build:
       context: .
       dockerfile: Dockerfile
@@ -120,7 +120,7 @@ services:
   # Scale with: docker compose up -d --scale dinein-worker=4
   # Or set WORKERS env variable and use profile: docker compose --profile benchmark up -d
   dinein-worker:
-    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.2.0-rc1}
+    image: ${DINEIN_IMAGE:-intel/order-accuracy-dine-in:2026.2.0-rc2}
     build:
       context: .
       dockerfile: Dockerfile

@@ -58,7 +58,7 @@ services:
   # SINGLE Station (per-container): docker compose up -d --scale order-accuracy=4
   # MULTI Station (multi-process in one container): Set SERVICE_MODE=parallel
   order-accuracy:
-    image: ${TAKEAWAY_IMAGE:-intel/order-accuracy-take-away:2026.2.0-rc1}
+    image: ${TAKEAWAY_IMAGE:-intel/order-accuracy-take-away:2026.2.0-rc2}
     build:
       context: .
       args:
@@ -195,7 +195,7 @@ services:
       - order-accuracy-net
 
   frame-selector:
-    image: ${FRAME_SELECTOR_IMAGE:-intel/order-accuracy-frame-selector:2026.2.0-rc1}
+    image: ${FRAME_SELECTOR_IMAGE:-intel/order-accuracy-frame-selector:2026.2.0-rc2}
     build:
       context: ./frame-selector-service
       args:
@@ -243,7 +243,7 @@ services:
       - order-accuracy-net
 
   gradio-ui:
-    image: ${TAKEAWAY_UI_IMAGE:-intel/order-accuracy-take-away-ui:2026.2.0-rc1}
+    image: ${TAKEAWAY_UI_IMAGE:-intel/order-accuracy-take-away-ui:2026.2.0-rc2}
     build:
       context: ./gradio-ui
       args:
@@ -322,7 +322,7 @@ services:
   # RTSP Streamer - On-demand video streaming via MediaMTX
   # Streams start only when a GStreamer client connects — no sync needed.
   rtsp-streamer:
-    image: ${TAKEAWAY_RTSP_IMAGE:-intel/order-accuracy-take-away-rtsp:2026.2.0-rc1}
+    image: ${TAKEAWAY_RTSP_IMAGE:-intel/order-accuracy-take-away-rtsp:2026.2.0-rc2}
     build:
       context: ./rtsp-streamer
       args:
