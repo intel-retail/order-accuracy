@@ -45,7 +45,7 @@ Promoted from `2026.0-rc2` with no code changes. All functionality is identical 
 
 ---
 
-## Version 2026.0-rc2 (March 2026)
+## Version 2026.0-rc1 (March 2026)
 
 ### New Features
 
@@ -56,16 +56,16 @@ Promoted from `2026.0-rc2` with no code changes. All functionality is identical 
   - `make up` - Run with registry image (default)
 
 - **Docker Image Tagging**: Standardized image naming
-  - Image: `intel/order-accuracy-dine-in:2026.0-rc2`
+  - Image: `intel/order-accuracy-dine-in:2026.0-rc1`
   - Configurable via `TAG` and `DINEIN_IMAGE_NAME` variables
 
 ### Configuration Changes
 
 | Variable       | Old Default | New Default                             |
 | -------------- | ----------- | --------------------------------------- |
-| `TAG`          | 1.0.0       | 2026.0-rc2                              |
+| `TAG`          | 1.0.0       | 2026.0-rc1                              |
 | `REGISTRY`     | false       | true                                    |
-| `DINEIN_IMAGE` | -           | intel/order-accuracy-dine-in:2026.0-rc2 |
+| `DINEIN_IMAGE` | -           | intel/order-accuracy-dine-in:2026.0-rc1 |
 
 ### Migration Notes
 

@@ -95,7 +95,7 @@ This is the first GA release of Take-Away Order Accuracy, promoted from `2026.0-
 
 ---
 
-## Version 2026.0-rc2 (March 2026)
+## Version 2026.0-rc1 (March 2026)
 
 **Initial Release Candidate**
 
@@ -112,10 +112,10 @@ This is the first GA release of Take-Away Order Accuracy, promoted from `2026.0-
 
 | Image                                 | Tag          | Size   |
 | ------------------------------------- | ------------ | ------ |
-| `intel/order-accuracy-take-away`      | `2026.0-rc2` | 9.64GB |
-| `intel/order-accuracy-frame-selector` | `2026.0-rc2` | 1.96GB |
-| `intel/order-accuracy-take-away-ui`   | `2026.0-rc2` | 1.3GB  |
-| `intel/order-accuracy-take-away-rtsp` | `2026.0-rc2` | 227MB  |
+| `intel/order-accuracy-take-away`      | `2026.0-rc1` | 9.64GB |
+| `intel/order-accuracy-frame-selector` | `2026.0-rc1` | 1.96GB |
+| `intel/order-accuracy-take-away-ui`   | `2026.0-rc1` | 1.3GB  |
+| `intel/order-accuracy-take-away-rtsp` | `2026.0-rc1` | 227MB  |
 
 ### Features
 

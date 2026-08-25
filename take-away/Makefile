@@ -64,7 +64,7 @@ export TAG ?= 2026.2.0-rc2
 # Sample video for quick-start testing (orders 384 → 651 → 925)
 # Hosted on the upstream repo's GitHub Releases. Override via env if needed:
 #   SAMPLE_VIDEO_URL=<url> make download-sample-video
-SAMPLE_VIDEO_URL ?= https://github.com/intel-retail/order-accuracy/releases/download/2026.0-rc2/test.mp4
+SAMPLE_VIDEO_URL ?= https://github.com/intel-retail/order-accuracy/releases/download/2026.0-rc1/test.mp4
 SAMPLE_VIDEO_DEST ?= storage/videos/test.mp4
 
 # Registry configuration: true=pull from registry, false=build locally
@@ -346,7 +346,7 @@ build: check-env
 		docker compose -f $(COMPOSE_FILE) --profile parallel build; \
 	else \
 		echo "$(YELLOW)REGISTRY=true → Pulling images from registry...$(NC)"; \
-		docker compose -f $(COMPOSE_FILE) pull order-accuracy frame-selector gradio-ui rtsp-streamer; \
+		docker compose -f $(COMPOSE_FILE) pull order-accuracy frame-selector gradio-ui rtsp-streamer metrics-collector; \
 	fi
 	@echo "$(GREEN)✓ Build complete$(NC)"
 
