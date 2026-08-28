@@ -53,7 +53,7 @@ docker compose version    # Docker Compose version v2.x.x
 ### Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/intel-retail/order-accuracy.git
+git clone -b <release-or-tag> --single-branch https://github.com/intel-retail/order-accuracy.git
 cd order-accuracy/take-away
 ```
 
