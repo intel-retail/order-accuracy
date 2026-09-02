@@ -169,7 +169,7 @@ The OVMS service is defined in `../docker-compose.yaml`:
 
 ```yaml
 ovms-vlm:
-  image: openvino/model_server:2025.4.1-gpu
+  image: openvino/model_server:2026.3.1-gpu
   container_name: dinein_ovms_vlm
   volumes:
     - ../ovms-service/models:/models:ro

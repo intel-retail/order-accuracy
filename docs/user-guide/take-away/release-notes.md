@@ -181,7 +181,7 @@ This is the first GA release of Take-Away Order Accuracy, promoted from `2026.0-
 | Frame Selector         | `intel/order-accuracy-frame-selector` | YOLO11 OpenVINO™ INT8 frame selection                   |
 | Gradio UI              | `intel/order-accuracy-take-away-ui`   | Web interface for order validation                      |
 | RTSP Streamer          | `intel/order-accuracy-take-away-rtsp` | Video-to-RTSP stream conversion with 2PC sync           |
-| OVMS VLM               | `openvino/model_server:latest-gpu`    | Qwen2.5-VL-7B model serving                             |
+| OVMS VLM               | `openvino/model_server:2026.3.1-gpu`  | Qwen2.5-VL-7B model serving                             |
 | Semantic Service       | `intel/semantic-search-agent:1.0.0`   | Semantic text matching microservice                     |
 | MinIO                  | `minio/minio`                         | S3-compatible object storage                            |
 
