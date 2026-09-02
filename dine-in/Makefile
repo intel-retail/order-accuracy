@@ -100,7 +100,7 @@ BENCHMARK_DURATION ?= 180
 BENCHMARK_TARGET_FPS ?= 15.0
 TARGET_DEVICE ?= GPU
 # Automatically select CPU-only OVMS image when TARGET_DEVICE=CPU
-OVMS_IMAGE ?= $(if $(filter CPU,$(TARGET_DEVICE)),openvino/model_server:latest,openvino/model_server:latest-gpu)
+OVMS_IMAGE ?= $(if $(filter CPU,$(TARGET_DEVICE)),openvino/model_server:2026.3.1,openvino/model_server:2026.3.1-gpu)
 # Path to the exported OVMS model directory (relative to dine-in/)
 OVMS_MODELS_DIR ?= ../ovms-service/models
 
