@@ -2,10 +2,10 @@
 
 <!--hide_directive
 <div class="component_card_widget">
-  <a class="icon_github" href="https://github.com/intel-retail/order-accuracy/tree/main/dine-in">
+  <a class="icon_github" href="https://github.com/intel-retail/order-accuracy/tree/release-2026.2.0/dine-in">
      GitHub
   </a>
-  <a class="icon_document" href="https://github.com/intel-retail/order-accuracy/blob/main/dine-in/README.md">
+  <a class="icon_document" href="https://github.com/intel-retail/order-accuracy/blob/release-2026.2.0/dine-in/README.md">
      Readme
   </a>
 </div>
