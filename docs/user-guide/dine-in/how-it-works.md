@@ -90,7 +90,7 @@ This document provides a comprehensive technical overview of the system architec
 
 | Container                 | Image                                    | Ports      | Description                         |
 | ------------------------- | ---------------------------------------- | ---------- | ----------------------------------- |
-| `dinein_app`              | `intel/order-accuracy-dine-in:2026.2.0-rc2`  | 7861, 8083 | Main application (Gradio + FastAPI) |
+| `dinein_app`              | `intel/order-accuracy-dine-in:2026.2.0-rc3`  | 7861, 8083 | Main application (Gradio + FastAPI) |
 | `dinein_ovms_vlm`         | `openvino/model_server:2026.3.1-gpu`     | 8002       | Vision-Language Model server        |
 | `dinein_semantic_service` | `intel/semantic-search-agent:2026.2.0-rc2`   | 8081, 9091 | Semantic text matching              |
 | `metrics-collector`       | `intel/hl-ai-metrics-collector:2026.1.0` | 8084       | System metrics aggregation          |
