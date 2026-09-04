@@ -31,7 +31,7 @@ For detailed hardware and software requirements, see the [System Requirements](.
 
 > **KV Cache on iGPU / low-RAM systems:** On iGPU platforms the KV cache is allocated from
 > **system RAM**. Set `export CACHE_SIZE=2` before running `setup_models.sh` to reduce KV cache
-> to 2 GB (default is 4 GB). See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/main/ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
+> to 2 GB (default is 4 GB). See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/release-2026.2.0/ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
 
 ### Software Requirements
 
@@ -53,7 +53,7 @@ docker compose version    # Docker Compose version v2.x.x
 ### Step 1: Clone the Repository
 
 ```bash
-git clone -b <release-or-tag> --single-branch https://github.com/intel-retail/order-accuracy.git
+git clone -b release-2026.2.0 --single-branch https://github.com/intel-retail/order-accuracy.git
 cd order-accuracy/take-away
 ```
 
