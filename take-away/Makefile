@@ -345,7 +345,7 @@ build: check-env
 		docker compose -f $(COMPOSE_FILE) --profile parallel build; \
 	else \
 		echo "$(YELLOW)REGISTRY=true → Pulling images from registry...$(NC)"; \
-		docker compose -f $(COMPOSE_FILE) pull order-accuracy frame-selector gradio-ui rtsp-streamer metrics-collector; \
+		docker compose -f $(COMPOSE_FILE) pull order-accuracy frame-selector gradio-ui rtsp-streamer; \
 	fi
 	@echo "$(GREEN)✓ Build complete$(NC)"
 
