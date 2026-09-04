@@ -30,13 +30,13 @@ is around 12 GB, which fits in an Intel® Arc™ A770 16 GB. On **integrated GPU
 platforms such as Wildcat Lake and Meteor Lake, the KV cache is drawn from **system RAM**
 instead of dedicated VRAM; in such a case, use a smaller value (e.g. `CACHE_SIZE=2`) to avoid
 exhausting system RAM. Set `export CACHE_SIZE=<N>` before running `setup_models.sh`. For a
-full per-platform sizing table and step-by-step instructions see [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/main/ovms-service/README.md#tuning-the-kv-cache-size).
+full per-platform sizing table and step-by-step instructions see [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/release-2026.2.0/ovms-service/README.md#tuning-the-kv-cache-size).
 
 > **Model Export RAM Note:** 16 GB system RAM is sufficient for **inference-only**
 > deployments. For first-time model export (`setup_models.sh` INT8 quantization), a
 > higher-memory host (48–64 GB recommended) avoids potential OOM and corrupt IR files — export
 > once there and copy `ovms-service/models/` to the target system. If you must export on 16 GB,
-> set `export CACHE_SIZE=2` first. See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/main/ovms-service/README.md#tuning-the-kv-cache-size) for details.
+> set `export CACHE_SIZE=2` first. See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/release-2026.2.0/ovms-service/README.md#tuning-the-kv-cache-size) for details.
 
 ---
 
