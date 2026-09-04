@@ -10,8 +10,7 @@
 
 | Image                           | Tag              |
 | ------------------------------- | ---------------- |
-| `intel/order-accuracy-dine-in` | `2026.2.0-rc3` |
-| `intel/semantic-search-agent`  | `2026.2.0-rc3` |
+| `intel/order-accuracy-dine-in` | `2026.2.0-rc3` 
 
 ---
 
