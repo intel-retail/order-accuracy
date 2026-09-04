@@ -33,7 +33,7 @@ docker compose version
 ### Step 1: Clone the Repository
 
 ```bash
-git clone -b release-2026.2.0 https://github.com/intel-retail/order-accuracy.git #2026.2.0
+git clone -b release-2026.2.0 https://github.com/intel-retail/order-accuracy.git
 cd order-accuracy/dine-in
 ```
 
