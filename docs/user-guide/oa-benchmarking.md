@@ -6,10 +6,46 @@ Test your Order Accuracy pipeline performance on various hardware configurations
 
 **Goal**: Run a basic performance test to verify your system works correctly
 
+> **Note — Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
+>
+> 1. Set **both** variables in your `.env` file:
+>
+>    ```bash
+>    TARGET_DEVICE=GPU      # used by setup_models.sh and docker-compose
+>    OPENVINO_DEVICE=GPU    # used by the Makefile benchmark targets
+>    ```
+>
+> 2. Re-export the model for the new device:
+>
+>    <!--hide_directive::::{tab-set}
+>    :::{tab-item}hide_directive--> **Dine-In**
+>    <!--hide_directive:sync: dine-in hide_directive-->
+>
+>    ```bash
+>    cd ../ovms-service && ./setup_models.sh --app dine-in
+>    ```
+>
+>    <!--hide_directive:::
+>    :::{tab-item}hide_directive--> **Take-Away**
+>    <!--hide_directive:sync: take-away hide_directive-->
+>
+>    ```bash
+>    cd ../ovms-service && ./setup_models.sh --app take-away
+>    ```
+>
+>    <!--hide_directive:::
+>    ::::hide_directive-->
+>
+> `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format. `OPENVINO_DEVICE` is what the Makefile passes to the benchmark script. Both must match.
+
 ### 1. Initialize Performance Tools
 
 ```bash
+# 1. Initialize git submodules (first time only)
 make update-submodules
+
+# 2. Start services
+make up
 ```
 
 ### 2. Run Quick Benchmark
@@ -27,8 +63,15 @@ make benchmark
 :::{tab-item}hide_directive--> **Take-Away**
 <!--hide_directive:sync: take-away hide_directive-->
 
+> **Important:** Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
+>
+> ```bash
+> make download-sample-video
+> ```
+
 ```bash
 cd take-away
+# Default run
 make benchmark
 ```
 
@@ -53,7 +96,7 @@ make benchmark
 <!--hide_directive:sync: singlehide_directive-->
 
 ```bash
-make benchmark
+make benchmark-single IMAGE_ID=MCD-1001
 ```
 
 Tests single image validation latency:
@@ -68,7 +111,10 @@ Tests single image validation latency:
 <!--hide_directive:sync: density hide_directive-->
 
 ```bash
-make benchmark-density
+make benchmark-stream-density
+
+# With overrides
+make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=20000 BENCHMARK_INIT_DURATION=30
 ```
 
 Finds maximum concurrent requests the system can handle under latency constraints:
@@ -103,7 +149,10 @@ Tests end-to-end latency for single order validation:
 :::{tab-item}hide_directive--> **Fixed Workers Benchmark**
 
 ```bash
-make benchmark-oa BENCHMARK_WORKERS=4 BENCHMARK_DURATION=300
+make benchmark \
+  BENCHMARK_WORKERS=4 \
+  BENCHMARK_DURATION=300 \
+  BENCHMARK_INIT_DURATION=30
 ```
 
 Tests system with fixed number of concurrent workers:
@@ -118,7 +167,16 @@ Tests system with fixed number of concurrent workers:
 <!--hide_directive:sync: density hide_directive-->
 
 ```bash
+# Default run
 make benchmark-stream-density
+
+# Custom run
+make benchmark-stream-density \
+  BENCHMARK_TARGET_LATENCY_MS=25000 \
+  BENCHMARK_LATENCY_METRIC=avg \
+  BENCHMARK_INIT_DURATION=30 \
+  BENCHMARK_MIN_TRANSACTIONS=3 \
+  BENCHMARK_WORKER_INCREMENT=1
 ```
 
 Finds maximum sustainable worker count under latency constraints:
@@ -140,32 +198,31 @@ Finds maximum sustainable worker count under latency constraints:
 :::{tab-item}hide_directive--> **Dine-In Configuration**
 <!--hide_directive:sync: dine-in hide_directive-->
 
-| Variable            | Default                 | Description                          |
-| ------------------- | ----------------------- | ------------------------------------ |
-| `TARGET_LATENCY_MS` | 15000                   | Target latency threshold (ms)        |
-| `LATENCY_METRIC`    | avg                     | 'avg', 'p95', or 'max'               |
-| `DENSITY_INCREMENT` | 1                       | Concurrent images per iteration      |
-| `INIT_DURATION`     | 60                      | Warmup time (seconds)                |
-| `MIN_REQUESTS`      | 3                       | Min requests before measuring        |
-| `REQUEST_TIMEOUT`   | 300                     | Individual request timeout (seconds) |
-| `API_ENDPOINT`      | `http://localhost:8083` | API endpoint URL                     |
-| `RESULTS_DIR`       | `./results`             | Results output directory             |
+| Variable                      | Default                 | Description                          |
+| ----------------------------- | ----------------------- | ------------------------------------ |
+| `BENCHMARK_TARGET_LATENCY_MS` | 25000                   | Target latency threshold (ms)        |
+| `BENCHMARK_LATENCY_METRIC`    | avg                     | 'avg', 'p95', or 'max'               |
+| `BENCHMARK_DENSITY_INCREMENT` | 1                       | Concurrent images per iteration      |
+| `BENCHMARK_INIT_DURATION`     | 60                      | Warmup time (seconds)                |
+| `BENCHMARK_MIN_REQUESTS`      | 3                       | Min requests before measuring        |
+| `BENCHMARK_REQUEST_TIMEOUT`   | 300                     | Individual request timeout (seconds) |
+| `BENCHMARK_API_ENDPOINT`      | `http://localhost:8083` | API endpoint URL                     |
+| `RESULTS_DIR`                 | `./results`             | Results output directory             |
 
 <!--hide_directive:::
 :::{tab-item}hide_directive--> **Take-Away Configuration**
 <!--hide_directive:sync: take-away hide_directive-->
 
-| Variable             | Default | Description                       |
-| -------------------- | ------- | --------------------------------- |
-| `TARGET_LATENCY_MS`  | 25000   | Target latency threshold (ms)     |
-| `LATENCY_METRIC`     | avg     | 'avg', 'p95', or 'max'            |
-| `WORKER_INCREMENT`   | 1       | Workers added per iteration       |
-| `INIT_DURATION`      | 10      | Warmup time (seconds)             |
-| `MIN_TRANSACTIONS`   | 3       | Min transactions before measuring |
-| `MAX_ITERATIONS`     | 50      | Max scaling iterations            |
-| `MAX_WAIT_SEC`       | 600     | Max wait per iteration (seconds)  |
-| `BENCHMARK_WORKERS`  | 1       | Number of workers (fixed mode)    |
-| `BENCHMARK_DURATION` | 60      | Test duration (seconds)           |
+| Variable                      | Default | Description                                            |
+| ----------------------------- | ------- | ------------------------------------------------------ |
+| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Target latency threshold (ms)                          |
+| `BENCHMARK_LATENCY_METRIC`    | avg     | 'avg', 'p95'                                           |
+| `BENCHMARK_WORKER_INCREMENT`  | 1       | Workers added per iteration                            |
+| `BENCHMARK_INIT_DURATION`     | 10      | Warmup time (seconds)                                  |
+| `BENCHMARK_MIN_TRANSACTIONS`  | 1       | Min transactions before measuring                      |
+| `BENCHMARK_WORKERS`           | 1       | Number of workers (fixed mode)                         |
+| `BENCHMARK_DURATION`          | 200     | Test duration (seconds)                                |
+| `OOM_PROTECTION`              | 1       | Set to `0` to disable OOM protection (not recommended) |
 
 <!--hide_directive:::
 ::::hide_directive-->
@@ -254,7 +311,7 @@ ls -la results/
 
 ```bash
 make consolidate-metrics
-cat results/metrics_summary.csv
+cat results/consolidated_metrics.csv
 ```
 
 ## Expected Performance

@@ -67,7 +67,7 @@ This downloads MiniCPM-V-4.5 and converts it to OpenVINO™ INT4 format. This is
 Before running the application, you must prepare your test data:
 
 1. **Add Images**: Place your food tray images in the `images/` folder
-   - Supported formats: `.jpg`, `.jpeg`, `.png`
+   - Supported formats: `.jpg`, `.jpeg` or `.png`
    - Images should clearly show the food items on the tray
 
 2. **Update Orders**: Edit `configs/orders.json` with your test orders

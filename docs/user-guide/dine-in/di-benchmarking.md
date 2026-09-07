@@ -71,7 +71,7 @@ make benchmark-stream-density
 make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=20000 BENCHMARK_INIT_DURATION=30
 ```
 
-> **Note:** `make benchmark-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
+> **Note:** `make benchmark-stream-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
 
 ## Metrics Processing
 
