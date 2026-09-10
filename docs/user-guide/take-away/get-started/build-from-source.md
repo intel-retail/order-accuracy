@@ -44,10 +44,10 @@ This builds:
 
 | Service        | Image                                          |
 | -------------- | ---------------------------------------------- |
-| order-accuracy | `intel/order-accuracy-take-away:2026.2.0-rc3`      |
-| frame-selector | `intel/order-accuracy-frame-selector:2026.2.0-rc3` |
-| gradio-ui      | `intel/order-accuracy-take-away-ui:2026.2.0-rc3`   |
-| rtsp-streamer  | `intel/order-accuracy-take-away-rtsp:2026.2.0-rc3` |
+| order-accuracy | `intel/order-accuracy-take-away:2026.2.0`      |
+| frame-selector | `intel/order-accuracy-frame-selector:2026.2.0` |
+| gradio-ui      | `intel/order-accuracy-take-away-ui:2026.2.0`   |
+| rtsp-streamer  | `intel/order-accuracy-take-away-rtsp:2026.2.0` |
 
 > **Note:** `semantic-service` and OVMS (`openvino/model_server`) are always pulled — they have no local build context.
 
