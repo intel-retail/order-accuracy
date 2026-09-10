@@ -3,8 +3,25 @@
 Version history and changelog for Take-Away Order Accuracy.
 
 ---
+## Version 2026.2.0 (Latest)
 
-## Version 2026.2.0-rc3 (Latest)
+### What's New
+
+- **DLStreamer base image updated** to `intel/dlstreamer:2026.2.0-ubuntu24`.
+
+### Published Images
+
+| Image                                 | Tag             |
+| -------------------------------------- | --------------- |
+| `intel/order-accuracy-take-away`      | `2026.2.0` |
+| `intel/order-accuracy-frame-selector` | `2026.2.0` |
+| `intel/order-accuracy-take-away-ui`   | `2026.2.0` |
+| `intel/order-accuracy-take-away-rtsp` | `2026.2.0` |
+| `intel/retail-benchmark`              | `2026.2.0` |
+
+---
+
+## Version 2026.2.0-rc3
 
 ### What's New
 
