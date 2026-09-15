@@ -34,10 +34,10 @@
    git clone -b <release-or-tag> --single-branch https://github.com/intel-retail/order-accuracy
    ```
 
-   > Replace `<release-or-tag>` with the version you want to clone (for example, **v2026.1**).
+   > Replace `<release-or-tag>` with the version you want to clone (for example, **main**).
 
    ```bash
-   git clone -b v2026.1 --single-branch https://github.com/intel-retail/order-accuracy
+   git clone -b main --single-branch https://github.com/intel-retail/order-accuracy
    cd order-accuracy/dine-in
    ```
 
@@ -95,10 +95,10 @@
    git clone -b <release-or-tag> --single-branch https://github.com/intel-retail/order-accuracy
    ```
 
-   > Replace `<release-or-tag>` with the version you want to clone (for example, **v2026.1**).
+   > Replace `<release-or-tag>` with the version you want to clone (for example, **main**).
 
    ```bash
-   git clone -b v2026.1 --single-branch https://github.com/intel-retail/order-accuracy
+   git clone -b main --single-branch https://github.com/intel-retail/order-accuracy
    cd order-accuracy/take-away
    ```
 
