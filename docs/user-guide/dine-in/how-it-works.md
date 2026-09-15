@@ -6,84 +6,32 @@ This document provides a comprehensive technical overview of the system architec
 
 ### High-Level Architecture
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                           DINE-IN ORDER ACCURACY                            │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  ┌─────────────┐      ┌──────────────────┐      ┌─────────────────────┐    │
-│  │             │      │                  │      │                     │    │
-│  │  Gradio UI  │─────▶│   FastAPI API    │─────▶│   Validation        │    │
-│  │  (Port 7861)│      │   (Port 8083)    │      │   Service           │    │
-│  │             │      │                  │      │                     │    │
-│  └─────────────┘      └────────┬─────────┘      └──────────┬──────────┘    │
-│                                │                           │               │
-│                                │                           │               │
-│                    ┌───────────┴───────────┐               │               │
-│                    │                       │               │               │
-│                    ▼                       ▼               ▼               │
-│           ┌────────────────┐     ┌─────────────────┐ ┌───────────────┐    │
-│           │                │     │                 │ │               │    │
-│           │  VLM Client    │     │ Semantic Client │ │ Metrics       │    │
-│           │  (Circuit      │     │ (Circuit        │ │ Collector     │    │
-│           │   Breaker)     │     │  Breaker)       │ │               │    │
-│           │                │     │                 │ │               │    │
-│           └───────┬────────┘     └────────┬────────┘ └───────────────┘    │
-│                   │                       │                               │
-└───────────────────┼───────────────────────┼───────────────────────────────┘
-                    │                       │
-                    ▼                       ▼
-          ┌─────────────────┐     ┌─────────────────┐
-          │                 │     │                 │
-          │   OVMS VLM      │     │   Semantic      │
-          │  (MiniCPM-V4.5) │     │   Service       │
-          │   Port 8000     │     │   Port 8080     │
-          │                 │     │                 │
-          └─────────────────┘     └─────────────────┘
-```
+![High-Level Architecture](./_assets/OA-DI-architecture.svg "dine-in high-level architecture")
 
 ### Request Flow
 
-```text
-┌──────────┐    ┌─────────┐    ┌──────────┐    ┌─────────┐    ┌──────────┐
-│  Staff   │    │ Gradio  │    │ FastAPI  │    │  VLM    │    │ Semantic │
-│  Trigger │    │   UI    │    │   API    │    │ Client  │    │  Client  │
-└────┬─────┘    └────┬────┘    └────┬─────┘    └────┬────┘    └────┬─────┘
-     │               │              │               │              │
-     │ Select Image  │              │               │              │
-     │──────────────▶│              │               │              │
-     │               │              │               │              │
-     │ Click Validate│              │               │              │
-     │──────────────▶│              │               │              │
-     │               │              │               │              │
-     │               │ POST /validate               │              │
-     │               │─────────────▶│               │              │
-     │               │              │               │              │
-     │               │              │ Preprocess    │              │
-     │               │              │ Image         │              │
-     │               │              │───────────────│              │
-     │               │              │               │              │
-     │               │              │ analyze_plate()              │
-     │               │              │──────────────▶│              │
-     │               │              │               │              │
-     │               │              │               │ OVMS POST    │
-     │               │              │               │─────────────▶│
-     │               │              │               │              │
-     │               │              │               │◀─────────────│
-     │               │              │               │ Detected Items
-     │               │              │◀──────────────│              │
-     │               │              │               │              │
-     │               │              │ match_items()                │
-     │               │              │─────────────────────────────▶│
-     │               │              │                              │
-     │               │              │◀─────────────────────────────│
-     │               │              │            Similarity Scores │
-     │               │              │               │              │
-     │               │◀─────────────│               │              │
-     │               │ Validation Result            │              │
-     │◀──────────────│              │               │              │
-     │ Display Results              │               │              │
-     │               │              │               │              │
+```mermaid
+---
+config: {"theme": "dark"}
+---
+sequenceDiagram
+    actor Staff as Staff Trigger
+    participant Gradio as Gradio UI
+    participant FastAPI as FastAPI API
+    participant VLM as VLM Client
+    participant Semantic as Semantic Client
+
+    Staff->>Gradio: Select Image
+    Staff->>Gradio: Click Validate
+    Gradio->>FastAPI: POST /validate
+    FastAPI->>FastAPI: Preprocess image
+    FastAPI->>VLM: analyze_plate()
+    VLM->>VLM: OVMS: POST /v3/chat/completions
+    VLM-->>FastAPI: Detected items
+    FastAPI->>Semantic: match_items()
+    Semantic-->>FastAPI: Similarity scores
+    FastAPI-->>Gradio: Validation result
+    Gradio-->>Staff: Display results
 ```
 
 ### Docker Services
@@ -97,43 +45,7 @@ This document provides a comprehensive technical overview of the system architec
 
 ### Network Topology
 
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                     Docker Network: dinein-net               │
-│                                                                 │
-│  ┌─────────────────┐    ┌─────────────────┐                    │
-│  │   dinein_app    │    │ dinein_ovms_vlm │                    │
-│  │                 │    │                 │                    │
-│  │  - Gradio:7861  │───▶│  - REST: 8000   │  (internal)        │
-│  │  - API:8083     │    │  - Host: 8002   │  (external)        │
-│  │                 │    │                 │                    │
-│  └────────┬────────┘    └─────────────────┘                    │
-│           │                                                     │
-│           │             ┌─────────────────┐                    │
-│           │             │ semantic_service│                    │
-│           └────────────▶│                 │                    │
-│                         │  - REST: 8080   │  (internal)        │
-│                         │  - Host: 8081   │  (external)        │
-│                         └─────────────────┘                    │
-│                                                                 │
-│  ┌─────────────────┐                                           │
-│  │metrics-collector│                                           │
-│  │  - REST: 8084   │◀────── Prometheus-style metrics           │
-│  └─────────────────┘                                           │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-                    │
-                    ▼ Host Network
-        ┌───────────────────────┐
-        │   localhost:7861      │  ← Gradio UI
-        │   localhost:8083      │  ← REST API
-        │   localhost:8083/docs │  ← Swagger Docs
-        │   localhost:8002      │  ← OVMS VLM
-        │   localhost:8084      │  ← Metrics API
-        └───────────────────────┘
-```
-
----
+![Network Topology](./_assets/OA-DI-network-topology.svg "dine-in network topology")
 
 ## Component Details
 
@@ -204,8 +116,6 @@ FastAPI endpoints with bounded validation cache.
 - **Thread-safe service init**: Lock-protected lazy initialization
 - **Async metrics collection**: Non-blocking system stats
 
----
-
 ## Data Flow
 
 ### Validation Request Processing
@@ -235,31 +145,7 @@ FastAPI endpoints with bounded validation cache.
 
 ### Metrics Collection
 
-```text
-┌─────────────────────────────────────────────────────────────────────┐
-│                        METRICS PIPELINE                             │
-├─────────────────────────────────────────────────────────────────────┤
-│                                                                     │
-│  VLM CLIENT                    METRICS COLLECTOR                   │
-│  ┌────────────────┐           ┌────────────────┐                   │
-│  │ log_start_time │──────────▶│ Start Timestamp│                   │
-│  │ log_end_time   │──────────▶│ End Timestamp  │                   │
-│  │ log_custom_event           │ TPS, Tokens    │                   │
-│  │   - tps        │──────────▶│ Preprocess Time│                   │
-│  │   - tokens     │           │ Items Detected │                   │
-│  │   - latency    │           └────────┬───────┘                   │
-│  └────────────────┘                    │                           │
-│                                        ▼                           │
-│                              ┌────────────────┐                    │
-│                              │ JSON/CSV Export│                    │
-│                              │ results/*.json │                    │
-│                              │ results/*.csv  │                    │
-│                              └────────────────┘                    │
-│                                                                     │
-└─────────────────────────────────────────────────────────────────────┘
-```
-
----
+![Metrics Pipeline](./_assets/OA-DI-metrics-pipeline.svg "metrics pipeline")
 
 ## Production Features
 
@@ -268,6 +154,9 @@ FastAPI endpoints with bounded validation cache.
 Prevents cascading failures when external services are unhealthy.
 
 ```mermaid
+---
+config: {"theme": "dark"}
+---
 flowchart LR
     CLOSED["CLOSED"]
     OPEN["OPEN"]
@@ -318,8 +207,6 @@ class BoundedValidationCache:
                 self._cache.popitem(last=False)
 ```
 
----
-
 ## Performance Characteristics
 
 ### Latency Breakdown
@@ -332,8 +219,6 @@ class BoundedValidationCache:
 | **Total E2E**       | **9–15 s**       |
 
 Target: < 15 s end-to-end for operational efficiency.
-
----
 
 ## System Requirements
 
