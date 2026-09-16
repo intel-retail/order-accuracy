@@ -1,6 +1,6 @@
 services:
   minio:
-    image: minio/minio
+    image: chainguard/minio@sha256:cb84dfa704c648c4b14858aa288576bb1cf756a9b326112a0934db00e87d0bb8
     container_name: oa_minio
     environment:
       MINIO_ROOT_USER: minioadmin
@@ -15,7 +15,7 @@ services:
       - minio_data:/data
     restart: unless-stopped
     healthcheck:
-      test: ["CMD-SHELL", "curl -sf http://localhost:9000/minio/health/live || exit 1"]
+      test: ["CMD-SHELL", "mc ready local || exit 1"]
       interval: 5s
       timeout: 5s
       retries: 5
