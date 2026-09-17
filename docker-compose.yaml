@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   minio:
-    image: minio/minio
+    image: chainguard/minio@sha256:cb84dfa704c648c4b14858aa288576bb1cf756a9b326112a0934db00e87d0bb8
     container_name: oa_minio
     environment:
       MINIO_ROOT_USER: minioadmin
