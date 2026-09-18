@@ -26,6 +26,9 @@ The Order Accuracy platform is an enterprise AI vision system designed for real-
 ### Platform Architecture
 
 ```mermaid
+---
+config: {"theme": "dark"}
+---
 graph TB
     subgraph "Order Accuracy Platform"
         subgraph "Dine-In Application"
@@ -67,6 +70,9 @@ graph TB
 ### Dine-In Architecture
 
 ```mermaid
+---
+config: {"theme": "dark"}
+---
 flowchart TB
     subgraph DINEIN["Dine-In Order Accuracy"]
         DUI["Gradio UI<br/>(Port 7861)"] --> DAPI["FastAPI API<br/>(Port 8083)"]
@@ -83,6 +89,9 @@ flowchart TB
 ### Take-Away Architecture
 
 ```mermaid
+---
+config: {"theme": "dark"}
+---
 flowchart TB
   subgraph SYS["Take-Away Order Accuracy"]
     direction LR
@@ -256,6 +265,9 @@ Request batching scheduler optimizing OVMS throughput.
 Prevents cascading failures when external services are unhealthy.
 
 ```mermaid
+---
+config: {"theme": "dark"}
+---
 flowchart LR
     CLOSED["CLOSED"]
     OPEN["OPEN"]

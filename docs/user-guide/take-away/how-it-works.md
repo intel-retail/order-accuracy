@@ -7,6 +7,9 @@ This document provides a comprehensive technical overview of the system architec
 ### High-Level Architecture
 
 ```mermaid
+---
+config: {"theme": "dark"}
+---
 flowchart TB
   subgraph SYS["Take-Away Order Accuracy"]
     direction LR
@@ -334,6 +337,9 @@ response = requests.post(
 ### State Transitions
 
 ```mermaid
+---
+config: {"theme": "dark"}
+---
 flowchart LR
   subgraph OUTER[ ]
     direction TB
@@ -575,6 +581,9 @@ services:
 ### Circuit Breaker Pattern
 
 ```mermaid
+---
+config: {"theme": "dark"}
+---
 flowchart LR
     CLOSED["CLOSED (Normal)"]
     OPEN["OPEN (Blocking)"]
