@@ -40,13 +40,16 @@ events — it exists purely for load testing, not real order traffic.
 
 from __future__ import annotations
 
+import calendar
 import logging
 import os
+import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
 
-from mcp_service_sdk import ServiceConfig, ServiceServer
+from mcp_service_sdk import Delivery, ServiceConfig, ServiceServer, WebhookSink
 
 from services.order_events import create_order_event
 
@@ -87,18 +90,33 @@ _EVENT_TYPES = ("order_validated", "order_failed")
 
 
 def _build_service() -> ServiceServer:
+    # Delivery is intentionally NOT wired through ServiceConfig here: the
+    # SDK's own webhook delivery is synchronous inside svc.emit() (retries
+    # 3x with 5s timeouts + backoff), which would block the calling
+    # validation request for up to ~16.5s if the callback is slow or down.
+    # Instead this service always builds with delivery="off" (an instant
+    # no-op) and, when MCP_WEBHOOK_URL is set, dispatches the SAME SDK
+    # WebhookSink from a background thread after the event is already
+    # durably logged (see _safe_emit / _ASYNC_WEBHOOK_DELIVERY below). The
+    # durable log write itself remains synchronous — only the outbound HTTP
+    # push is moved off the request's critical path.
     cfg = ServiceConfig(
         service="order_accuracy_dine_in",
         store_id=STORE_ID,
         log_backend=MCP_LOG_BACKEND if MCP_SERVICE_ENABLED else "memory",
         log_path=MCP_LOG_PATH,
-        delivery="webhook" if MCP_WEBHOOK_URL else "off",
-        webhook_url=MCP_WEBHOOK_URL,
+        delivery="off",
+        webhook_url=None,
     )
     return ServiceServer.from_config(cfg)
 
 
 svc = _build_service()
+
+# Async webhook delivery (see _build_service docstring above): built once,
+# reused for every event's background dispatch. None when no webhook is
+# configured, matching the previous "off" delivery behavior exactly.
+_ASYNC_WEBHOOK_DELIVERY = Delivery(sinks=[WebhookSink(MCP_WEBHOOK_URL)]) if MCP_WEBHOOK_URL else None
 
 # -- 1. declare event types (feeds `describe`) -----------------------------
 
@@ -132,6 +150,43 @@ svc.register_event_type(
 # ---------------------------------------------------------------------------
 
 
+def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
+    """``svc.emit()``, tolerant of a same-instant cross-process ``ref_id`` race.
+
+    ``SQLiteLog.append()`` does SELECT-then-INSERT; if two writers race on
+    the exact same ``ref_id`` (e.g. a future multi-instance deployment
+    sharing one log file), the losing INSERT raises
+    ``sqlite3.IntegrityError`` even though the event IS durably recorded (by
+    the winner) — that is the intended idempotent outcome, not a lost event,
+    so we look the row back up instead of letting the exception propagate
+    into the validation request.
+
+    Also fans the event out to the async webhook sink (if configured) on a
+    background thread, off the caller's critical path — see
+    ``_build_service``'s docstring for why delivery is not wired through
+    ``svc`` itself.
+    """
+    try:
+        event = svc.emit(event_type, payload, ref_id=ref_id)
+    except sqlite3.IntegrityError:
+        logger.info(
+            "[MCP] ref_id=%s already recorded by a concurrent writer; "
+            "treating as idempotent no-op",
+            ref_id,
+        )
+        existing = [e for e in svc.log.read(event_type=event_type, limit=100_000) if e.ref_id == ref_id]
+        return existing[0] if existing else None
+
+    if _ASYNC_WEBHOOK_DELIVERY is not None:
+        threading.Thread(
+            target=_ASYNC_WEBHOOK_DELIVERY.dispatch,
+            args=(event,),
+            daemon=True,
+            name="mcp-webhook-delivery",
+        ).start()
+    return event
+
+
 def emit_order_result(result: dict[str, Any]):
     """Emit ``order_validated``/``order_failed`` for one completed plate check.
 
@@ -156,8 +211,8 @@ def emit_order_result(result: dict[str, Any]):
         return None
 
     order_event = create_order_event(result)
-    event = svc.emit(
-        order_event.event_type, order_event.to_dict(), ref_id=order_event.ref_id
+    event = _safe_emit(
+        order_event.event_type, order_event.to_dict(), order_event.ref_id
     )
     logger.info(
         "[MCP] Emitted %s order_id=%s station=%s ref_id=%s event_id=%s",
@@ -202,9 +257,11 @@ def _day_bounds_ms(period: str) -> tuple[int, int]:
     elif period == "yesterday":
         start = today_start - day_s
     else:
-        # explicit YYYY-MM-DD
+        # explicit YYYY-MM-DD (UTC calendar day, per the docstring above —
+        # time.mktime() would interpret the parsed date in the host's local
+        # timezone, shifting the requested day on a non-UTC host).
         struct = time.strptime(period, "%Y-%m-%d")
-        start = int(time.mktime(struct))
+        start = calendar.timegm(struct)
     return start * 1000, (start + day_s) * 1000
 
 
@@ -386,7 +443,7 @@ def seed_history_if_empty() -> int:
                     "reason": "missing:1",
                 }
             )
-        event = svc.emit(event_type, payload, ref_id=ref_id)
+        event = _safe_emit(event_type, payload, ref_id)
         # Backfill the timestamp to fall within "yesterday" (emit() stamps
         # "now" by default; the log stores whatever ts_ms the envelope
         # carries only when constructed with it, so re-append explicitly).
@@ -399,22 +456,59 @@ def seed_history_if_empty() -> int:
 def _backfill_seed_ts(ref_id: str, ts_ms: int) -> None:
     """Best-effort: rewrite a just-appended seed event's ts_ms in-place.
 
-    SQLiteLog/JSONLFileLog only expose append/read/replay, so we go through
-    the underlying connection when available (sqlite) and otherwise accept
-    the emit-time timestamp (memory/jsonl backends used mainly for tests).
+    Needed so seeded "yesterday" baseline events keep their backdated
+    timestamp: ``svc.emit()``/``DurableLog.append()`` always stamp "now",
+    and ``ts_ms`` as actually stored in the log is what period bucketing
+    (``_day_bounds_ms``/``get_rework_rate``) reads. Supports both durable
+    backends this service can be configured with (``MCP_LOG_BACKEND``):
+    SQLite (via its connection) and JSONL (by rewriting the matching
+    record in place). The in-memory backend (tests only) has neither and
+    is left as emit-time, which is fine there.
     """
     conn = getattr(svc.log, "_conn", None)
-    if conn is None:
+    if conn is not None:
+        try:
+            with conn:
+                conn.execute(
+                    "UPDATE events SET ts_ms = ?, envelope = json_set(envelope, '$.ts_ms', ?) "
+                    "WHERE ref_id = ?",
+                    (ts_ms, ts_ms, ref_id),
+                )
+        except Exception as exc:  # pragma: no cover - defensive, non-fatal
+            logger.debug("[MCP] Could not backfill seed timestamp for %s: %s", ref_id, exc)
         return
+
+    path = getattr(svc.log, "_path", None)
+    if path is None:
+        return  # in-memory backend (tests) — emit-time timestamp is fine there
+
+    lock = getattr(svc.log, "_lock", None)
     try:
-        with conn:
-            conn.execute(
-                "UPDATE events SET ts_ms = ?, envelope = json_set(envelope, '$.ts_ms', ?) "
-                "WHERE ref_id = ?",
-                (ts_ms, ts_ms, ref_id),
-            )
+        import json as _json
+
+        def _rewrite() -> None:
+            if not os.path.exists(path):
+                return
+            with open(path, encoding="utf-8") as fh:
+                lines = [ln.strip() for ln in fh if ln.strip()]
+            records = [_json.loads(ln) for ln in lines]
+            changed = False
+            for rec in records:
+                if rec.get("event", {}).get("ref_id") == ref_id:
+                    rec["event"]["ts_ms"] = ts_ms
+                    changed = True
+            if changed:
+                with open(path, "w", encoding="utf-8") as fh:
+                    for rec in records:
+                        fh.write(_json.dumps(rec, separators=(",", ":")) + "\n")
+
+        if lock is not None:
+            with lock:
+                _rewrite()
+        else:
+            _rewrite()
     except Exception as exc:  # pragma: no cover - defensive, non-fatal
-        logger.debug("[MCP] Could not backfill seed timestamp for %s: %s", ref_id, exc)
+        logger.debug("[MCP] Could not backfill seed timestamp for %s (jsonl): %s", ref_id, exc)
 
 
 if MCP_SERVICE_ENABLED:

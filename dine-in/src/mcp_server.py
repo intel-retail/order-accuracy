@@ -48,18 +48,20 @@ def _build_app():
 
     ``ServiceServer.to_mcp()`` returns a live FastMCP app object; removing a
     tool afterwards is a normal FastMCP operation (``LocalProvider.
-    remove_tool``), not an SDK modification. If a future FastMCP/SDK version
-    changes this internal shape, we log a warning and continue rather than
-    crash the server — worst case the extra tool remains visible, which is
-    the same behavior as before this fix.
+    remove_tool``), not an SDK modification. Issue #102 requires "no
+    subscribe/callback" as a hard constraint, so if a future FastMCP/SDK
+    version changes this internal shape and removal fails, we fail startup
+    closed (raise) rather than silently serve a forbidden tool.
     """
     app = svc.to_mcp()
     for name in _DISALLOWED_TOOLS:
         try:
             app._local_provider.remove_tool(name)
             logger.info("[MCP] Removed disallowed tool '%s' from MCP surface", name)
-        except Exception as exc:  # pragma: no cover - defensive, non-fatal
-            logger.warning("[MCP] Could not remove tool '%s': %s", name, exc)
+        except Exception as exc:
+            raise RuntimeError(
+                f"Could not remove disallowed tool '{name}' from MCP surface"
+            ) from exc
     return app
 
 

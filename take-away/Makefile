@@ -672,7 +672,12 @@ dev-build: build restart
 
 replay: ## Replay the durable MCP event log in original order (read-only, dev/validation workflow — Issue #102)
 	@echo "Replaying Order Accuracy event log (read-only, no side effects)..."
-	docker exec -it oa_service python3 scripts/replay_log.py
+	@# /scripts (not /app/scripts) — the compose dev bind mount "./src:/app:ro"
+	@# overlays the whole /app directory, which would hide a script copied
+	@# under /app/scripts; the Dockerfile also copies scripts/ to /scripts,
+	@# which the mount does not touch, so that path works in both the
+	@# default (mounted) dev setup and a plain `docker run` of the image.
+	docker exec -it oa_service python3 /scripts/replay_log.py
 
 # =============================================================================
 # Cleanup
