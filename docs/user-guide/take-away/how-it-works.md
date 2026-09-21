@@ -526,8 +526,9 @@ The selection algorithm scores each frame using YOLO detection confidence and it
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                   │    │
 │  │  │   minio      │  │  ovms-vlm    │  │order-accuracy│                   │    │
 │  │  │   :9000/9001 │  │   :8001      │  │   :8000      │                   │    │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘                   │    │
-│  │                                                                         │    │
+│  │  └──────────────┘  └──────────────┘  └──────┬───────┘                   │    │
+│  │                                             │ :8010/mcp                 │    │
+│  │                                             ▼ (agents/read tools)       │    │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                   │    │
 │  │  │frame-selector│  │  gradio-ui   │  │semantic-svc  │                   │    │
 │  │  │  (internal)  │  │   :7860      │  │   :8080      │                   │    │
@@ -567,6 +568,41 @@ services:
     depends_on:
       - order-accuracy
 ```
+
+---
+
+## MCP Server & Event Log (Agent Interface)
+
+Order Accuracy is a **sensor**, not an actor: it detects and reports order
+outcomes but never takes runtime actions. This is exposed to agents/other
+services through an [MCP](https://modelcontextprotocol.io) server built on
+`mcp-service-sdk`, separate from the REST API on port 8000.
+
+```text
+Order Result (station_worker.py / vlm_service.py)
+        │
+        ▼
+create_order_event()   (src/core/order_events.py)
+        │
+        ▼
+emit_order_result()    (src/core/mcp_service.py)
+        │
+        ▼
+Durable SQLite Event Log  (results/order_accuracy_events.db)
+        │
+        ▼
+MCP Server  (src/mcp_server.py, port 8010, path /mcp)
+        │
+        ▼
+MCP Client / Agent  (read tools only, no action tools)
+```
+
+Every completed station run emits an `order_validated` or `order_failed`
+event, which is durably logged **before** it is made available to any
+reader — this guarantees the log survives process/container restarts and
+that no event is lost. See the
+[Take-Away README](../../../take-away/README.md#mcp-server-events-durable-log-read-tools)
+for the full event schema, read-tool list, and a runnable client example.
 
 ---
 

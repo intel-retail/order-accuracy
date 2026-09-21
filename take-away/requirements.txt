@@ -21,3 +21,10 @@ ultralytics==8.3.0
 # not local openvino_genai.VLMPipeline. The semantic_matcher.py fallback
 # gracefully handles the missing import.
 git+https://github.com/intel-retail/performance-tools.git@main#subdirectory=benchmark-scripts
+
+# mcp-service-sdk: shared event envelope / durable log / MCP scaffolding
+# used to make Order Accuracy agentic-ready (Issue #102). Pinned to a
+# specific commit (not the moving 'mcp' branch head) for reproducible builds.
+# fastmcp is the MCP server backend used by ServiceServer.to_mcp()/run().
+git+https://github.com/sachinkaushik/edge-ai-libraries.git@12c3bdb5989fe1347e985c8b859baef940c206f4#subdirectory=libraries/mcp-service-sdk
+fastmcp>=2.0.0

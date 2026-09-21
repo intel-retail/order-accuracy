@@ -562,6 +562,32 @@ X-RateLimit-Reset: 1705312800
 
 ---
 
+## Agent Interface (MCP)
+
+Everything above is the **REST API** — request/response endpoints on port
+8000. Order Accuracy also exposes a separate **MCP server** for agents, at
+`http://localhost:8010/mcp`.
+
+This is intentionally **not** a REST endpoint: MCP tools are discovered and
+invoked over the [Model Context Protocol](https://modelcontextprotocol.io)
+(`streamable-http` transport), not `GET`/`POST` with a fixed URL per
+resource. An agent connects once and can call any of:
+
+| Tool                 | Equivalent REST concept                                             |
+| --------------------- | ---------------------------------------------------------------------- |
+| `get_order_history`   | Read-only query over past `order_validated`/`order_failed` events (no REST equivalent — not indexed per station run like `GET /results/{order_id}`) |
+| `get_station_totals`  | Aggregated pass/fail counts per station                                |
+| `get_rework_rate`     | Rework rate for a period, vs. a baseline period                        |
+| `describe`            | Self-description of event types, schemas and tools (SDK built-in)      |
+
+There are **no action tools** — Order Accuracy only reports what it sees; it
+never accepts commands to change orders or system state via MCP.
+
+See the [Take-Away README](../../../take-away/README.md#mcp-server-events-durable-log-read-tools)
+for the full event schema and a runnable `fastmcp` client example.
+
+---
+
 ## OpenAPI Specification
 
 Access the interactive API documentation:
