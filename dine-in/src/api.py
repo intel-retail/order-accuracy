@@ -25,6 +25,7 @@ from PIL import Image
 from config import config_manager
 from services import ValidationService, VLMClient, SemanticClient
 from services.benchmark_service import BenchmarkService
+from mcp_service import emit_order_result
 
 # Configure logging
 logging.basicConfig(
@@ -624,6 +625,23 @@ async def validate_plate(
                    f"accuracy={result.accuracy_score:.2f}, "
                    f"complete={result.order_complete}")
         
+        # Emit the durable order_validated/order_failed MCP event for this
+        # completed plate validation (Issue #102). Wrapped so an event-
+        # emission failure never breaks the actual validation response.
+        try:
+            emit_order_result({
+                "order_id": order_id,
+                "station": order_data.get("table_number", "unknown"),
+                "image_id": result.image_id,
+                "order_complete": result.order_complete,
+                "accuracy_score": result.accuracy_score,
+                "missing_items": result.missing_items,
+                "extra_items": result.extra_items,
+                "quantity_mismatches": result.quantity_mismatches,
+            })
+        except Exception as e:
+            logger.error(f"[MCP] Failed to emit order event for order_id={order_id}: {e}", exc_info=True)
+        
         return validation_result
         
     except HTTPException:
@@ -710,6 +728,23 @@ async def validate_batch(
                 
                 logger.info(f"[API] Batch item completed: image_id={image_id}, "
                            f"accuracy={result.accuracy_score:.2f}")
+                
+                # Emit the durable order_validated/order_failed MCP event for
+                # this completed plate validation (Issue #102). Same hook as
+                # the single-image /api/validate endpoint above.
+                try:
+                    emit_order_result({
+                        "order_id": order_data.get("order_id", image_id),
+                        "station": order_data.get("table_number", "unknown"),
+                        "image_id": result.image_id,
+                        "order_complete": result.order_complete,
+                        "accuracy_score": result.accuracy_score,
+                        "missing_items": result.missing_items,
+                        "extra_items": result.extra_items,
+                        "quantity_mismatches": result.quantity_mismatches,
+                    })
+                except Exception as e:
+                    logger.error(f"[MCP] Failed to emit order event for image_id={image_id}: {e}", exc_info=True)
                 
             except Exception as e:
                 logger.error(f"[API] Failed to process image {image_id}: {e}")

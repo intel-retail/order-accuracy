@@ -1,0 +1,421 @@
+"""MCP integration for Order Accuracy — Dine-in (Issue #102).
+
+Same architecture as the Take-away application
+(``take-away/src/core/mcp_service.py``): Order Accuracy is a **sensor** — it
+detects and reports, it does not act. This module is the *only* place that
+talks to ``mcp_service_sdk``. It:
+
+  1. Declares the two Dine-in domain events (``order_validated`` /
+     ``order_failed``) derived from ``services.validation_service``'s
+     ``ValidationResult.order_complete`` flag (see ``api.py``'s
+     ``/api/validate`` handler, which builds the result dict this module's
+     ``emit_order_result()`` consumes).
+  2. Exposes read-only MCP tools required by the ticket: rework rate
+     (vs. baseline), order/validation history, and per-station (table)
+     pass/fail totals — all answered from the SDK's durable log, not from
+     the request-scoped ``validation_store`` in ``api.py``, so a restart
+     loses nothing.
+  3. Registers **no** action tools. Per Issue #102: "Order Accuracy is a
+     sensor (no runtime action)" / "A: none (read/detect only)".
+  4. Seeds one day of synthetic "yesterday" baseline history on first run
+     (idempotent — only when the log is empty) so `get_rework_rate`'s
+     baseline comparison works immediately on a fresh setup, mirroring
+     Take-away's ``seed_history_if_empty()`` (Issue #102 AC4).
+
+Nothing here duplicates business logic: validation itself still happens in
+``services.validation_service.ValidationService``; this module only records
+the *outcome* as a durable, replayable event and answers questions about it.
+
+Event creation (the ``OrderEvent`` entity + ``create_order_event()`` factory
+in ``services.order_events``) follows the same pattern as the alert event in
+the storewide-loss-prevention Person-of-Interest (POI) application and the
+Take-away implementation of this same ticket: a dedicated, typed event
+entity built by a single factory function, not a dict assembled inline. See
+``services/order_events.py`` for the full rationale.
+
+Only the real API validation path (``api.py``) emits events. The separate
+``worker.py`` benchmark/stream-density service deliberately does NOT emit
+events — it exists purely for load testing, not real order traffic.
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import time
+from pathlib import Path
+from typing import Any, Optional
+
+from mcp_service_sdk import ServiceConfig, ServiceServer
+
+from services.order_events import create_order_event
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Configuration (env-driven, same convention as Take-away)
+# ---------------------------------------------------------------------------
+
+# Master flag: a single flag turns the event and subscription layer off for
+# clean benchmark runs (Issue #100 AC11 / Issue #102 "benchmark flag present").
+MCP_SERVICE_ENABLED = os.getenv("MCP_SERVICE_ENABLED", "true").lower() == "true"
+
+STORE_ID = os.getenv("STORE_ID", "store-001")
+
+RESULTS_DIR = Path(os.getenv("RESULTS_DIR", "/app/results"))
+RESULTS_DIR.mkdir(parents=True, exist_ok=True)
+
+MCP_LOG_BACKEND = os.getenv("MCP_LOG_BACKEND", "sqlite")  # sqlite | jsonl | memory
+MCP_LOG_PATH = os.getenv(
+    "MCP_LOG_PATH",
+    str(RESULTS_DIR / "order_accuracy_events.db")
+    if MCP_LOG_BACKEND != "jsonl"
+    else str(RESULTS_DIR / "order_accuracy_events.jsonl"),
+)
+
+# Delivery: off by default (safe / benchmark-clean). Set MCP_WEBHOOK_URL to
+# push events to an agent inbox / event hub callback.
+MCP_WEBHOOK_URL = os.getenv("MCP_WEBHOOK_URL")
+
+MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http")
+MCP_HOST = os.getenv("MCP_HOST", "0.0.0.0")
+# Distinct from Take-away's 8010 so both apps' MCP servers can coexist
+# without a port clash if ever run side by side.
+MCP_PORT = int(os.getenv("MCP_PORT", "8011"))
+
+_EVENT_TYPES = ("order_validated", "order_failed")
+
+
+def _build_service() -> ServiceServer:
+    cfg = ServiceConfig(
+        service="order_accuracy_dine_in",
+        store_id=STORE_ID,
+        log_backend=MCP_LOG_BACKEND if MCP_SERVICE_ENABLED else "memory",
+        log_path=MCP_LOG_PATH,
+        delivery="webhook" if MCP_WEBHOOK_URL else "off",
+        webhook_url=MCP_WEBHOOK_URL,
+    )
+    return ServiceServer.from_config(cfg)
+
+
+svc = _build_service()
+
+# -- 1. declare event types (feeds `describe`) -----------------------------
+
+svc.register_event_type(
+    "order_validated",
+    schema={
+        "order_id": "str",
+        "station": "str",
+        "image_id": "str",
+        "accuracy_score": "float",
+    },
+)
+
+svc.register_event_type(
+    "order_failed",
+    schema={
+        "order_id": "str",
+        "station": "str",
+        "image_id": "str",
+        "accuracy_score": "float",
+        "missing_items": "list[dict]",
+        "extra_items": "list[dict]",
+        "quantity_mismatches": "list[dict]",
+        "reason": "str",
+    },
+)
+
+
+# ---------------------------------------------------------------------------
+# Emission — called from the existing validation pipeline once per plate
+# ---------------------------------------------------------------------------
+
+
+def emit_order_result(result: dict[str, Any]):
+    """Emit ``order_validated``/``order_failed`` for one completed plate check.
+
+    ``result`` is a plain dict built by ``api.py`` right after
+    ``ValidationService.validate_plate()`` returns: ``order_id``, ``station``
+    (table_number or "unknown"), ``image_id``, ``order_complete``,
+    ``accuracy_score``, ``missing_items``, ``extra_items``,
+    ``quantity_mismatches``.
+
+    Event creation follows the same pattern as the alert event in the
+    Person-of-Interest (POI) application and the Take-away implementation of
+    this same ticket: a dedicated event entity built by a single factory
+    function (``create_order_event`` in ``services.order_events``), rather
+    than a dict assembled inline here. This function's only remaining job is
+    handing the built event off to the MCP Service SDK for durable logging
+    (``svc.emit()``).
+
+    Returns the emitted ``EventEnvelope``, or ``None`` if the service is
+    disabled.
+    """
+    if not MCP_SERVICE_ENABLED:
+        return None
+
+    order_event = create_order_event(result)
+    event = svc.emit(
+        order_event.event_type, order_event.to_dict(), ref_id=order_event.ref_id
+    )
+    logger.info(
+        "[MCP] Emitted %s order_id=%s station=%s ref_id=%s event_id=%s",
+        order_event.event_type,
+        order_event.order_id,
+        order_event.station,
+        order_event.ref_id,
+        order_event.event_id,
+    )
+    return event
+
+
+# ---------------------------------------------------------------------------
+# Read tools (Issue #102: "R: rework rate by period vs. baseline;
+# order/validation history; per-station pass/fail totals")
+# ---------------------------------------------------------------------------
+
+
+def _all_events(station: Optional[str] = None, limit: int = 100_000):
+    events = []
+    for event_type in _EVENT_TYPES:
+        events.extend(svc.log.read(event_type=event_type, limit=limit))
+    if station:
+        events = [e for e in events if e.payload.get("station") == station]
+    events.sort(key=lambda e: e.ts_ms)
+    return events
+
+
+def _day_bounds_ms(period: str) -> tuple[int, int]:
+    """Return ``[start_ms, end_ms)`` epoch-millisecond bounds for a period.
+
+    ``period`` is one of ``"today"``, ``"yesterday"``, ``"all"``, or an
+    explicit ``YYYY-MM-DD`` date (UTC calendar day).
+    """
+    now = time.time()
+    day_s = 86400
+    today_start = int(now // day_s) * day_s
+    if period == "all":
+        return 0, int(now * 1000) + 1
+    if period == "today":
+        start = today_start
+    elif period == "yesterday":
+        start = today_start - day_s
+    else:
+        # explicit YYYY-MM-DD
+        struct = time.strptime(period, "%Y-%m-%d")
+        start = int(time.mktime(struct))
+    return start * 1000, (start + day_s) * 1000
+
+
+def _rate_for(events: list, start_ms: int, end_ms: int) -> dict[str, Any]:
+    in_range = [e for e in events if start_ms <= e.ts_ms < end_ms]
+    total = len(in_range)
+    failed = sum(1 for e in in_range if e.event_type == "order_failed")
+    return {
+        "orders_seen": total,
+        "orders_failed": failed,
+        "rework_rate": round(failed / total, 3) if total else 0.0,
+    }
+
+
+@svc.read_tool(
+    "get_rework_rate",
+    description=(
+        "Rework rate (share of plate validations that failed) for a period, "
+        "compared against a baseline period. Optionally filtered by station "
+        "(table)."
+    ),
+    schema={
+        "period": "str (today|yesterday|all|YYYY-MM-DD, default 'today')",
+        "station": "str|None",
+        "baseline_period": "str|None (default 'yesterday')",
+    },
+)
+def get_rework_rate(
+    period: str = "today",
+    station: str | None = None,
+    baseline_period: str | None = "yesterday",
+) -> dict[str, Any]:
+    events = _all_events(station=station)
+    start_ms, end_ms = _day_bounds_ms(period)
+    current = _rate_for(events, start_ms, end_ms)
+
+    result: dict[str, Any] = {
+        "period": period,
+        "station": station or "all",
+        **current,
+    }
+
+    if baseline_period and baseline_period != period:
+        b_start, b_end = _day_bounds_ms(baseline_period)
+        baseline = _rate_for(events, b_start, b_end)
+        result["baseline_period"] = baseline_period
+        result["baseline_rework_rate"] = baseline["rework_rate"]
+        result["baseline_orders_seen"] = baseline["orders_seen"]
+        result["delta_vs_baseline"] = round(
+            current["rework_rate"] - baseline["rework_rate"], 3
+        )
+
+    return result
+
+
+@svc.read_tool(
+    "get_order_history",
+    description="Order validation history (order_validated/order_failed events), oldest first.",
+    schema={
+        "limit": "int (default 50)",
+        "station": "str|None",
+        "order_id": "str|None",
+    },
+)
+def get_order_history(
+    limit: int = 50,
+    station: str | None = None,
+    order_id: str | None = None,
+) -> list[dict[str, Any]]:
+    events = _all_events(station=station, limit=max(limit, 1) * 10 or 100_000)
+    if order_id:
+        events = [e for e in events if e.payload.get("order_id") == order_id]
+    events = events[-limit:] if limit else events
+    return [
+        {
+            "event_type": e.event_type,
+            "status": "validated" if e.event_type == "order_validated" else "failed",
+            "ref_id": e.ref_id,
+            "ts_ms": e.ts_ms,
+            **e.payload,
+        }
+        for e in events
+    ]
+
+
+@svc.read_tool(
+    "get_station_totals",
+    description="Per-station (table) pass/fail totals and rework rate.",
+    schema={"station": "str|None"},
+)
+def get_station_totals(station: str | None = None) -> dict[str, Any]:
+    events = _all_events(station=station)
+    totals: dict[str, dict[str, Any]] = {}
+    for e in events:
+        st = e.payload.get("station") or "unknown"
+        bucket = totals.setdefault(st, {"validated": 0, "failed": 0})
+        if e.event_type == "order_validated":
+            bucket["validated"] += 1
+        else:
+            bucket["failed"] += 1
+
+    for st, bucket in totals.items():
+        total = bucket["validated"] + bucket["failed"]
+        bucket["total"] = total
+        bucket["rework_rate"] = round(bucket["failed"] / total, 3) if total else 0.0
+
+    if station:
+        return totals.get(station, {"validated": 0, "failed": 0, "total": 0, "rework_rate": 0.0})
+    return totals
+
+
+# ---------------------------------------------------------------------------
+# Baseline history seeding — "ships preloaded with enough history that
+# comparative behaviour works; restores in one command" (Issue #102 AC).
+#
+# Mirrors the Take-away implementation (take-away/src/core/mcp_service.py:
+# seed_history_if_empty) with the same idempotency/backdating strategy,
+# adapted to Dine-in's event schema (no run_number; image_id instead;
+# station names are table numbers).
+# ---------------------------------------------------------------------------
+
+# Deterministic synthetic outcomes for the "yesterday" baseline. Pattern is
+# intentionally mixed (~25% fail rate) so get_rework_rate has a meaningful
+# baseline to compare "today" against out of the box.
+_SEED_PATTERN = [
+    ("T1", "validated"),
+    ("T1", "validated"),
+    ("T1", "mismatch"),
+    ("T1", "validated"),
+    ("T2", "validated"),
+    ("T2", "mismatch"),
+    ("T2", "validated"),
+    ("T1", "validated"),
+    ("T2", "validated"),
+    ("T1", "mismatch"),
+]
+
+
+def seed_history_if_empty() -> int:
+    """Seed one day of synthetic baseline history if the log is empty.
+
+    Idempotent: uses fixed ``ref_id``s (``seed:{order_id}:{order_id}``), so
+    re-running (e.g. on every container restart) never duplicates events —
+    guarded first by the "log already has data" check below, and second by
+    the SDK's own idempotent-``append``-on-``ref_id`` behaviour even if that
+    first guard were ever bypassed. Timestamps are anchored to "yesterday"
+    relative to *now*, so the seeded data always serves as a valid
+    ``baseline_period="yesterday"`` comparison, however many days pass since
+    this file was written.
+    """
+    if not MCP_SERVICE_ENABLED:
+        return 0
+    existing = svc.log.read(limit=1)
+    if existing:
+        return 0
+
+    start_ms, _ = _day_bounds_ms("yesterday")
+    seeded = 0
+    for i, (station, status) in enumerate(_SEED_PATTERN):
+        order_id = f"seed-{i:03d}"
+        image_id = order_id
+        ts_offset_ms = i * 60_000  # spread across the seeded day
+        ref_id = f"seed:{order_id}:{image_id}"
+        payload = {
+            "order_id": order_id,
+            "station": station,
+            "image_id": image_id,
+            "accuracy_score": 1.0,
+        }
+        event_type = "order_validated"
+        if status == "mismatch":
+            event_type = "order_failed"
+            payload.update(
+                {
+                    "accuracy_score": 0.5,
+                    "missing_items": [{"name": "seed-item", "quantity": 1}],
+                    "extra_items": [],
+                    "quantity_mismatches": [],
+                    "reason": "missing:1",
+                }
+            )
+        event = svc.emit(event_type, payload, ref_id=ref_id)
+        # Backfill the timestamp to fall within "yesterday" (emit() stamps
+        # "now" by default; the log stores whatever ts_ms the envelope
+        # carries only when constructed with it, so re-append explicitly).
+        _backfill_seed_ts(ref_id, start_ms + ts_offset_ms)
+        seeded += 1
+    logger.info("[MCP] Seeded %d baseline history events for 'yesterday'", seeded)
+    return seeded
+
+
+def _backfill_seed_ts(ref_id: str, ts_ms: int) -> None:
+    """Best-effort: rewrite a just-appended seed event's ts_ms in-place.
+
+    SQLiteLog/JSONLFileLog only expose append/read/replay, so we go through
+    the underlying connection when available (sqlite) and otherwise accept
+    the emit-time timestamp (memory/jsonl backends used mainly for tests).
+    """
+    conn = getattr(svc.log, "_conn", None)
+    if conn is None:
+        return
+    try:
+        with conn:
+            conn.execute(
+                "UPDATE events SET ts_ms = ?, envelope = json_set(envelope, '$.ts_ms', ?) "
+                "WHERE ref_id = ?",
+                (ts_ms, ts_ms, ref_id),
+            )
+    except Exception as exc:  # pragma: no cover - defensive, non-fatal
+        logger.debug("[MCP] Could not backfill seed timestamp for %s: %s", ref_id, exc)
+
+
+if MCP_SERVICE_ENABLED:
+    seed_history_if_empty()

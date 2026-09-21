@@ -95,6 +95,87 @@ make up REGISTRY=false
 | Order Accuracy API | http://localhost:8083      | REST API endpoints            |
 | API Docs           | http://localhost:8083/docs | Swagger/OpenAPI documentation |
 | OVMS VLM           | http://localhost:8002      | VLM model server              |
+| MCP Server         | http://localhost:8011/mcp  | Agent-facing events, durable log, read tools (see below) |
+
+---
+
+## MCP Server (Events, Durable Log, Read Tools)
+
+Order Accuracy is agentic-ready: it is a **sensor** (detect/report only, no
+runtime actions) that exposes an [MCP](https://modelcontextprotocol.io)
+server over `mcp-service-sdk`, alongside a durable, restart-safe event log.
+
+**Events emitted** (one per completed plate validation, right after `/api/validate`
+or `/api/validate/batch` returns a result):
+
+| Event              | Trigger                                    | Payload                                                                 |
+| ------------------ | ------------------------------------------- | ------------------------------------------------------------------------ |
+| `order_validated`  | Order passes validation                    | `order_id`, `station`, `image_id`, `accuracy_score`                       |
+| `order_failed`     | Order fails validation (missing/extra/qty) | above, plus `missing_items`, `extra_items`, `quantity_mismatches`, `reason` |
+
+`station` is derived from the order's `table_number` (falls back to `"unknown"`
+if not present). Every event is appended to a durable SQLite log (`MCP_LOG_PATH`,
+default `/app/results/order_accuracy_events.db`) **before** any delivery is
+attempted, is idempotent on `ref_id` (`{order_id}:{image_id}`), and survives
+container restarts via the same `results/` volume already used for other
+results. The container ships with one day of seeded baseline history
+(tables `T1`/`T2`, ~25% fail rate) so comparative queries ("today vs.
+baseline") work immediately after `make up` — mirroring Take-Away's
+approach, seeded once on first run and never duplicated on restart.
+
+Only the real validation endpoints (`/api/validate`, `/api/validate/batch`)
+emit events. The separate benchmark/stream-density worker (`dinein-worker`)
+intentionally does not, since it does not represent real order traffic.
+
+**Read tools** (no action tools — Order Accuracy never acts):
+
+| Tool                 | Purpose                                                            |
+| --------------------- | -------------------------------------------------------------------- |
+| `get_rework_rate`     | Rework rate for a period (`today`/`yesterday`/`all`/date), vs. a baseline period |
+| `get_order_history`   | Order validation history, optionally filtered by station/order_id |
+| `get_station_totals`  | Per-station pass/fail totals and rework rate                        |
+| `describe`            | Self-description of event types, schemas and tools (SDK built-in)   |
+
+**Try it yourself** (from a clone, no code reading required):
+
+```bash
+pip install fastmcp
+python -c "
+import asyncio
+from fastmcp import Client
+
+async def main():
+    async with Client('http://localhost:8011/mcp') as client:
+        print([t.name for t in await client.list_tools()])
+        print(await client.call_tool('get_rework_rate', {'period': 'today'}))
+
+asyncio.run(main())
+"
+```
+
+Set `MCP_SERVICE_ENABLED=false` in `.env` to disable events and the MCP
+server entirely for clean benchmark runs. See `.env.example` for all
+`MCP_*` options (transport, host/port, log backend/path, optional webhook
+delivery URL).
+
+**Replaying a recorded day** (Issue #102 AC5 — "a recorded day replays
+identically from the log"): a small developer/validation script,
+`scripts/replay_log.py`, replays every event in the durable log in its
+original order. It is a read-only diagnostic workflow — **not** an MCP
+tool — since Order Accuracy's MCP surface is read/detect only:
+
+```bash
+make replay
+# or directly:
+docker exec -it dinein_app python3 scripts/replay_log.py
+docker exec -it dinein_app python3 scripts/replay_log.py --format json
+```
+
+Replay only reads the existing SQLite log (via the SDK's own
+`DurableLog.replay()`) and prints each event — it never calls `emit()`, so
+it cannot create duplicate events, and it has no effect on delivery or
+business logic. Running it twice against the same log always produces
+identical output.
 
 ---
 
