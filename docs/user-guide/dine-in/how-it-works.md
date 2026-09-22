@@ -11,9 +11,6 @@ This document provides a comprehensive technical overview of the system architec
 ### Request Flow
 
 ```mermaid
----
-config: {"theme": "dark"}
----
 sequenceDiagram
     actor Staff as Staff Trigger
     participant Gradio as Gradio UI
@@ -167,9 +164,6 @@ FastAPI endpoints with bounded validation cache.
 Prevents cascading failures when external services are unhealthy.
 
 ```mermaid
----
-config: {"theme": "dark"}
----
 flowchart LR
     CLOSED["CLOSED"]
     OPEN["OPEN"]
