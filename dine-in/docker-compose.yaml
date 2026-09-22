@@ -88,7 +88,13 @@ services:
     ports:
       - "7861:7860"  # Gradio UI
       - "8083:8080"  # FastAPI
-      - "8011:8011"  # MCP server (describe + read tools) — Issue #102
+      # MCP server (describe + read tools) — Issue #102. Bound to loopback
+      # by default: get_order_history/get_station_totals expose operational
+      # order data with no authentication, so this read-only surface must
+      # not be reachable from other hosts unless an operator explicitly
+      # opts in (e.g. behind an authenticating proxy). Set
+      # MCP_BIND_HOST=0.0.0.0 to publish it on all interfaces.
+      - "${MCP_BIND_HOST:-127.0.0.1}:8011:8011"
     volumes:
       - ./images:/app/images:ro
       - ./results:/app/results

@@ -640,6 +640,11 @@ async def validate_plate(
                 "quantity_mismatches": result.quantity_mismatches,
             })
         except Exception as e:
+            # emit_order_result()/_safe_emit() already dead-letters (never
+            # silently drops) any durable-log write failure internally; this
+            # try/except only guards against an unexpected error building the
+            # event itself, so the validation response is never broken by
+            # the MCP integration.
             logger.error(f"[MCP] Failed to emit order event for order_id={order_id}: {e}", exc_info=True)
         
         return validation_result
@@ -744,6 +749,9 @@ async def validate_batch(
                         "quantity_mismatches": result.quantity_mismatches,
                     })
                 except Exception as e:
+                    # See the comment on the equivalent try/except above:
+                    # emit_order_result() already dead-letters durable-log
+                    # write failures internally.
                     logger.error(f"[MCP] Failed to emit order event for image_id={image_id}: {e}", exc_info=True)
                 
             except Exception as e:

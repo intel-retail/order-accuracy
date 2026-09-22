@@ -462,6 +462,11 @@ async def _run_vlm_internal(order_id: str, station_id: str):
     # Emit the durable order_validated/order_failed MCP event for this
     # completed order (Issue #102). add_result() runs first so run_number is
     # already stamped on final_result, keeping the ref_id stable/idempotent.
+    # emit_order_result()/_safe_emit() already dead-letters (never silently
+    # drops) any durable-log write failure internally; this try/except only
+    # guards against an unexpected error building the event itself (e.g. a
+    # malformed result dict), so the validation response is never broken by
+    # the MCP integration.
     try:
         emit_order_result(final_result)
     except Exception as e:

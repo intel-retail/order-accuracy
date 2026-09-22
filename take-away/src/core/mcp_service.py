@@ -29,6 +29,7 @@ inline. See ``core/order_events.py`` for the full comparison/rationale.
 from __future__ import annotations
 
 import calendar
+import json
 import logging
 import os
 import sqlite3
@@ -60,12 +61,36 @@ RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 # can be answered from a single source of truth even when scaled across
 # multiple station containers sharing the same /results volume.
 MCP_LOG_BACKEND = os.getenv("MCP_LOG_BACKEND", "sqlite")  # sqlite | jsonl | memory
+
+# JSONLFileLog keeps its dedup ("_seen") set and sequence counter in
+# process-local memory with no inter-process lock around its append (see the
+# SDK's log.py). That is safe for one process, but Take-away supports
+# multi-station scaling (``docker compose up -d --scale order-accuracy=N``)
+# where several containers share this same log file/volume — under jsonl
+# that can silently produce duplicate ref_ids or colliding sequence numbers.
+# Default to refusing jsonl for that shared scenario and falling back to the
+# cross-process-safe sqlite backend; set MCP_ALLOW_UNSAFE_JSONL=true to force
+# jsonl anyway for single-instance/dev/test use.
+MCP_ALLOW_UNSAFE_JSONL = os.getenv("MCP_ALLOW_UNSAFE_JSONL", "false").lower() == "true"
+if MCP_LOG_BACKEND == "jsonl" and not MCP_ALLOW_UNSAFE_JSONL:
+    logger.warning(
+        "[MCP] MCP_LOG_BACKEND=jsonl is not safe for multi-container/shared "
+        "deployments (no inter-process lock around JSONLFileLog's append); "
+        "falling back to 'sqlite'. Set MCP_ALLOW_UNSAFE_JSONL=true to force "
+        "jsonl anyway (single-instance/dev/test only)."
+    )
+    MCP_LOG_BACKEND = "sqlite"
+
 MCP_LOG_PATH = os.getenv(
     "MCP_LOG_PATH",
     str(RESULTS_DIR / "order_accuracy_events.db")
     if MCP_LOG_BACKEND != "jsonl"
     else str(RESULTS_DIR / "order_accuracy_events.jsonl"),
 )
+if MCP_LOG_BACKEND == "sqlite" and MCP_LOG_PATH.endswith(".jsonl"):
+    # An explicit MCP_LOG_PATH=*.jsonl combined with the jsonl->sqlite
+    # fallback above would otherwise open a JSONL file through SQLiteLog.
+    MCP_LOG_PATH = str(RESULTS_DIR / "order_accuracy_events.db")
 
 # Delivery: off by default (safe / benchmark-clean). Set MCP_WEBHOOK_URL to
 # push events to an agent inbox / event hub callback.
@@ -192,22 +217,81 @@ def _seed_run_counters_from_durable_log() -> None:
         )
 
 
-def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
-    """``svc.emit()``, tolerant of a same-instant cross-process ``ref_id`` race.
+_DEAD_LETTER_PATH = RESULTS_DIR / "mcp_dead_letter.jsonl"
 
-    Multiple station containers can share one SQLite log file (see the
-    ``MCP_LOG_BACKEND`` note above). ``SQLiteLog.append()`` does
-    SELECT-then-INSERT; if two processes race on the exact same ``ref_id``,
-    the losing INSERT raises ``sqlite3.IntegrityError`` even though the event
-    IS durably recorded (by the winner) — that is the intended idempotent
-    outcome, not a lost event, so we look the row back up instead of letting
-    the exception propagate into the validation request.
 
-    Also fans the event out to the async webhook sink (if configured) on a
-    background thread, off the caller's critical path — see
-    ``_build_service``'s docstring for why delivery is not wired through
-    ``svc`` itself.
+def _write_dead_letter(event_type: str, payload: dict[str, Any], ref_id: str, error: BaseException) -> None:
+    """Best-effort fallback so a durable-log write failure never silently and
+    irrecoverably loses the event: append it (plus the error) to a local
+    recovery file instead of only logging it, so it can be reconciled/
+    replayed manually later.
     """
+    record = {
+        "ts_ms": int(time.time() * 1000),
+        "event_type": event_type,
+        "ref_id": ref_id,
+        "payload": payload,
+        "error": repr(error),
+    }
+    try:
+        with open(_DEAD_LETTER_PATH, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record) + "\n")
+    except Exception:
+        logger.critical(
+            "[MCP] Could not write dead-letter record for ref_id=%s either; "
+            "event is only visible in the application logs above.",
+            ref_id,
+            exc_info=True,
+        )
+
+
+def _find_existing_event(event_type: str, ref_id: str):
+    """Return the already-durably-recorded event for ``ref_id``, if any."""
+    for e in _read_entire_log():
+        if e.event_type == event_type and e.ref_id == ref_id:
+            return e
+    return None
+
+
+def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
+    """``svc.emit()``, made idempotent-safe end-to-end (not just at the log).
+
+    ``ServiceServer.emit()`` always builds a brand-new envelope and
+    unconditionally dispatches it to delivery, even when the durable log
+    treats ``ref_id`` as an existing row and silently no-ops the insert —
+    so a retry of the same validation would otherwise fire a second,
+    distinct webhook for an event already recorded. Checking for an
+    existing ``ref_id`` first and short-circuiting (no re-emit, no re-
+    dispatch) avoids that duplicate delivery.
+
+    Multiple station containers can also share one SQLite log file (see the
+    ``MCP_LOG_BACKEND`` note above). ``SQLiteLog.append()`` does
+    SELECT-then-INSERT; if two processes race on the exact same ``ref_id``
+    in the (small) window between our own existence check and our own
+    insert, the losing INSERT raises ``sqlite3.IntegrityError`` even though
+    the event IS durably recorded (by the winner) — that is the intended
+    idempotent outcome, not a lost event, so we look the row back up
+    instead of letting the exception propagate into the validation request.
+
+    Any other failure to durably log the event (disk full, locked file,
+    etc.) is never silently dropped: the event is appended to a local
+    dead-letter file for manual recovery before returning ``None``, so the
+    caller's existing "log and continue" handling still can't lose data.
+
+    Also fans a genuinely new event out to the async webhook sink (if
+    configured) on a background thread, off the caller's critical path —
+    see ``_build_service``'s docstring for why delivery is not wired
+    through ``svc`` itself.
+    """
+    existing = _find_existing_event(event_type, ref_id)
+    if existing is not None:
+        logger.info(
+            "[MCP] ref_id=%s already durably recorded; skipping duplicate "
+            "emit/dispatch",
+            ref_id,
+        )
+        return existing
+
     try:
         event = svc.emit(event_type, payload, ref_id=ref_id)
     except sqlite3.IntegrityError:
@@ -216,8 +300,18 @@ def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
             "treating as idempotent no-op",
             ref_id,
         )
-        existing = [e for e in svc.log.read(event_type=event_type, limit=100_000) if e.ref_id == ref_id]
-        return existing[0] if existing else None
+        return _find_existing_event(event_type, ref_id)
+    except Exception as exc:
+        _write_dead_letter(event_type, payload, ref_id, exc)
+        logger.error(
+            "[MCP] Failed to durably log ref_id=%s; wrote to dead-letter "
+            "log (%s) for manual recovery: %s",
+            ref_id,
+            _DEAD_LETTER_PATH,
+            exc,
+            exc_info=True,
+        )
+        return None
 
     if _ASYNC_WEBHOOK_DELIVERY is not None:
         threading.Thread(
@@ -279,11 +373,42 @@ def emit_order_result(result: dict[str, Any]):
 # order/validation history; per-station pass/fail totals")
 # ---------------------------------------------------------------------------
 
+_LOG_READ_PAGE = 5000
 
-def _all_events(station: Optional[str] = None, limit: int = 100_000):
-    events = []
-    for event_type in _EVENT_TYPES:
-        events.extend(svc.log.read(event_type=event_type, limit=limit))
+
+def _read_entire_log() -> list:
+    """Read the FULL durable log (all event types), oldest → newest.
+
+    ``DurableLog.read()`` takes a bounded ``limit`` and does not hand the
+    row's ``seq`` back to the caller (``EventEnvelope`` has no ``seq``
+    field), so a single fixed-size call — e.g. the previous
+    ``limit=100_000`` — silently truncates once the log grows past that
+    cap, and per-``event_type`` pagination can't reliably resume either
+    (matching rows can be sparse across a much larger scanned range).
+
+    Paging over the *unfiltered* log side-steps both problems: both
+    backends are strictly append-only with a gapless, contiguous ``seq``
+    (SQLiteLog's autoincrement PK; JSONLFileLog's local counter), so with no
+    ``event_type`` filter each page's length is exactly the number of seq
+    values consumed — advancing ``since_seq`` by ``len(page)`` is always
+    correct, with no risk of skipping or re-reading rows, regardless of how
+    large the log grows.
+    """
+    events: list = []
+    since_seq = 0
+    while True:
+        page = svc.log.read(since_seq=since_seq, limit=_LOG_READ_PAGE)
+        if not page:
+            break
+        events.extend(page)
+        since_seq += len(page)
+        if len(page) < _LOG_READ_PAGE:
+            break
+    return events
+
+
+def _all_events(station: Optional[str] = None):
+    events = [e for e in _read_entire_log() if e.event_type in _EVENT_TYPES]
     if station:
         events = [e for e in events if e.payload.get("station") == station]
     events.sort(key=lambda e: e.ts_ms)
@@ -379,7 +504,9 @@ def get_order_history(
     station: str | None = None,
     order_id: str | None = None,
 ) -> list[dict[str, Any]]:
-    events = _all_events(station=station, limit=max(limit, 1) * 10 or 100_000)
+    if limit < 0:
+        raise ValueError("limit must be >= 0 (0 means unlimited)")
+    events = _all_events(station=station)
     if order_id:
         events = [e for e in events if e.payload.get("order_id") == order_id]
     events = events[-limit:] if limit else events

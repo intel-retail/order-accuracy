@@ -113,10 +113,33 @@ def start_mcp_server():
             logger.info("[MCP] MCP_SERVICE_ENABLED=false, skipping MCP server startup")
             return None
 
-        thread = threading.Thread(
-            target=run_mcp_server, name="MCPServer", daemon=True
-        )
+        # thread.start() only proves the OS thread was scheduled, not that
+        # the MCP server itself came up: run_mcp_server() calls _build_app()
+        # (which can fail-closed, e.g. if the disallowed 'subscribe' tool
+        # can't be removed) BEFORE the blocking app.run(), so a startup
+        # failure kills the thread within a very short window. Capture that
+        # failure explicitly and give it a brief grace period, instead of
+        # unconditionally logging success right after start().
+        startup_error: list[BaseException] = []
+
+        def _run() -> None:
+            try:
+                run_mcp_server()
+            except BaseException as exc:  # noqa: BLE001 - must not vanish silently
+                startup_error.append(exc)
+                logger.error("[MCP] MCP server thread crashed: %s", exc, exc_info=True)
+
+        thread = threading.Thread(target=_run, name="MCPServer", daemon=True)
         thread.start()
+        thread.join(timeout=2.0)
+
+        if startup_error:
+            logger.error("[MCP] MCP server failed to start: %s", startup_error[0])
+            return None
+        if not thread.is_alive():
+            logger.warning("[MCP] MCP server thread exited unexpectedly during startup")
+            return None
+
         logger.info("[MCP] MCP server started in background thread")
         return thread
     except Exception as e:

@@ -183,7 +183,13 @@ services:
     # For access to specific station: docker port <container_name> 8000
     ports:
       - "8000:8000"  # Exposed for monitoring/API access
-      - "8010:8010"  # MCP server (describe + read tools)
+      # MCP server (describe + read tools). Bound to loopback by default:
+      # get_order_history/get_station_totals expose operational order data
+      # (order IDs, item discrepancies) with no authentication, so the
+      # read-only surface must not be reachable from other hosts unless an
+      # operator explicitly opts in (e.g. behind an authenticating proxy).
+      # Set MCP_BIND_HOST=0.0.0.0 to publish it on all interfaces.
+      - "${MCP_BIND_HOST:-127.0.0.1}:8010:8010"
     depends_on:
       minio:
         condition: service_healthy
