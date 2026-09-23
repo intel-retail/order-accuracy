@@ -272,7 +272,7 @@ make status                 # Check service status
 make logs                   # View logs
 make test-api               # Test API health
 make down                   # Stop services
-make clean                  # Stop and remove volumes
+make clean                  # Stop containers and remove volumes
 make benchmark              # Run fixed-workers benchmark
 make benchmark-stream-density  # Run stream density benchmark
 ```
