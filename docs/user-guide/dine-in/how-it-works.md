@@ -246,7 +246,7 @@ Every completed validation from `/api/validate` or `/api/validate/batch`
 emits an `order_validated` or `order_failed` event, which is durably logged
 **before** it is made available to any reader — this guarantees the log
 survives process restarts and that no event is lost. See the
-[Dine-In README](../../../dine-in/README.md#mcp-server-events-durable-log-read-tools)
+[Dine-In README](https://github.com/intel-retail/order-accuracy/blob/main/dine-in/README.md#mcp-server-events-durable-log-read-tools)
 for the full event schema, read-tool list, and a runnable client example.
 
 The separate benchmark/stream-density worker (`dinein-worker`) does not
