@@ -583,7 +583,7 @@ resource. An agent connects once and can call any of:
 There are **no action tools** — Order Accuracy only reports what it sees; it
 never accepts commands to change orders or system state via MCP.
 
-See the [Take-Away README](../../../take-away/README.md#mcp-server-events-durable-log-read-tools)
+See the [Take-Away README](https://github.com/intel-retail/order-accuracy/blob/main/take-away/README.md#mcp-server-events-durable-log-read-tools)
 for the full event schema and a runnable `fastmcp` client example.
 
 ---
