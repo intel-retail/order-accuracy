@@ -11,6 +11,7 @@ from .config_loader import load_config
 from .order_results import add_result
 from .validation_agent import validate_order
 from .vlm_backend_factory import VLMBackendFactory
+from .mcp_service import emit_order_result
 import json
 
 # Configure logging
@@ -457,6 +458,19 @@ async def _run_vlm_internal(order_id: str, station_id: str):
     logger.debug(f"[INTERNAL] Storing result in order_results deque")
     add_result(final_result, station_id=station_id)
     logger.info(f"[INTERNAL] Result stored successfully for order_id={order_id}")
+
+    # Emit the durable order_validated/order_failed MCP event for this
+    # completed order (Issue #102). add_result() runs first so run_number is
+    # already stamped on final_result, keeping the ref_id stable/idempotent.
+    # emit_order_result()/_safe_emit() already dead-letters (never silently
+    # drops) any durable-log write failure internally; this try/except only
+    # guards against an unexpected error building the event itself (e.g. a
+    # malformed result dict), so the validation response is never broken by
+    # the MCP integration.
+    try:
+        emit_order_result(final_result)
+    except Exception as e:
+        logger.error(f"[MCP] Failed to emit order event for order_id={order_id}: {e}", exc_info=True)
     
     logger.info(f"="*80)
     logger.info(f"[VLM-END] Transaction ID: {unique_id} - Status: {final_result['status']}")

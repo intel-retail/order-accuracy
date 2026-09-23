@@ -160,6 +160,17 @@ services:
       
       # RabbitMQ disabled for simplicity (direct HTTP calls used)
       USE_RABBITMQ: ${USE_RABBITMQ:-false}
+
+      # MCP server (events, durable log, read tools) - Issue #102.
+      # Single flag to turn events + MCP server off for clean benchmark runs.
+      MCP_SERVICE_ENABLED: ${MCP_SERVICE_ENABLED:-true}
+      MCP_TRANSPORT: ${MCP_TRANSPORT:-streamable-http}
+      MCP_HOST: ${MCP_HOST:-0.0.0.0}
+      MCP_PORT: ${MCP_PORT:-8010}
+      MCP_LOG_BACKEND: ${MCP_LOG_BACKEND:-sqlite}
+      MCP_LOG_PATH: ${MCP_LOG_PATH:-/results/order_accuracy_events.db}
+      MCP_WEBHOOK_URL: ${MCP_WEBHOOK_URL:-}
+      STORE_ID: ${STORE_ID:-store-001}
       
       # Fix for DLStreamer gvapython Python symbol conflicts
       LD_PRELOAD: /lib/x86_64-linux-gnu/libpython3.10.so.1.0
@@ -172,6 +183,13 @@ services:
     # For access to specific station: docker port <container_name> 8000
     ports:
       - "8000:8000"  # Exposed for monitoring/API access
+      # MCP server (describe + read tools). Bound to loopback by default:
+      # get_order_history/get_station_totals expose operational order data
+      # (order IDs, item discrepancies) with no authentication, so the
+      # read-only surface must not be reachable from other hosts unless an
+      # operator explicitly opts in (e.g. behind an authenticating proxy).
+      # Set MCP_BIND_HOST=0.0.0.0 to publish it on all interfaces.
+      - "${MCP_BIND_HOST:-127.0.0.1}:8010:8010"
     depends_on:
       minio:
         condition: service_healthy

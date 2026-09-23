@@ -8,3 +8,10 @@ httpx[http2]>=0.25.0
 aiofiles>=23.0.0
 psutil>=5.9.0
 git+https://github.com/intel-retail/performance-tools.git@main#subdirectory=benchmark-scripts
+
+# mcp-service-sdk: shared event envelope / durable log / MCP scaffolding
+# (Issue #102: events, log, MCP server). Pinned to the SDK author's own
+# specific commit (not the moving 'mcp' branch head) for reproducible builds.
+# fastmcp is the MCP server backend used by ServiceServer.to_mcp()/run().
+git+https://github.com/sachinkaushik/edge-ai-libraries.git@12c3bdb5989fe1347e985c8b859baef940c206f4#subdirectory=libraries/mcp-service-sdk
+fastmcp>=2.0.0

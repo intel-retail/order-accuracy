@@ -113,7 +113,7 @@ NC := \033[0m  # No Color
 
 .PHONY: help build up down logs restart benchmark benchmark-results benchmark-metrics \
         benchmark-stream-density benchmark-density benchmark-density-results clean \
-        shell test-api benchmark-test benchmark-single check-device \
+        shell test-api benchmark-test benchmark-single check-device replay \
         worker worker-start worker-stop worker-logs worker-results \
         update-submodules fetch-benchmark build-benchmark init-env \
         consolidate-metrics plot-metrics clean-images clean-containers clean-all
@@ -179,6 +179,7 @@ help:
 	@echo "$(YELLOW)Development:$(NC)"
 	@echo "  make shell                    - Open shell in dine-in container"
 	@echo "  make test-api                 - Test API health endpoint"
+	@echo "  make replay                   - Replay the MCP event log in original order (read-only, dev/validation)"
 	@echo ""
 
 benchmark-density-help:
@@ -660,3 +661,7 @@ shell:
 test-api:
 	@echo "Testing API health..."
 	@curl -s http://localhost:8083/health | jq
+
+replay: ## Replay the durable MCP event log in original order (read-only, dev/validation workflow — Issue #102)
+	@echo "Replaying Order Accuracy event log (read-only, no side effects)..."
+	docker exec -it dinein_app python3 scripts/replay_log.py

@@ -35,6 +35,12 @@ WORKDIR /app
 # Copy requirements first for better caching
 COPY requirements.txt .
 
+# Remove the apt-provided python3-jwt: it has no pip RECORD metadata, so pip
+# cannot uninstall/upgrade it when the mcp-service-sdk/fastmcp dependency
+# chain (via the mcp package) requires a newer PyJWT, causing the install to
+# fail with "Cannot uninstall PyJWT ... no RECORD file was found".
+RUN apt-get remove -y --purge python3-jwt 2>/dev/null || true
+
 RUN python3 -m pip install  --break-system-packages --ignore-installed --upgrade pip setuptools wheel && \
     pip3 install  --break-system-packages --no-cache-dir -r requirements.txt
 
@@ -49,7 +55,8 @@ COPY src/core/ /app/core/
 COPY src/api/ /app/api/
 COPY src/parallel/ /app/parallel/
 COPY config/ /app/config/
-COPY src/main.py src/frame_pipeline.py config_loader.py /app/
+COPY src/main.py src/frame_pipeline.py src/mcp_server.py config_loader.py /app/
+COPY scripts/replay_log.py /app/scripts/replay_log.py
 
 # Make main.py executable
 RUN chmod +x /app/main.py
@@ -77,7 +84,7 @@ ENV API_PORT=8000
 # -------------------------------
 # Expose ports
 # -------------------------------
-EXPOSE 8000
+EXPOSE 8000 8010
 
 # -------------------------------
 # Health check

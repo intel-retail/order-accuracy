@@ -47,6 +47,19 @@ sequenceDiagram
 
 ![Network Topology](./_assets/OA-DI-network-topology.svg "dine-in network topology")
 
+Host-exposed endpoints:
+
+```text
+localhost:7861      ← Gradio UI
+localhost:8083      ← REST API
+localhost:8083/docs ← Swagger Docs
+localhost:8002      ← OVMS VLM
+localhost:8084      ← Metrics API
+localhost:8011/mcp  ← MCP Server (events, read tools)
+```
+
+---
+
 ## Component Details
 
 ### 1. VLM Client (`vlm_client.py`)
@@ -206,6 +219,46 @@ class BoundedValidationCache:
             while len(self._cache) > self._maxsize:
                 self._cache.popitem(last=False)
 ```
+
+---
+
+## MCP Server & Event Log (Agent Interface)
+
+Order Accuracy is a **sensor**, not an actor: it detects and reports order
+outcomes but never takes runtime actions. This is exposed to agents/other
+services through an [MCP](https://modelcontextprotocol.io) server built on
+`mcp-service-sdk`, separate from the REST API used by the Gradio UI.
+
+```text
+Order Result (api.py)
+        │
+        ▼
+create_order_event()  (src/services/order_events.py)
+        │
+        ▼
+emit_order_result()    (src/mcp_service.py)
+        │
+        ▼
+Durable SQLite Event Log  (results/order_accuracy_events.db)
+        │
+        ▼
+MCP Server  (src/mcp_server.py, port 8011, path /mcp)
+        │
+        ▼
+MCP Client / Agent  (read tools only, no action tools)
+```
+
+Every completed validation from `/api/validate` or `/api/validate/batch`
+emits an `order_validated` or `order_failed` event, which is durably logged
+**before** it is made available to any reader — this guarantees the log
+survives process restarts and that no event is lost. See the
+[Dine-In README](../../../dine-in/README.md#mcp-server-events-durable-log-read-tools)
+for the full event schema, read-tool list, and a runnable client example.
+
+The separate benchmark/stream-density worker (`dinein-worker`) does not
+participate in this flow — only real validation traffic emits events.
+
+---
 
 ## Performance Characteristics
 

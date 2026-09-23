@@ -88,6 +88,13 @@ services:
     ports:
       - "7861:7860"  # Gradio UI
       - "8083:8080"  # FastAPI
+      # MCP server (describe + read tools) — Issue #102. Bound to loopback
+      # by default: get_order_history/get_station_totals expose operational
+      # order data with no authentication, so this read-only surface must
+      # not be reachable from other hosts unless an operator explicitly
+      # opts in (e.g. behind an authenticating proxy). Set
+      # MCP_BIND_HOST=0.0.0.0 to publish it on all interfaces.
+      - "${MCP_BIND_HOST:-127.0.0.1}:8011:8011"
     volumes:
       - ./images:/app/images:ro
       - ./results:/app/results
@@ -107,6 +114,15 @@ services:
       - USECASE_1=dine-in-order-accuracy
       - NO_PROXY=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
       - no_proxy=localhost,127.0.0.1,ovms-vlm,semantic-service,metrics-collector,host.docker.internal,172.17.0.1
+      # MCP Service / Events (Issue #102) — read-only sensor, no action tools.
+      - MCP_SERVICE_ENABLED=${MCP_SERVICE_ENABLED:-true}
+      - MCP_TRANSPORT=${MCP_TRANSPORT:-streamable-http}
+      - MCP_HOST=${MCP_HOST:-0.0.0.0}
+      - MCP_PORT=${MCP_PORT:-8011}
+      - MCP_LOG_BACKEND=${MCP_LOG_BACKEND:-sqlite}
+      - MCP_LOG_PATH=${MCP_LOG_PATH:-/app/results/order_accuracy_events.db}
+      - MCP_WEBHOOK_URL=${MCP_WEBHOOK_URL:-}
+      - STORE_ID=${STORE_ID:-store-001}
     depends_on:
       ovms-vlm:
         condition: service_healthy

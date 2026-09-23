@@ -18,6 +18,13 @@ RUN rm -f /etc/apt/sources.list.d/intel-gpu*.list 2>/dev/null; \
 # Copy requirements first for better layer caching
 COPY requirements.txt .
 
+# Remove the apt-provided python3-jwt: it has no pip RECORD metadata, so pip
+# cannot uninstall/upgrade it when the mcp-service-sdk/fastmcp dependency
+# chain (via the mcp package) requires a newer PyJWT, causing the install to
+# fail with "Cannot uninstall PyJWT ... no RECORD file was found". Same fix
+# as take-away/Dockerfile (both share the intel/dlstreamer base image).
+RUN apt-get remove -y --purge python3-jwt 2>/dev/null || true
+
 # Install Python dependencies
 RUN python3 -m pip install --break-system-packages --ignore-installed --no-cache-dir --upgrade pip setuptools wheel && \
     pip3 install --break-system-packages --no-cache-dir -r requirements.txt
@@ -25,6 +32,7 @@ RUN python3 -m pip install --break-system-packages --ignore-installed --no-cache
 # Copy application files from src
 COPY src/ ./src/
 COPY configs/ ./configs/
+COPY scripts/ ./scripts/
 
 # Create results directory and set permissions (dlstreamer is UID 1000 in base image)
 RUN mkdir -p /app/results && chown -R dlstreamer:dlstreamer /app
@@ -35,6 +43,8 @@ RUN chmod +x /app/entrypoint.sh
 # Expose ports
 EXPOSE 7860
 EXPOSE 8080
+# MCP server (describe + read tools) — Issue #102
+EXPOSE 8011
 
 # Entrypoint fixes permissions and drops to appuser
 ENTRYPOINT ["/app/entrypoint.sh"]

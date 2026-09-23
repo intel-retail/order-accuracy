@@ -93,9 +93,86 @@ make up REGISTRY=false
 | ------------------ | --------------------- | ---------------------------- |
 | Gradio UI          | http://localhost:7860 | Interactive order validation |
 | Order Accuracy API | http://localhost:8000 | REST API endpoints           |
+| MCP Server         | http://localhost:8010/mcp | Agent-facing events, durable log, read tools (see below) |
 | MinIO Console      | http://localhost:9001 | Frame storage management     |
 | OVMS VLM           | http://localhost:8001 | VLM model server             |
 | Semantic Service   | http://localhost:8080 | Semantic matching API        |
+
+---
+
+## MCP Server (Events, Durable Log, Read Tools)
+
+Order Accuracy is agentic-ready: it is a **sensor** (detect/report only, no
+runtime actions) that exposes an [MCP](https://modelcontextprotocol.io)
+server over `mcp-service-sdk`, alongside a durable, restart-safe event log.
+
+**Events emitted** (one per completed order, right after validation):
+
+| Event             | Trigger                                   | Payload                                                                                     |
+| ------------------ | ------------------------------------------ | --------------------------------------------------------------------------------------------- |
+| `order_validated` | Order passes validation                   | `order_id`, `station`, `run_number`, `num_frames`, `inference_time_sec`                       |
+| `order_failed`     | Order fails validation (missing/extra/qty) | above, plus `missing_items`, `extra_items`, `quantity_mismatch`, `reason`                      |
+
+Every event is appended to a durable SQLite log (`MCP_LOG_PATH`, default
+`/results/order_accuracy_events.db`) **before** any delivery is attempted, is
+idempotent on `ref_id` (`{station}:{order_id}:{run_number}`), and survives
+container restarts via the same `/results` volume already used for other
+results. The container ships with one day of seeded baseline history so
+comparative queries ("today vs. baseline") work immediately after `make up`
+— this seeding is a demo/UX convenience that satisfies Issue #102 AC4
+("ships preloaded with enough history that comparative behaviour works").
+The Dine-In application ships the equivalent seeding, adapted to its own
+event schema (see the [Dine-In README](../dine-in/README.md#mcp-server-events-durable-log-read-tools)).
+
+**Read tools** (no action tools — Order Accuracy never acts):
+
+| Tool                 | Purpose                                                        |
+| --------------------- | --------------------------------------------------------------- |
+| `get_rework_rate`     | Rework rate for a period (`today`/`yesterday`/`all`/date), vs. a baseline period |
+| `get_order_history`   | Order validation history, optionally filtered by station/order_id |
+| `get_station_totals`  | Per-station pass/fail totals and rework rate                   |
+| `describe`            | Self-description of event types, schemas and tools (SDK built-in) |
+
+**Try it yourself** (from a clone, no code reading required):
+
+```bash
+pip install fastmcp
+python -c "
+import asyncio
+from fastmcp import Client
+
+async def main():
+    async with Client('http://localhost:8010/mcp') as client:
+        print([t.name for t in await client.list_tools()])
+        print(await client.call_tool('get_rework_rate', {'period': 'today'}))
+
+asyncio.run(main())
+"
+```
+
+Set `MCP_SERVICE_ENABLED=false` in `.env` to disable events and the MCP
+server entirely for clean benchmark runs. See `.env.example` for all
+`MCP_*` options (transport, host/port, log backend/path, optional webhook
+delivery URL).
+
+**Replaying a recorded day** (Issue #102 AC5 — "a recorded day replays
+identically from the log"): a small developer/validation script,
+`scripts/replay_log.py`, replays every event in the durable log in its
+original order. It is a read-only diagnostic workflow — **not** an MCP
+tool — since Order Accuracy's MCP surface is read/detect only:
+
+```bash
+make replay
+# or directly:
+docker exec -it oa_service python3 scripts/replay_log.py
+docker exec -it oa_service python3 scripts/replay_log.py --format json
+```
+
+Replay only reads the existing SQLite log (via the SDK's own
+`DurableLog.replay()`) and prints each event — it never calls `emit()`, so
+it cannot create duplicate events, and it has no effect on delivery or
+business logic. Running it twice against the same log always produces
+identical output.
 
 ---
 

@@ -6,7 +6,7 @@
 # =============================================================================
 
 .PHONY: help build up down logs restart status clean benchmark benchmark-quick benchmark-results \
-		logs-vlm logs-gradio logs-frame-selector shell test-api ps exec dev-build \
+		logs-vlm logs-gradio logs-frame-selector shell test-api ps exec dev-build replay \
 		check-env check-device show-config init-env benchmark-oa benchmark-stream-density \
 		benchmark-oa-metrics benchmark-oa-results benchmark-oa-help \
 		update-submodules fetch-benchmark build-benchmark \
@@ -326,6 +326,7 @@ help:
 	@echo "  make shell                    - Open shell in order-accuracy container"
 	@echo "  make test-api                 - Test API health endpoints"
 	@echo "  make dev-build                - Build and restart services"
+	@echo "  make replay                   - Replay the MCP event log in original order (read-only, dev/validation)"
 	@echo ""
 	@echo "$(YELLOW)Current Configuration:$(NC)"
 	@echo "  SERVICE_MODE=$(SERVICE_MODE)   VLM_BACKEND=$(VLM_BACKEND)"
@@ -668,6 +669,15 @@ test-api:
 
 dev-build: build restart
 	@echo "✓ Development build complete"
+
+replay: ## Replay the durable MCP event log in original order (read-only, dev/validation workflow — Issue #102)
+	@echo "Replaying Order Accuracy event log (read-only, no side effects)..."
+	@# /scripts (not /app/scripts) — the compose dev bind mount "./src:/app:ro"
+	@# overlays the whole /app directory, which would hide a script copied
+	@# under /app/scripts; the Dockerfile also copies scripts/ to /scripts,
+	@# which the mount does not touch, so that path works in both the
+	@# default (mounted) dev setup and a plain `docker run` of the image.
+	docker exec -it oa_service python3 /scripts/replay_log.py
 
 # =============================================================================
 # Cleanup

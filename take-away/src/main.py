@@ -99,12 +99,63 @@ def start_rabbitmq_consumer():
         return None
 
 
+def start_mcp_server():
+    """Start the MCP server (describe + read tools) in a background thread.
+
+    Order Accuracy is a sensor: no action tools are exposed. Disabled
+    entirely when MCP_SERVICE_ENABLED=false (clean benchmark runs).
+    """
+    try:
+        from mcp_server import run_mcp_server
+        from core.mcp_service import MCP_SERVICE_ENABLED
+
+        if not MCP_SERVICE_ENABLED:
+            logger.info("[MCP] MCP_SERVICE_ENABLED=false, skipping MCP server startup")
+            return None
+
+        # thread.start() only proves the OS thread was scheduled, not that
+        # the MCP server itself came up: run_mcp_server() calls _build_app()
+        # (which can fail-closed, e.g. if the disallowed 'subscribe' tool
+        # can't be removed) BEFORE the blocking app.run(), so a startup
+        # failure kills the thread within a very short window. Capture that
+        # failure explicitly and give it a brief grace period, instead of
+        # unconditionally logging success right after start().
+        startup_error: list[BaseException] = []
+
+        def _run() -> None:
+            try:
+                run_mcp_server()
+            except BaseException as exc:  # noqa: BLE001 - must not vanish silently
+                startup_error.append(exc)
+                logger.error("[MCP] MCP server thread crashed: %s", exc, exc_info=True)
+
+        thread = threading.Thread(target=_run, name="MCPServer", daemon=True)
+        thread.start()
+        thread.join(timeout=2.0)
+
+        if startup_error:
+            logger.error("[MCP] MCP server failed to start: %s", startup_error[0])
+            return None
+        if not thread.is_alive():
+            logger.warning("[MCP] MCP server thread exited unexpectedly during startup")
+            return None
+
+        logger.info("[MCP] MCP server started in background thread")
+        return thread
+    except Exception as e:
+        logger.error(f"[MCP] Failed to start MCP server: {e}", exc_info=True)
+        return None
+
+
 def run_single_mode():
     """Run in single-worker mode with FastAPI"""
     logger.info("Starting Single Worker Mode with FastAPI API")
     
     # Start RabbitMQ consumer in background
     consumer = start_rabbitmq_consumer()
+
+    # Start the MCP server (events/read-tools) in background
+    start_mcp_server()
     
     from api import create_app
     import uvicorn
@@ -125,6 +176,9 @@ def run_parallel_mode():
     
     # Start RabbitMQ consumer in background (for frame-selector communication)
     consumer = start_rabbitmq_consumer()
+
+    # Start the MCP server (events/read-tools) in background
+    start_mcp_server()
     
     from parallel import StationManager, VLMScheduler, MetricsCollector, MetricsStore, QueueManager
     from parallel.shared_queue import QueueBackend

@@ -31,6 +31,12 @@ The platform provides two specialized applications optimized for different resta
 | **Typical Use**      | Table service       | Drive-through, counter |
 | **Processing**       | Single request      | Batch processing       |
 
+Both applications also expose a read-only [MCP](https://modelcontextprotocol.io)
+server (durable event log + agent-facing read tools, no runtime actions) —
+see each application's README for details:
+[Dine-In MCP](./dine-in/README.md#mcp-server-events-durable-log-read-tools) |
+[Take-Away MCP](./take-away/README.md#mcp-server-events-durable-log-read-tools).
+
 ---
 
 ### Dine-In Order Accuracy
