@@ -329,7 +329,10 @@ response = requests.post(
      - Generate validation result
 
 5. **Result Output**:
-   - { "matched": [...], "missing": [...], "extra": [...] }
+
+   ```text
+   { "matched": [...], "missing": [...], "extra": [...] }
+   ```
 
 ### State Transitions
 
@@ -363,7 +366,7 @@ flowchart LR
 
 The pipeline is built in `src/parallel/station_worker.py` using DL Streamer's `gvapython` plugin for per-frame processing:
 
-```
+```text
 rtspsrc location=<url> latency=0 buffer-mode=0 protocols=tcp ntp-sync=false do-rtcp=false retry=5
 ! rtph264depay
 ! avdec_h264
@@ -612,13 +615,15 @@ for the full event schema, read-tool list, and a runnable client example.
 
 ```mermaid
 flowchart LR
-    CLOSED["CLOSED (Normal)"]
-    OPEN["OPEN (Blocking)"]
-    HALFOPEN["HALF-OPEN (Testing)"]
+  CLOSED["CLOSED<br/>(Pipeline operating)"]
+  OPEN["OPEN<br/>(Circuit tripped)"]
+  RETRY["Retry check<br/>(Cooldown elapsed)"]
 
-    CLOSED -- "5 failures" --> OPEN
-    OPEN -- "30s elapsed" --> HALFOPEN
-    HALFOPEN -- "success" --> CLOSED
+  CLOSED -- "5 failures<br/>within failure window" --> OPEN
+
+  OPEN -- "10s cooldown elapsed" --> RETRY
+  RETRY -- "RTSP probe succeeds<br/>reset breaker and restart pipeline" --> CLOSED
+  RETRY -- "RTSP probe fails<br/>reset cooldown timer" --> OPEN
 ```
 
 **Configuration:**
