@@ -11,7 +11,8 @@
   - [Intel GPU drivers](https://dgpu-docs.intel.com/driver/client/overview.html)
 - Sufficient disk space for models, videos, and results (50GB minimum)
 
-> **Note:** First-time setup downloads AI models (~7GB) and Docker images - this may take 30-60 minutes depending on your internet connection.
+> [!NOTE]
+> First-time setup downloads AI models (~7GB) and Docker images - this may take 30-60 minutes depending on your internet connection.
 
 ## Choose Your Application
 
@@ -125,7 +126,8 @@
 
    This downloads the VLM and EasyOCR models. This only needs to be done once.
 
-   > **Note:** Re-run this step any time you change `TARGET_DEVICE` in `.env`.
+   > [!NOTE]
+   > Re-run this step any time you change `TARGET_DEVICE` in `.env`.
 
 4. **Build and Start Services**
 
@@ -231,7 +233,8 @@ make clean
 | **Build Locally** | `make build REGISTRY=false`  | Build images from source                   |
 | **View Logs**     | `make logs`                  | View service logs                          |
 
-> **Note:** **Single Mode** is best for development and testing. **Parallel Mode** is recommended for production with multiple camera stations.
+> [!NOTE]
+> **Single Mode** is best for development and testing. **Parallel Mode** is recommended for production with multiple camera stations.
 
 <!--hide_directive:::
 ::::hide_directive-->

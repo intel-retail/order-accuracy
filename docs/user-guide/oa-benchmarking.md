@@ -6,7 +6,9 @@ Test your Order Accuracy pipeline performance on various hardware configurations
 
 **Goal**: Run a basic performance test to verify your system works correctly
 
-> **Note — Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
+> [!NOTE]
+>
+> **Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
 >
 > 1. Set **both** variables in your `.env` file:
 >
@@ -63,7 +65,8 @@ make benchmark
 :::{tab-item}hide_directive--> **Take-Away**
 <!--hide_directive:sync: take-away hide_directive-->
 
-> **Important:** Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
+> [!IMPORTANT]
+> Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
 >
 > ```bash
 > make download-sample-video

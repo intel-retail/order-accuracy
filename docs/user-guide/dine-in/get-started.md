@@ -16,7 +16,7 @@ This guide walks you through installation, configuration, and first run of the D
 - 16 GB RAM minimum (64 GB recommended for production)
 - 50 GB free disk space
 
-> **Notes:**
+> [!NOTE]
 > **KV Cache on iGPU / low-RAM systems:** 16 GB RAM is sufficient for **inference**.
 > For first-time model export, a higher-memory host (48–64 GB) is recommended.
 > On iGPU platforms, the KV cache is allocated from **system RAM** — set `export CACHE_SIZE=2`
@@ -58,7 +58,8 @@ cd ../ovms-service
 cd ../dine-in
 ```
 
-> **Note:** Only needed once. Model files are shared between Dine-In and Take-Away.
+> [!NOTE]
+> This step is only needed once. Model files are shared between Dine-In and Take-Away.
 
 This downloads MiniCPM-V-4.5 and converts it to OpenVINO™ INT4 format. This is only needed once — the model files are shared with Take-Away.
 

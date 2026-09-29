@@ -32,6 +32,7 @@ instead of dedicated VRAM; in such a case, use a smaller value (e.g. `CACHE_SIZE
 exhausting system RAM. Set `export CACHE_SIZE=<N>` before running `setup_models.sh`. For a
 full per-platform sizing table and step-by-step instructions see [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/main/ovms-service/README.md#tuning-the-kv-cache-size).
 
+> [!NOTE]
 > **Model Export RAM Note:** 16 GB system RAM is sufficient for **inference-only**
 > deployments. For first-time model export (`setup_models.sh` INT8 quantization), a
 > higher-memory host (48–64 GB recommended) avoids potential OOM and corrupt IR files — export

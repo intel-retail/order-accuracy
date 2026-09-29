@@ -2,7 +2,9 @@
 
 This guide covers performance testing, stream density benchmarking, and metrics collection for the Take-Away Order Accuracy system.
 
-> **Note — Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
+> [!NOTE]
+>
+> **Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
 >
 > 1. Set **both** variables in your `.env` file:
 >
@@ -56,12 +58,14 @@ make update-submodules
 make up
 ```
 
-> **Important:** Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
+> [!IMPORTANT]
+> Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
 >
 > ```bash
 > make download-sample-video
 > ```
 
+> [!CAUTION]
 > **Order manifests:** The benchmark validates the orders detected in the video
 > against `config/orders.json`. Order IDs must match the order numbers shown in
 > the video, and each order's expected items must match what is actually visible.

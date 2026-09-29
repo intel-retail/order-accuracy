@@ -46,7 +46,8 @@ cd take-away && make build REGISTRY=false && make up
 - Air-gapped environments without internet access
 - Custom hardware optimizations
 
-> **Note:** Local building takes significantly longer (15-30 minutes) compared to pre-built images (2-5 minutes).
+> [!NOTE]
+> Local building takes significantly longer (15-30 minutes) compared to pre-built images (2-5 minutes).
 
 ---
 

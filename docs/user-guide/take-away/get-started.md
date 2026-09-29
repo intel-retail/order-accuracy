@@ -24,11 +24,12 @@ For detailed hardware and software requirements, see the [System Requirements](.
 | GPU       | Intel Arc A770 (8GB) | Intel Arc            |
 | Storage   | 50GB SSD             | 200GB NVMe           |
 
-> **Note:** **RAM note** 16 GB system RAM is sufficient for **inference**. For first-time model
+> [!NOTE]
+> **RAM note** 16 GB system RAM is sufficient for **inference**. For first-time model
 > export (`setup_models.sh`), a higher-memory host (48–64 GB recommended) avoids potential OOM
 > — export there and copy `ovms-service/models/` to the target system. 64 GB+ is recommended
 > for production or multi-station deployments.
-
+>
 > **KV Cache on iGPU / low-RAM systems:** On iGPU platforms the KV cache is allocated from
 > **system RAM**. Set `export CACHE_SIZE=2` before running `setup_models.sh` to reduce KV cache
 > to 2 GB (default is 4 GB). See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/main/ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
@@ -86,7 +87,8 @@ This downloads and exports:
 - YOLOv11 model (INT8 OpenVINO™)
 - EasyOCR detection and recognition models
 
-> **Note:** Re-run this step any time you change `TARGET_DEVICE` in `.env`.
+> [!NOTE]
+> Re-run this step any time you change `TARGET_DEVICE` in `.env`.
 
 ### Step 4: Build and Start
 
@@ -143,13 +145,16 @@ MINIO_ROOT_PASSWORD=<your-minio-password>
 MINIO_ENDPOINT=minio:9000
 ```
 
+> [!NOTE]
 > **Changing the inference device:** Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU` or `CPU`), then re-run `./setup_models.sh --app take-away` to re-export the model for that device.
 
+> [!NOTE]
 > **`VLM_ENABLE_THINKING`:** MiniCPM-V-4.5 is a hybrid reasoning model. Leave this
 > `false`. When enabled, the model spends the whole token budget on a `<think>`
 > reasoning block and the detected-item list is truncated, which shows up as
 > missing items and ~4x higher latency.
 
+> [!NOTE]
 > **`VLM_IMAGE_MAX_SIZE`:** Each selected frame is fitted into a square canvas of
 > this size (aspect ratio preserved, white padding), matching the dine-in
 > pipeline. Larger values increase detail but also prompt tokens and latency.
@@ -181,6 +186,7 @@ make up-parallel WORKERS=4
 
 To feed a looping video as a live RTSP stream:
 
+> [!NOTE]
 > **Prerequisite:** Place a test video at `storage/videos/test.mp4` first, or run `make download-sample-video`.
 
 ```bash
@@ -253,6 +259,7 @@ curl http://localhost:8000/results/test_001
 
 ### Via Make Target
 
+> [!NOTE]
 > **Prerequisite:** Ensure `storage/videos/test.mp4` exists. Run `make download-sample-video` if needed.
 
 ```bash

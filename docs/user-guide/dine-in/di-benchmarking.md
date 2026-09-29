@@ -2,7 +2,9 @@
 
 This guide covers performance testing, stream density benchmarking, and metrics collection for the Dine-In Order Accuracy system.
 
-> **Note — Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
+> [!NOTE]
+>
+> **Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
 >
 > 1. Set **both** variables in your `.env` file:
 >
@@ -29,7 +31,8 @@ make update-submodules
 make up
 ```
 
-> **Important:** The `images/` folder does not contain sample images. Add your own before testing:
+> [!IMPORTANT]
+> The `images/` folder does not contain sample images. Add your own before testing:
 >
 > 1. Place plate images in `images/` (`.jpg`, `.jpeg`, or `.png`)
 > 2. Edit `configs/orders.json` — add entries with `image_id` matching your filenames
@@ -49,7 +52,8 @@ make benchmark-single IMAGE_ID=MCD-1001
 make benchmark
 ```
 
-> **Note:** `make benchmark` uses Docker profiles to start worker containers. Both the `dine-in` app and `dinein-worker` services use the **same Docker image** (built from the same Dockerfile). The worker is simply the same container running `worker.py` instead of the UI.
+> [!NOTE]
+> `make benchmark` uses Docker profiles to start worker containers. Both the `dine-in` app and `dinein-worker` services use the **same Docker image** (built from the same Dockerfile). The worker is simply the same container running `worker.py` instead of the UI.
 
 **Variables:**
 
@@ -71,7 +75,8 @@ make benchmark-stream-density
 make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=20000 BENCHMARK_INIT_DURATION=30
 ```
 
-> **Note:** `make benchmark-stream-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
+> [!NOTE]
+> `make benchmark-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
 
 ## Metrics Processing
 
