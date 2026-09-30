@@ -2,7 +2,7 @@
 
 This guide covers performance testing, stream density benchmarking, and metrics collection for the Dine-In Order Accuracy system.
 
-> [!NOTE]
+> [!IMPORTANT]
 >
 > **Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
 >
