@@ -6,7 +6,7 @@ Test your Order Accuracy pipeline performance on various hardware configurations
 
 **Goal**: Run a basic performance test to verify your system works correctly
 
-> [!NOTE]
+> [!IMPORTANT]
 >
 > **Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
 >
@@ -99,12 +99,6 @@ make benchmark
 > (for example a trailing comma) makes every order fail and the benchmark reports
 > zero transactions.
 
-## Benchmark Commands
-
-### Fixed Workers Benchmark
-
-Runs `benchmark_order_accuracy.py` with a fixed number of concurrent workers.
-
 ```bash
 cd take-away
 # Default run
@@ -113,13 +107,6 @@ make benchmark
 
 <!--hide_directive:::
 ::::hide_directive-->
-
-**What this does:**
-
-- Tests GPU/CPU performance for order validation
-- Measures end-to-end latency
-- Generates performance metrics
-- Outputs results to `results/` directory
 
 ## Understanding Benchmark Types
 
@@ -187,7 +174,13 @@ Tests end-to-end latency for single order validation:
 <!--hide_directive:::
 :::{tab-item}hide_directive--> **Fixed Workers Benchmark**
 
+Runs `benchmark_order_accuracy.py` with a fixed number of concurrent workers.
+
 ```bash
+# Default run
+make benchmark
+
+# Custom run
 make benchmark \
   BENCHMARK_WORKERS=4 \
   BENCHMARK_DURATION=300 \
@@ -196,14 +189,16 @@ make benchmark \
 
 Tests system with fixed number of concurrent workers:
 
-- Throughput (orders/minute)
-- Latency percentiles (P50, P95, P99)
-- GPU utilization
-- Memory usage
+- Tests GPU/CPU performance for order validation
+- Measures end-to-end latency
+- Generates performance metrics
+- Outputs results to `results/` directory
 
 <!--hide_directive:::
 :::{tab-item}hide_directive--> **Stream Density Benchmark**
 <!--hide_directive:sync: density hide_directive-->
+
+Finds the maximum number of concurrent workers the system can sustain under a target latency threshold. Runs `stream_density_latency_oa.py`.
 
 ```bash
 # Default run
