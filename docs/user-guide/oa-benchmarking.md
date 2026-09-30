@@ -239,12 +239,12 @@ Finds maximum sustainable worker count under latency constraints:
 
 | Variable                      | Default                 | Description                          |
 | ----------------------------- | ----------------------- | ------------------------------------ |
-| `BENCHMARK_TARGET_LATENCY_MS` | 25000                   | Target latency threshold (ms)        |
-| `BENCHMARK_LATENCY_METRIC`    | avg                     | 'avg', 'p95', or 'max'               |
-| `BENCHMARK_DENSITY_INCREMENT` | 1                       | Concurrent images per iteration      |
-| `BENCHMARK_INIT_DURATION`     | 60                      | Warmup time (seconds)                |
-| `BENCHMARK_MIN_REQUESTS`      | 3                       | Min requests before measuring        |
-| `BENCHMARK_REQUEST_TIMEOUT`   | 300                     | Individual request timeout (seconds) |
+| `BENCHMARK_TARGET_LATENCY_MS` | `25000`                 | Target latency threshold (ms)        |
+| `BENCHMARK_LATENCY_METRIC`    | `avg`                   | `avg`, `p95`, or `max`               |
+| `BENCHMARK_DENSITY_INCREMENT` | `1`                     | Concurrent images per iteration      |
+| `BENCHMARK_INIT_DURATION`     | `60`                    | Warmup time (seconds)                |
+| `BENCHMARK_MIN_REQUESTS`      | `3`                     | Min requests before measuring        |
+| `BENCHMARK_REQUEST_TIMEOUT`   | `300`                   | Individual request timeout (seconds) |
 | `BENCHMARK_API_ENDPOINT`      | `http://localhost:8083` | API endpoint URL                     |
 | `RESULTS_DIR`                 | `./results`             | Results output directory             |
 
