@@ -97,22 +97,22 @@
 
 5. **Build and Start Services**
 
-```bash
-# Pull images from registry (default)
-make build && make up
+   ```bash
+   # Pull images from registry (default)
+   make build && make up
 
-# OR build locally from source
-make build REGISTRY=false && make up
-```
+   # OR build locally from source
+   make build REGISTRY=false && make up
+   ```
 
-This starts 4 containers:
+   This starts 4 containers:
 
-| Container                 | Ports      | Purpose                 |
-| ------------------------- | ---------- | ----------------------- |
-| `dinein_app`              | 7861, 8083 | Gradio UI + FastAPI     |
-| `dinein_ovms_vlm`         | 8002       | VLM model server (OVMS) |
-| `dinein_semantic_service` | 8081, 9091 | Semantic matching       |
-| `metrics-collector`       | 8084       | System metrics          |
+   | Container                 | Ports      | Purpose                 |
+   | ------------------------- | ---------- | ----------------------- |
+   | `dinein_app`              | 7861, 8083 | Gradio UI + FastAPI     |
+   | `dinein_ovms_vlm`         | 8002       | VLM model server (OVMS) |
+   | `dinein_semantic_service` | 8081, 9091 | Semantic matching       |
+   | `metrics-collector`       | 8084       | System metrics          |
 
 6. **Access the Application**
    - **Gradio UI**: `http://localhost:7861`
@@ -163,15 +163,15 @@ This starts 4 containers:
 
 4. **Build and Start Services**
 
-```bash
-# Pull images from registry (default)
-make build
-make up
+   ```bash
+   # Pull images from registry (default)
+   make build
+   make up
 
-# OR build locally from source
-make build REGISTRY=false
-make up
-```
+   # OR build locally from source
+   make build REGISTRY=false
+   make up
+   ```
 
 5. **Access the Application**
    - **Gradio UI**: `http://localhost:7860`
