@@ -81,9 +81,9 @@ make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=20000 BENCHMARK_INIT_D
 ## Metrics Processing
 
 ```bash
-# Consolidate metrics from multiple runs into a single CSV
+# Consolidate metrics from multiple runs into a single CSV file
 make consolidate-metrics
 
-# Generate plots from consolidated metrics
+# Generate plots from the consolidated metrics
 make plot-metrics
 ```

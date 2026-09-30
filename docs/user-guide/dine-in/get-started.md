@@ -6,10 +6,12 @@ This guide walks you through installation, configuration, and first run of the D
 
 1. [Prerequisites](#prerequisites)
 2. [Installation](#installation)
-3. [Verifying Installation](#verifying-installation)
+3. [Verify the Installation](#verify-the-installation)
 4. [First Order Validation](#first-order-validation)
 
 ## Prerequisites
+
+For detailed hardware and software requirements, see the [System Requirements](./get-started/system-requirements.md) guide.
 
 - Docker 24.0+ with Compose V2
 - Intel GPU with drivers installed
@@ -33,7 +35,7 @@ docker compose version
 ### Step 1: Clone the Repository
 
 ```bash
-git clone -b <release-or-tag> https://github.com/intel-retail/order-accuracy.git
+git clone -b main --single-branch https://github.com/intel-retail/order-accuracy.git
 cd order-accuracy/dine-in
 ```
 
@@ -57,9 +59,6 @@ cd ../ovms-service
 ./setup_models.sh --app dine-in    # Downloads and exports model (~30-60 min first time)
 cd ../dine-in
 ```
-
-> [!NOTE]
-> This step is only needed once. Model files are shared between Dine-In and Take-Away.
 
 This downloads MiniCPM-V-4.5 and converts it to OpenVINO™ INT4 format. This is only needed once — the model files are shared with Take-Away.
 
@@ -100,7 +99,7 @@ This starts 4 containers:
 
 ---
 
-## Verifying Installation
+## Verify the Installation
 
 ```bash
 # API health check
@@ -150,7 +149,7 @@ curl -X POST "http://localhost:8083/api/validate" \
 # Expected: order_complete=true, accuracy_score=1.0
 ```
 
-### Via Make
+### Via Make Target
 
 ```bash
 # Services must be running first

@@ -127,6 +127,8 @@ make benchmark-stream-density \
 | `BENCHMARK_WORKER_INCREMENT`  | `1`     | Workers added per iteration                            |
 | `BENCHMARK_INIT_DURATION`     | `10`    | Warmup time per iteration (seconds)                    |
 | `BENCHMARK_MIN_TRANSACTIONS`  | `1`     | Min transactions before measuring latency              |
+| `BENCHMARK_WORKERS`           | `1`     | Number of workers (fixed mode)                         |
+| `BENCHMARK_DURATION`          | `200`   | Test duration (seconds)                                |
 | `OOM_PROTECTION`              | `1`     | Set to `0` to disable OOM protection (not recommended) |
 
 ---
@@ -146,12 +148,12 @@ results/
 # View VLM metrics
 make benchmark-oa-metrics
 
-# View all result files
+# View benchmark results
 make benchmark-oa-results
 
-# Consolidate metrics from multiple runs into a single CSV
+# Consolidate metrics from multiple runs into a single CSV file
 make consolidate-metrics
 
-# Generate plots from consolidated metrics
+# Generate plots from the consolidated metrics
 make plot-metrics
 ```

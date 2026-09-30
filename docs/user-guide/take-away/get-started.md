@@ -8,7 +8,7 @@ This guide walks you through the installation, configuration, and first-run of t
 2. [Installation](#installation)
 3. [Configuration](#configuration)
 4. [Starting the Services](#starting-the-services)
-5. [Verifying Installation](#verifying-installation)
+5. [Verify the Installation](#verify-the-installation)
 6. [First Order Validation](#first-order-validation)
 
 ## Prerequisites
@@ -30,7 +30,7 @@ For detailed hardware and software requirements, see the [System Requirements](.
 > — export there and copy `ovms-service/models/` to the target system. 64 GB+ is recommended
 > for production or multi-station deployments.
 >
-> **KV Cache on iGPU / low-RAM systems:** On iGPU platforms the KV cache is allocated from
+> **KV Cache on iGPU / low-RAM systems:** On iGPU platforms, the KV cache is allocated from
 > **system RAM**. Set `export CACHE_SIZE=2` before running `setup_models.sh` to reduce KV cache
 > to 2 GB (default is 4 GB). See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/main/ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
 
@@ -54,7 +54,7 @@ docker compose version    # Docker Compose version v2.x.x
 ### Step 1: Clone the Repository
 
 ```bash
-git clone -b <release-or-tag> --single-branch https://github.com/intel-retail/order-accuracy.git
+git clone -b main --single-branch https://github.com/intel-retail/order-accuracy.git
 cd order-accuracy/take-away
 ```
 
@@ -90,7 +90,7 @@ This downloads and exports:
 > [!NOTE]
 > Re-run this step any time you change `TARGET_DEVICE` in `.env`.
 
-### Step 4: Build and Start
+### Step 4: Build and Start Services
 
 ```bash
 # Pull images from registry (default)
@@ -208,7 +208,7 @@ make logs
 
 ---
 
-## Verifying Installation
+## Verify the Installation
 
 ### Health Check
 

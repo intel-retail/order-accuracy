@@ -56,10 +56,29 @@ make up
 :::{tab-item}hide_directive--> **Dine-In**
 <!--hide_directive:sync: dine-in hide_directive-->
 
+> [!IMPORTANT]
+> The `images/` folder does not contain sample images. Add your own before testing:
+>
+> 1. Place plate images in `images/` (`.jpg`, `.jpeg`, or `.png`)
+> 2. Edit `configs/orders.json` — add entries with `image_id` matching your filenames
+> 3. Edit `configs/inventory.json` — define all possible menu items
+
 ```bash
 cd dine-in
 make benchmark
 ```
+
+> [!NOTE]
+> `make benchmark` uses Docker profiles to start worker containers. Both the `dine-in` app and `dinein-worker` services use the **same Docker image** (built from the same Dockerfile). The worker is simply the same container running `worker.py` instead of the UI.
+
+**Variables:**
+
+| Variable                      | Default | Description            |
+| ----------------------------- | ------- | ---------------------- |
+| `BENCHMARK_WORKERS`           | 1       | Concurrent workers     |
+| `BENCHMARK_DURATION`          | 180     | Duration (seconds)     |
+| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Latency threshold (ms) |
+| `TARGET_DEVICE`               | GPU     | Device: CPU, GPU       |
 
 <!--hide_directive:::
 :::{tab-item}hide_directive--> **Take-Away**
@@ -71,6 +90,20 @@ make benchmark
 > ```bash
 > make download-sample-video
 > ```
+
+> [!CAUTION]
+> **Order manifests:** The benchmark validates the orders detected in the video
+> against `config/orders.json`. Order IDs must match the order numbers shown in
+> the video, and each order's expected items must match what is actually visible.
+> A stale manifest reports correct detections as mismatches; an unparseable one
+> (for example a trailing comma) makes every order fail and the benchmark reports
+> zero transactions.
+
+## Benchmark Commands
+
+### Fixed Workers Benchmark
+
+Runs `benchmark_order_accuracy.py` with a fixed number of concurrent workers.
 
 ```bash
 cd take-away
@@ -119,6 +152,9 @@ make benchmark-stream-density
 # With overrides
 make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=20000 BENCHMARK_INIT_DURATION=30
 ```
+
+> [!NOTE]
+> `make benchmark-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
 
 Finds maximum concurrent requests the system can handle under latency constraints:
 
@@ -218,14 +254,14 @@ Finds maximum sustainable worker count under latency constraints:
 
 | Variable                      | Default | Description                                            |
 | ----------------------------- | ------- | ------------------------------------------------------ |
-| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Target latency threshold (ms)                          |
-| `BENCHMARK_LATENCY_METRIC`    | avg     | 'avg', 'p95'                                           |
-| `BENCHMARK_WORKER_INCREMENT`  | 1       | Workers added per iteration                            |
-| `BENCHMARK_INIT_DURATION`     | 10      | Warmup time (seconds)                                  |
-| `BENCHMARK_MIN_TRANSACTIONS`  | 1       | Min transactions before measuring                      |
-| `BENCHMARK_WORKERS`           | 1       | Number of workers (fixed mode)                         |
-| `BENCHMARK_DURATION`          | 200     | Test duration (seconds)                                |
-| `OOM_PROTECTION`              | 1       | Set to `0` to disable OOM protection (not recommended) |
+| `BENCHMARK_TARGET_LATENCY_MS` | `25000` | Target latency threshold (ms)                          |
+| `BENCHMARK_LATENCY_METRIC`    | `avg`   | Metric to evaluate: `avg` or `p95`                     |
+| `BENCHMARK_WORKER_INCREMENT`  | `1`     | Workers added per iteration                            |
+| `BENCHMARK_INIT_DURATION`     | `10`    | Warmup time per iteration (seconds)                    |
+| `BENCHMARK_MIN_TRANSACTIONS`  | `1`     | Min transactions before measuring latency              |
+| `BENCHMARK_WORKERS`           | `1`     | Number of workers (fixed mode)                         |
+| `BENCHMARK_DURATION`          | `200`   | Test duration (seconds)                                |
+| `OOM_PROTECTION`              | `1`     | Set to `0` to disable OOM protection (not recommended) |
 
 <!--hide_directive:::
 ::::hide_directive-->
@@ -279,7 +315,7 @@ make benchmark-stream-density \
   BENCHMARK_MAX_ITERATIONS=20
 ```
 
-## Viewing Results
+## Viewing Results and Metrics
 
 <!--hide_directive::::{tab-set}
 :::{tab-item}hide_directive--> **Dine-In Results**
@@ -298,13 +334,21 @@ ls -la results/
 :::{tab-item}hide_directive--> **Take-Away Results**
 <!--hide_directive:sync: take-away hide_directive-->
 
+Results are saved to the `results/` directory:
+
+```text
+results/
+├── vlm_application_metrics_*.txt    # VLM application metrics
+├── vlm_performance_metrics_*.txt    # VLM performance metrics
+└── consolidated_metrics.csv         # Generated by make consolidate-metrics
+```
+
 ```bash
+# View VLM metrics
+make benchmark-oa-metrics
+
 # View benchmark results
 make benchmark-oa-results
-
-# View density results
-cat results/stream_density_results.json
-ls -la results/
 ```
 
 <!--hide_directive:::
@@ -312,9 +356,16 @@ ls -la results/
 
 ### Consolidate Metrics
 
+Consolidate metrics from multiple runs into a single CSV file:
+
 ```bash
 make consolidate-metrics
-cat results/consolidated_metrics.csv
+```
+
+Generate plots from the consolidated metrics:
+
+```bash
+make plot-metrics
 ```
 
 ## Expected Performance
