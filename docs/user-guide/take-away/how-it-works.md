@@ -483,7 +483,7 @@ flowchart LR
 **Configuration:**
 
 - Failure threshold: 5 failures
-- Time window: 120 seconds (2 minutes)
+- Time window: 300 seconds (5 minutes)
 - Cooldown period: 10 seconds
 
 ### Exponential Backoff
