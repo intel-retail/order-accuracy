@@ -7,9 +7,8 @@ This document provides a comprehensive technical overview of the system architec
 ### High-Level Architecture
 
 ```mermaid
-flowchart TB
+flowchart LR
   subgraph SYS["Take-Away Order Accuracy"]
-    direction LR
     rtsp["RTSP Video Streams<br/>(GStreamer)"] --> oas["Order Accuracy Service<br/>(EasyOCR)"]
     oas --> minio["MinIO<br/>(Frame Storage)"]
     minio --> selector["Frame Selector<br/>(YOLO11n-CPU)"]
@@ -44,20 +43,9 @@ The system supports two operational modes, each optimized for different deployme
 
 ### Single Worker Mode
 
-```text
-┌──────────────────────────────────────────────────────────────┐
-│                    SINGLE WORKER MODE                        │
-│                                                              │
-│  ┌────────────┐      ┌────────────────┐     ┌────────────┐   │
-│  │  Gradio UI │────▶│  FastAPI REST  │────▶│  VLM       │   │
-│  │            │      │  /upload-video │     │  Service   │   │
-│  └────────────┘      └────────────────┘     └────────────┘   │
-│                                                              │
-│  Characteristics:                                            │
-│  • Sequential video processing                               │
-│  • Direct VLM calls (no batching)                            │
-│  • Best for: Development, testing, demos                     │
-└──────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+    ui["Gradio UI"] --> api["FastAPI REST<br/>/upload-video"] --> vlm["VLM Service"]
 ```
 
 **Configuration:**
@@ -69,54 +57,22 @@ WORKERS=0
 
 **Features:**
 
-- Video upload via REST API
-- Single order at a time
+- Video upload via REST API and sequential video processing
+- Single order at a time — direct VLM calls with no batching
 - Gradio UI integration
 - FastAPI Swagger documentation
+- Best for: Development, testing, demos
 
 ### Parallel Worker Mode
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         PARALLEL WORKER MODE                                │
-│                                                                             │
-│  ┌────────────┐   ┌────────────┐   ┌────────────┐                           │
-│  │  Station   │   │  Station   │   │  Station   │  (independent,            │
-│  │  Worker 1  │   │  Worker 2  │   │  Worker N  │   each with GStreamer     │
-│  │ (GStr+OCR) │   │ (GStr+OCR) │   │ (GStr+OCR) │   + EasyOCR)              │
-│  └─────┬──────┘   └─────┬──────┘   └─────┬──────┘                           │
-│        │                │                │                                  │
-│        ▼                ▼                ▼                                  │
-│  ┌──────────────────────────────────────────────┐                           │
-│  │              MinIO (Frame Storage)           │                           │
-│  │         station_1/  station_2/  station_N/   │                           │
-│  └─────────────────────┬────────────────────────┘                           │
-│                        │                                                    │
-│                        ▼                                                    │
-│  ┌──────────────────────────────────────────────┐                           │
-│  │       Frame Selector (YOLO11n - CPU)         │                           │
-│  │       Select top 3 frames per order          │                           │
-│  └─────────────────────┬────────────────────────┘                           │
-│                        │                                                    │
-│                        ▼                                                    │
-│  ┌──────────────────────────────────────────────┐                           │
-│  │     VLM Scheduler (ThreadPoolExecutor)       │                           │
-│  │     Parallel requests to OVMS                │                           │
-│  └─────────────────────┬────────────────────────┘                           │
-│                        │                                                    │
-│                        ▼                                                    │
-│  ┌──────────────────────────────────────────────────────────────────────┐   │
-│  │                           OVMS VLM (GPU)                             │   │
-│  │            MiniCPM-V-4.5 INT4 / Continuous Batching                  │   │
-│  └──────────────────────────────────────────────────────────────────────┘   │
-│                                                                             │
-│  Characteristics:                                                           │
-│  • Independent RTSP stream per station                                      │
-│  • Shared EasyOCR, YOLO, and VLM models                                     │
-│  • Parallel VLM requests via ThreadPoolExecutor                             │
-│  • OVMS continuous batching on GPU                                          │
-│  • Best for: Production, multi-camera deployments                           │
-└─────────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  worker1["Station Worker 1<br/>(GStreamer + OCR)"] --> minio["MinIO<br/>(Frame Storage)"]
+  worker2["Station Worker 2<br/>(GStreamer + OCR)"] --> minio
+  workerN["Station Worker N<br/>(GStreamer + OCR)"] --> minio
+  minio --> selector["Frame Selector<br/>(YOLO11n - CPU)<br/>Select top 3 frames per order"]
+  selector --> scheduler["VLM Scheduler<br/>(ThreadPoolExecutor)<br/>Parallel requests to OVMS"]
+  scheduler --> ovms["OVMS VLM (GPU)<br/>MiniCPM-V-4.5 INT4 / Continuous Batching"]
 ```
 
 **Configuration:**
@@ -134,6 +90,7 @@ SCALING_MODE=fixed  # or 'auto'
 - Parallel VLM requests via ThreadPoolExecutor
 - OVMS continuous batching on GPU
 - Circuit breaker pattern with exponential backoff
+- Best for: Production, multi-camera deployments
 
 ---
 
@@ -167,25 +124,9 @@ elif SERVICE_MODE == "parallel":
 
 Production-ready worker process for single camera stream processing.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                    STATION WORKER LIFECYCLE                   │
-│                                                               │
-│  ┌──────────┐   ┌──────────┐   ┌──────────┐   ┌──────────┐ │
-│  │Initialize│──▶│Wait RTSP │──▶│  Start   │──▶│ Monitor  │ │
-│  │          │   │          │   │ Pipeline │   │ Health   │ │
-│  └──────────┘   └──────────┘   └──────────┘   └────┬─────┘ │
-│                                                     │        │
-│       ┌──────────────────┬──────────────────────────┘        │
-│       │                  │                                    │
-│       ▼                  ▼                                    │
-│  ┌──────────┐      ┌──────────┐      ┌──────────┐           │
-│  │ Circuit  │      │ Backoff  │      │  Verify  │           │
-│  │ Breaker  │─────▶│ & Retry  │─────▶│  RTSP    │──▶Restart │
-│  │  Check   │      │          │      │          │           │
-│  └──────────┘      └──────────┘      └──────────┘           │
-└─────────────────────────────────────────────────────────────┘
-```
+![Station Worker Lifecycle](./_assets/OA-TA-station-worker-lifecycle.svg "station worker lifecycle")
+
+See [Production patterns](#production-patterns) below for details on the circuit breaker implementation, exponential backoff, and health monitoring.
 
 **Key Features:**
 
@@ -217,27 +158,7 @@ class PipelineConfig:
 
 Request batching scheduler optimizing OVMS throughput.
 
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         VLM SCHEDULER ARCHITECTURE                       │
-│                                                                          │
-│  Worker 1 ──┐                                                            │
-│             │     ┌─────────────┐     ┌───────────────┐                 │
-│  Worker 2 ──┼────▶│  Collector  │────▶│               │                 │
-│             │     │   Thread    │     │    Batch      │    ┌─────────┐  │
-│  Worker N ──┘     │             │     │    Buffer     │───▶│  OVMS   │  │
-│                   └─────────────┘     │   (50-100ms)  │    │   VLM   │  │
-│                                       │               │    └────┬────┘  │
-│                   ┌─────────────┐     └───────────────┘         │       │
-│  Response ◀───────│  Response   │◀──────────────────────────────┘       │
-│  Routing          │   Router    │                                        │
-│                   └─────────────┘                                        │
-│                                                                          │
-│  Time-window batching: Collect requests for 50-100ms, send as batch     │
-│  Fair scheduling: Round-robin across workers                             │
-│  Backpressure: Queue limits prevent memory exhaustion                   │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+![VLM Scheduler Architecture](./_assets/OA-TA-VLM-scheduler-architecture.svg "vlm scheduler architecture")
 
 **Batching Strategy:**
 
@@ -261,22 +182,7 @@ Vision Language Model processing with inventory detection and order validation.
 
 OpenVINO™ Model Server client with OpenAI-compatible API.
 
-```text
-┌─────────────────────────────────────────────────────────────┐
-│                      OVMS CLIENT                             │
-│                                                              │
-│  ┌────────────┐     ┌────────────────┐     ┌────────────┐  │
-│  │   Image    │────▶│  Base64        │────▶│   POST     │  │
-│  │  (numpy)   │     │  Encoding      │     │/v3/chat/   │  │
-│  └────────────┘     └────────────────┘     │completions │  │
-│                                             └─────┬──────┘  │
-│                                                   │         │
-│  ┌────────────┐     ┌────────────────┐           │         │
-│  │  Metrics   │◀────│   Response     │◀──────────┘         │
-│  │  Logging   │     │   Parsing      │                      │
-│  └────────────┘     └────────────────┘                      │
-└─────────────────────────────────────────────────────────────┘
-```
+![OVMS Client Architecture](./_assets/OA-TA-OVMS-VLM-client.svg "ovms client architecture")
 
 **API Integration:**
 
@@ -338,24 +244,18 @@ response = requests.post(
 
 ```mermaid
 flowchart LR
-  subgraph OUTER[ ]
-    direction TB
 
-    subgraph INNER[WORKER STATE MACHINE]
-      direction LR
-      STOPPED[STOPPED] --> STARTING[STARTING] --> RUNNING[RUNNING] --> STALLED[STALLED]
-      RUNNING --> RESTARTING[RESTARTING]
-      RUNNING --> CIRCUIT_OPEN[CIRCUIT_OPEN]
-      STARTING --> CIRCUIT_OPEN
-      STALLED --> RESTARTING
-      STOPPED --> SHUTTING_DOWN[SHUTTING_DOWN]
-      CIRCUIT_OPEN --> SHUTTING_DOWN
-      RESTARTING --> SHUTTING_DOWN
-    end
+  subgraph INNER[WORKER STATE MACHINE]
+    direction LR
+    STOPPED[STOPPED] --> STARTING[STARTING] --> RUNNING[RUNNING] --> STALLED[STALLED]
+    RUNNING --> RESTARTING[RESTARTING]
+    RUNNING --> CIRCUIT_OPEN[CIRCUIT_OPEN]
+    STARTING --> CIRCUIT_OPEN
+    STALLED --> RESTARTING
+    STOPPED --> SHUTTING_DOWN[SHUTTING_DOWN]
+    CIRCUIT_OPEN --> SHUTTING_DOWN
+    RESTARTING --> SHUTTING_DOWN
   end
-
-  style OUTER fill:#f7f9fc,stroke:#4a5568,stroke-width:2px,color:#111827
-  style INNER fill:#ffffff,stroke:#6b7280,stroke-width:1px,color:#111827
 ```
 
 ---
@@ -386,28 +286,7 @@ rtspsrc location=<url> latency=0 buffer-mode=0 protocols=tcp ntp-sync=false do-r
 
 ### Model Architecture
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         OVMS VLM INTEGRATION                                     │
-│                                                                                  │
-│  Model: openbmb/MiniCPM-V-4_5-int4                                              │
-│                                                                                  │
-│  ┌────────────────────────────────────────────────────────────────────────┐    │
-│  │                         OVMS Model Server                               │    │
-│  │                                                                         │    │
-│  │  ┌────────────────┐    ┌────────────────┐    ┌────────────────┐       │    │
-│  │  │  Vision        │    │  Language      │    │  Output        │       │    │
-│  │  │  Encoder       │───▶│  Model         │───▶│  Decoder       │       │    │
-│  │  │  (SigLIP)      │    │  (MiniCPM)     │    │  (JSON)        │       │    │
-│  │  └────────────────┘    └────────────────┘    └────────────────┘       │    │
-│  │                                                                         │    │
-│  │  API: OpenAI-compatible /v3/chat/completions                           │    │
-│  │  Port: 8001 (configurable)                                             │    │
-│  │  Precision: INT4 (optimized for inference)                             │    │
-│  └────────────────────────────────────────────────────────────────────────┘    │
-│                                                                                  │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![OVMS VLM Integration](./_assets/OA-TA-OVMS-VLM-integration.svg "ovms vlm integration")
 
 ### Request/Response Format
 
@@ -519,39 +398,14 @@ The selection algorithm scores each frame using YOLO detection confidence and it
 
 ### Service Deployment
 
-```text
-┌─────────────────────────────────────────────────────────────────────────────────┐
-│                         DOCKER SERVICES TOPOLOGY                                │
-│                                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────────┐    │
-│  │                         order-accuracy-net                              │    │
-│  │                                                                         │    │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                   │    │
-│  │  │   minio      │  │  ovms-vlm    │  │order-accuracy│                   │    │
-│  │  │   :9000/9001 │  │   :8001      │  │   :8000      │                   │    │
-│  │  └──────────────┘  └──────────────┘  └──────┬───────┘                   │    │
-│  │                                             │ :8010/mcp                 │    │
-│  │                                             ▼ (agents/read tools)       │    │
-│  │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                   │    │
-│  │  │frame-selector│  │  gradio-ui   │  │semantic-svc  │                   │    │
-│  │  │  (internal)  │  │   :7860      │  │   :8080      │                   │    │
-│  │  └──────────────┘  └──────────────┘  └──────────────┘                   │    │
-│  │                                                                         │    │
-│  │  ┌──────────────┐                                                       │    │
-│  │  │rtsp-streamer │  (parallel profile)                                   │    │
-│  │  │   :8554      │                                                       │    │
-│  │  └──────────────┘                                                       │    │
-│  │                                                                         │    │
-│  └─────────────────────────────────────────────────────────────────────────┘    │
-│                                                                                 │
-│  Volumes:                                                                       │
-│  • minio-data: S3-compatible object storage                                     │
-│  • videos: Input video files                                                    │
-│  • results: Output results and metrics                                          │
-│  • models: OVMS model files                                                     │
-│                                                                                 │
-└─────────────────────────────────────────────────────────────────────────────────┘
-```
+![Take-Away Docker Services Topology](./_assets/OA-TA-docker-topology.svg "take-away docker services topology")
+
+Volumes:
+
+- minio-data: S3-compatible object storage
+- videos: Input video files
+- results: Output results and metrics
+- models: OVMS model files
 
 ### Service Dependencies
 
