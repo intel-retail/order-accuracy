@@ -71,8 +71,8 @@ Before running the application, you must prepare your test data:
    - Images should clearly show the food items on the tray
 
 2. **Update Orders**: Edit `configs/orders.json` with your test orders
-   - Each order should have an `order_id` and list of `items`
-   - `order_id` should match your `image_id`
+   - Each order should have an `items_ordered` entry, each with `item` and `quantity`
+   - `image_id` should match your image filenames in the `images/` folder
 
 3. **Update Inventory**: Edit `configs/inventory.json` to match your menu items
    - Define all possible food items that can appear in orders
@@ -95,7 +95,7 @@ This starts 4 containers:
 | `dinein_app`              | 7861, 8083 | Gradio UI + FastAPI     |
 | `dinein_ovms_vlm`         | 8002       | VLM model server (OVMS) |
 | `dinein_semantic_service` | 8081, 9091 | Semantic matching       |
-| `metrics-collector`       | 8084       | System metrics          |
+| `metrics-collector`       | 9000       | System metrics          |
 
 ---
 

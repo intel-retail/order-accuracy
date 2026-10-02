@@ -10,45 +10,76 @@ Test your Order Accuracy pipeline performance on various hardware configurations
 >
 > **Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
 >
-> 1. Set **both** variables in your `.env` file:
->
->    ```bash
->    TARGET_DEVICE=GPU      # used by setup_models.sh and docker-compose
->    OPENVINO_DEVICE=GPU    # used by the Makefile benchmark targets
->    ```
->
-> 2. Re-export the model for the new device:
->
 >    <!--hide_directive::::{tab-set}
 >    :::{tab-item}hide_directive--> **Dine-In**
 >    <!--hide_directive:sync: dine-in hide_directive-->
+>
+> 1. Set this variable in your `.env` file:
+>
+>    ```bash
+>    TARGET_DEVICE=CPU      # used by setup_models.sh and docker-compose
+>    ```
+>
+> 2. Re-export the model for the new device:
 >
 >    ```bash
 >    cd ../ovms-service && ./setup_models.sh --app dine-in
 >    ```
 >
+> `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format.
+>
 >    <!--hide_directive:::
 >    :::{tab-item}hide_directive--> **Take-Away**
 >    <!--hide_directive:sync: take-away hide_directive-->
+>
+> 1. Set **both** variables in your `.env` file:
+>
+>    ```bash
+>    TARGET_DEVICE=CPU      # used by setup_models.sh and docker-compose
+>    OPENVINO_DEVICE=CPU    # used by the Makefile benchmark targets
+>    ```
+>
+> 2. Re-export the model for the new device:
 >
 >    ```bash
 >    cd ../ovms-service && ./setup_models.sh --app take-away
 >    ```
 >
+> `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format. `OPENVINO_DEVICE` is what the Makefile passes to the benchmark script. Both must match.
+>
 >    <!--hide_directive:::
 >    ::::hide_directive-->
->
-> `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format. `OPENVINO_DEVICE` is what the Makefile passes to the benchmark script. Both must match.
 
 ### 1. Initialize Performance Tools
 
+<!--hide_directive::::{tab-set}
+:::{tab-item}hide_directive--> **Dine-In**
+<!--hide_directive:sync: dine-in hide_directive-->
+
 ```bash
 # 1. Initialize git submodules (first time only)
+cd dine-in
 make update-submodules
 
 # 2. Start services
 make up
 ```
+
+<!--hide_directive:::
+:::{tab-item}hide_directive--> **Take-Away**
+<!--hide_directive:sync: take-away hide_directive-->
+
+```bash
+# 1. Initialize git submodules (first time only)
+cd take-away
+make update-submodules
+
+# 2. Start services
+make up
+```
+
+<!--hide_directive:::
+::::hide_directive-->
 
 ### 2. Run Quick Benchmark
 
@@ -56,15 +87,14 @@ make up
 :::{tab-item}hide_directive--> **Dine-In**
 <!--hide_directive:sync: dine-in hide_directive-->
 
-> [!IMPORTANT]
-> The `images/` folder does not contain sample images. Add your own before testing:
+> [!NOTE]
+> The `images/` folder contains some sample images for testing. To use your own images, add them before testing:
 >
 > 1. Place plate images in `images/` (`.jpg`, `.jpeg`, or `.png`)
 > 2. Edit `configs/orders.json` — add entries with `image_id` matching your filenames
 > 3. Edit `configs/inventory.json` — define all possible menu items
 
 ```bash
-cd dine-in
 make benchmark
 ```
 
@@ -100,7 +130,6 @@ make benchmark
 > zero transactions.
 
 ```bash
-cd take-away
 # Default run
 make benchmark
 ```
@@ -141,7 +170,7 @@ make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=20000 BENCHMARK_INIT_D
 ```
 
 > [!NOTE]
-> `make benchmark-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
+> `make benchmark-stream-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
 
 Finds maximum concurrent requests the system can handle under latency constraints:
 

@@ -6,11 +6,10 @@ This guide covers performance testing, stream density benchmarking, and metrics 
 >
 > **Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
 >
-> 1. Set **both** variables in your `.env` file:
+> 1. Set this variable in your `.env` file:
 >
 >    ```bash
->    TARGET_DEVICE=GPU      # used by setup_models.sh and docker-compose
->    OPENVINO_DEVICE=GPU    # used by the Makefile benchmark targets
+>    TARGET_DEVICE=CPU      # used by setup_models.sh and docker-compose
 >    ```
 >
 > 2. Re-export the model for the new device:
@@ -19,7 +18,7 @@ This guide covers performance testing, stream density benchmarking, and metrics 
 >    cd ../ovms-service && ./setup_models.sh --app dine-in
 >    ```
 >
-> `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format. `OPENVINO_DEVICE` is what the Makefile passes to the benchmark script. Both must match.
+> `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format.
 
 ## Prerequisites
 
@@ -31,8 +30,8 @@ make update-submodules
 make up
 ```
 
-> [!IMPORTANT]
-> The `images/` folder does not contain sample images. Add your own before testing:
+> [!NOTE]
+> The `images/` folder contains some sample images for testing. To use your own images, add them before testing:
 >
 > 1. Place plate images in `images/` (`.jpg`, `.jpeg`, or `.png`)
 > 2. Edit `configs/orders.json` — add entries with `image_id` matching your filenames
@@ -76,7 +75,7 @@ make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=20000 BENCHMARK_INIT_D
 ```
 
 > [!NOTE]
-> `make benchmark-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
+> `make benchmark-stream-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
 
 ## Metrics Processing
 

@@ -9,8 +9,8 @@ This guide covers performance testing, stream density benchmarking, and metrics 
 > 1. Set **both** variables in your `.env` file:
 >
 >    ```bash
->    TARGET_DEVICE=GPU      # used by setup_models.sh and docker-compose
->    OPENVINO_DEVICE=GPU    # used by the Makefile benchmark targets
+>    TARGET_DEVICE=CPU      # used by setup_models.sh and docker-compose
+>    OPENVINO_DEVICE=CPU    # used by the Makefile benchmark targets
 >    ```
 >
 > 2. Re-export the model for the new device:

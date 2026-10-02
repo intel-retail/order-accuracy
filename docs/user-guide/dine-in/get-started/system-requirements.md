@@ -76,7 +76,7 @@ Expected output includes `GPU`.
 | REST API          | 8083 | FastAPI endpoints            |
 | OVMS VLM          | 8002 | Model inference (external)   |
 | Semantic Service  | 8081 | Semantic matching (external) |
-| Metrics Collector | 8084 | System metrics               |
+| Metrics Collector | 9000 | System metrics               |
 
 ---
 
@@ -84,7 +84,7 @@ Expected output includes `GPU`.
 
 - [ ] Docker and Docker Compose installed and working
 - [ ] Intel GPU drivers installed and GPU visible to Docker
-- [ ] Required ports available (7861, 8083, 8002, 8081, 8084)
+- [ ] Required ports available (7861, 8083, 8002, 8081, 9000)
 - [ ] At least 50 GB free disk space
 - [ ] **16 GB+ RAM available** (sufficient for inference; for first-time model export 48–64 GB recommended — export on a high-RAM host and copy `ovms-service/models/` to the target system)
 - [ ] VLM model downloaded (`setup_models.sh` completed)
