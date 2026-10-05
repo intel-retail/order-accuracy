@@ -182,7 +182,7 @@ Request batching scheduler optimizing OVMS throughput.
 | `dinein_app`              | 7861, 8083 | Main application (Gradio + FastAPI) |
 | `dinein_ovms_vlm`         | 8002       | Vision-Language Model server        |
 | `dinein_semantic_service` | 8081       | Semantic text matching              |
-| `metrics-collector`       | 8084       | System metrics aggregation          |
+| `metrics-collector`       | 9000       | System metrics aggregation          |
 
 #### Take-Away Services
 

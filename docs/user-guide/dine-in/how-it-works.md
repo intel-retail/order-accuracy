@@ -41,7 +41,7 @@ sequenceDiagram
 | `dinein_app`              | `intel/order-accuracy-dine-in:2026.2.0-rc2`  | 7861, 8083 | Main application (Gradio + FastAPI) |
 | `dinein_ovms_vlm`         | `openvino/model_server:2026.3.1-gpu`     | 8002       | Vision-Language Model server        |
 | `dinein_semantic_service` | `intel/semantic-search-agent:2026.2.0-rc2`   | 8081, 9091 | Semantic text matching              |
-| `metrics-collector`       | `intel/hl-ai-metrics-collector:2026.1.0` | 8084       | System metrics aggregation          |
+| `metrics-collector`       | `intel/hl-ai-metrics-collector:2026.1.0` | 9000       | System metrics aggregation          |
 
 ### Network Topology
 
@@ -54,7 +54,7 @@ localhost:7861      ← Gradio UI
 localhost:8083      ← REST API
 localhost:8083/docs ← Swagger Docs
 localhost:8002      ← OVMS VLM
-localhost:8084      ← Metrics API
+localhost:9000      ← Metrics API
 localhost:8011/mcp  ← MCP Server (events, read tools)
 ```
 
