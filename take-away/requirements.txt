@@ -22,9 +22,8 @@ ultralytics==8.3.0
 # gracefully handles the missing import.
 git+https://github.com/intel-retail/performance-tools.git@main#subdirectory=benchmark-scripts
 
-# mcp-service-sdk: shared event envelope / durable log / MCP scaffolding
-# used to make Order Accuracy agentic-ready (Issue #102). Pinned to a
-# specific commit (not the moving 'mcp' branch head) for reproducible builds.
-# fastmcp is the MCP server backend used by ServiceServer.to_mcp()/run().
-git+https://github.com/sachinkaushik/edge-ai-libraries.git@12c3bdb5989fe1347e985c8b859baef940c206f4#subdirectory=libraries/mcp-service-sdk
+# fastmcp is the MCP server backend used by SensorService.to_mcp()/run()
+# (see src/core/mcp_sensor.py — a local, dependency-free replacement for the
+# previous shared mcp-service-sdk package; durable event log / envelope
+# format is preserved byte-for-byte for backward compatibility).
 fastmcp>=2.0.0

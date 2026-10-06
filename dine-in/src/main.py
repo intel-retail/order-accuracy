@@ -46,11 +46,12 @@ def start_mcp_server():
 
         # thread.start() only proves the OS thread was scheduled, not that
         # the MCP server itself came up: run_mcp_server() calls _build_app()
-        # (which can fail-closed, e.g. if the disallowed 'subscribe' tool
-        # can't be removed) BEFORE the blocking app.run(), so a startup
-        # failure kills the thread within a very short window. Capture that
-        # failure explicitly and give it a brief grace period, instead of
-        # unconditionally logging success right after start().
+        # (which builds the FastMCP app via SensorService.to_mcp() and can
+        # still fail-closed on unexpected errors) BEFORE the blocking
+        # app.run(), so a startup failure kills the thread within a very
+        # short window. Capture that failure explicitly and give it a brief
+        # grace period, instead of unconditionally logging success right
+        # after start().
         startup_error: list[BaseException] = []
 
         def _run() -> None:

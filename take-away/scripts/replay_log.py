@@ -18,12 +18,13 @@ What this does:
     (re)delivery.
 
 Why this is deterministic:
-  ``mcp_service_sdk``'s ``SQLiteLog``/``JSONLFileLog`` both store each
-  event's full envelope (including its original ``ts_ms``) verbatim at
-  append time (see ``core/mcp_service.py``'s ``emit_order_result()`` ->
-  ``svc.emit()``). ``replay()`` reads records back in ``seq`` order without
-  regenerating or mutating any field, so running this script twice against
-  the same, unmodified log always prints byte-identical output.
+  ``mcp_sensor``'s ``SQLiteLog``/``JSONLFileLog`` (vendored locally — see
+  ``src/core/mcp_sensor.py``) both store each event's full envelope
+  (including its original ``ts_ms``) verbatim at append time (see
+  ``core/mcp_service.py``'s ``emit_order_result()`` -> ``svc.emit()``).
+  ``replay()`` reads records back in ``seq`` order without regenerating or
+  mutating any field, so running this script twice against the same,
+  unmodified log always prints byte-identical output.
 
 Why this is safe:
   This script never calls ``svc.emit()`` or ``log.append()``, so it cannot
@@ -52,7 +53,10 @@ import os
 import sys
 from pathlib import Path
 
-from mcp_service_sdk.log import JSONLFileLog, SQLiteLog  # noqa: E402
+APP_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(APP_DIR / "src"))
+
+from core.mcp_sensor import JSONLFileLog, SQLiteLog  # noqa: E402
 
 # Matches core/mcp_service.py's own RESULTS_DIR/MCP_LOG_BACKEND default
 # convention ("/results", the path docker-compose's ``results/`` bind mount

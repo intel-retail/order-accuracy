@@ -36,9 +36,9 @@ WORKDIR /app
 COPY requirements.txt .
 
 # Remove the apt-provided python3-jwt: it has no pip RECORD metadata, so pip
-# cannot uninstall/upgrade it when the mcp-service-sdk/fastmcp dependency
-# chain (via the mcp package) requires a newer PyJWT, causing the install to
-# fail with "Cannot uninstall PyJWT ... no RECORD file was found".
+# cannot uninstall/upgrade it when the fastmcp dependency chain (via the mcp
+# package) requires a newer PyJWT, causing the install to fail with "Cannot
+# uninstall PyJWT ... no RECORD file was found".
 RUN apt-get remove -y --purge python3-jwt 2>/dev/null || true
 
 RUN python3 -m pip install  --break-system-packages --ignore-installed --upgrade pip setuptools wheel && \

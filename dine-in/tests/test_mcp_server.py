@@ -1,10 +1,12 @@
 """Tests for the MCP server entrypoint (Issue #102 — Dine-in).
 
-Covers the application-level fix for Issue #102 AC7 ("MCP server exposes
-describe + read tools ... — no subscribe/callback"): ``ServiceServer.
-to_mcp()`` (mcp_service_sdk) unconditionally binds a ``subscribe`` tool, so
-``mcp_server._build_app()`` strips it after construction via FastMCP's own
-``remove_tool`` API, without modifying the pinned SDK.
+Covers Issue #102 AC7 ("MCP server exposes describe + read tools ... — no
+subscribe/callback"): ``SensorService.to_mcp()`` (the local ``mcp_sensor``
+replacement for ``mcp_service_sdk``) only ever binds ``describe`` plus the
+registered read tools — there is no ``subscribe`` tool to strip because
+nothing in the new scaffolding ever adds one (unlike the old SDK's
+``ServiceServer.to_mcp()``, which unconditionally bound ``subscribe`` and
+required ``mcp_server._build_app()`` to remove it post-hoc).
 
 Mirrors take-away/tests/test_mcp_server.py, adapted for Dine-in's flat
 module layout (``mcp_service``/``mcp_server`` at ``src/`` top level, not
@@ -89,8 +91,9 @@ def test_mcp_surface_is_exactly_the_required_set(mcp_server_module):
 
 
 def test_describe_and_service_internals_unaffected(mcp_server_module):
-    """Stripping the MCP-surface tool must not touch ServiceServer.describe()
-    or its untouched (unused) subscribe()/_subscriptions machinery."""
+    """Building the MCP app must not mutate SensorService.describe()'s
+    contract, and the service has no subscribe/act-tool machinery at all —
+    by construction, not by post-hoc removal (see mcp_sensor.py)."""
     from mcp_service import svc
 
     described = svc.describe()
@@ -100,7 +103,7 @@ def test_describe_and_service_internals_unaffected(mcp_server_module):
         "get_order_history",
         "get_station_totals",
     }
-    # svc.subscribe() itself still exists and is untouched (not called by
-    # this application) — only the MCP-exposed tool binding was removed.
-    svc.subscribe("order_validated", "true", "http://example.invalid/cb")
-    assert len(svc._subscriptions) == 1
+    # Order Accuracy is a sensor: SensorService never had a subscribe() or
+    # _subscriptions attribute to begin with (unlike the old SDK-backed
+    # ServiceServer), so there is nothing to assert is "unused" here.
+    assert not hasattr(svc, "subscribe")
