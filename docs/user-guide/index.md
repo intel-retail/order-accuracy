@@ -145,11 +145,11 @@ AI-powered semantic matching microservice for intelligent item comparison:
 :::{toctree}
 :hidden:
 
-Dine-In Order Accuracy <./dine-in/index>
-Take-Away Order Accuracy <./take-away/index>
 ./oa-get-started
 How It Works <./oa-how-it-works>
 Benchmarking <./oa-benchmarking>
+Use Case: Dine-In <./dine-in/index>
+Use Case: Take-Away <./take-away/index>
 
 :::
 hide_directive-->
