@@ -404,7 +404,7 @@ setup_python_env() {
             exit 1
         fi
 
-        if [ -n "${cached_state}" ] && [ -d "${SCRIPT_DIR}/venv" ]; then
+        if [ -d "${SCRIPT_DIR}/venv" ]; then
             echo "  Export environment changed; discarding old venv"
             rm -rf "${SCRIPT_DIR}/venv"
         fi
@@ -447,11 +447,9 @@ export_model() {
     echo "Exporting ${MODEL_NAME} (device: ${TARGET_DEVICE_ENV}, precision: ${VLM_PRECISION_ENV}, cache_size: ${CACHE_SIZE_ENV} GB)"
     echo ""
 
-    # Build optional --target_device argument; CPU is the default so omit it
-    local target_device_args=()
-    if [ "${TARGET_DEVICE_ENV}" != "CPU" ]; then
-        target_device_args=(--target_device "${TARGET_DEVICE_ENV}")
-    fi
+    # The 2026/4 exporter leaves `device` out of the graph when --target_device
+    # is unset, so pass it explicitly (including CPU) to pin the selection.
+    local target_device_args=(--target_device "${TARGET_DEVICE_ENV}")
 
         local export_log
         export_log=$(mktemp)
