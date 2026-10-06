@@ -356,18 +356,62 @@ ask_user_model() {
 }
 
 ###############################################
+# Only export_model.py is taken from the OVMS release branch; its graph.pbtxt
+# templates must match the OVMS server image, so keep this aligned with
+# OVMS_IMAGE in the app docker-compose files (currently 2026.3.1).
+# Python dependencies come from export_requirements.txt instead — the
+# branch requirements.txt is unpinned on transformers and breaks MiniCPM-V.
+OVMS_EXPORT_BRANCH="2026/4"
+EXPORT_REQUIREMENTS="${SCRIPT_DIR}/export_requirements.txt"
+
+# Some corporate proxies return 504 for raw.githubusercontent.com; the GitHub
+# contents API serves the same blob over a host that is usually allowed.
+download_export_tool() {
+    local dest="$1"
+    local path="demos/common/export_models/export_model.py"
+
+    curl -fsSL \
+        "https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/${OVMS_EXPORT_BRANCH}/${path}" \
+        -o "${dest}" && return 0
+
+    echo "  raw.githubusercontent.com unreachable; retrying via GitHub API..."
+    curl -fsSL -H "Accept: application/vnd.github.raw" \
+        "https://api.github.com/repos/openvinotoolkit/model_server/contents/${path}?ref=releases/${OVMS_EXPORT_BRANCH}" \
+        -o "${dest}"
+}
+
 setup_python_env() {
 
-    if [ ! -f "${SCRIPT_DIR}/export_model.py" ]; then
-        echo "[1/3] Downloading OVMS export tools..."
+    if [ ! -f "${EXPORT_REQUIREMENTS}" ]; then
+        echo "ERROR: missing ${EXPORT_REQUIREMENTS}"
+        exit 1
+    fi
 
-        EXPORT_BASE_URL="https://raw.githubusercontent.com/openvinotoolkit/model_server/refs/heads/releases/2026/1/demos/common/export_models"
+    # Rebuild the venv whenever the branch or the pinned dependency set changes.
+    local env_marker="${SCRIPT_DIR}/.export_tools_state"
+    local env_state
+    env_state="${OVMS_EXPORT_BRANCH} $(sha256sum "${EXPORT_REQUIREMENTS}" | cut -d' ' -f1)"
+    local cached_state=""
+    [ -f "${env_marker}" ] && cached_state=$(cat "${env_marker}")
 
-        curl -fsSL "${EXPORT_BASE_URL}/export_model.py" -o "${SCRIPT_DIR}/export_model.py"
-        curl -fsSL "${EXPORT_BASE_URL}/requirements.txt" -o "${SCRIPT_DIR}/export_requirements.txt"
-        echo "  ✓ Export tools downloaded"
+    if [ ! -f "${SCRIPT_DIR}/export_model.py" ] || [ "${cached_state}" != "${env_state}" ]; then
+        echo "[1/3] Downloading OVMS export tool (branch ${OVMS_EXPORT_BRANCH})..."
+
+        if ! download_export_tool "${SCRIPT_DIR}/export_model.py"; then
+            rm -f "${SCRIPT_DIR}/export_model.py"
+            echo "  ✗ Could not download export_model.py for branch ${OVMS_EXPORT_BRANCH}"
+            echo "    Behind a corporate proxy, export HTTP_PROXY/HTTPS_PROXY before re-running."
+            exit 1
+        fi
+
+        if [ -d "${SCRIPT_DIR}/venv" ]; then
+            echo "  Export environment changed; discarding old venv"
+            rm -rf "${SCRIPT_DIR}/venv"
+        fi
+        echo "${env_state}" > "${env_marker}"
+        echo "  ✓ Export tool downloaded"
     else
-        echo "[1/3] Export tools already present"
+        echo "[1/3] Export tool already present (branch ${OVMS_EXPORT_BRANCH})"
     fi
 
     if [ ! -d "${SCRIPT_DIR}/venv" ] || [ ! -f "${SCRIPT_DIR}/venv/bin/pip" ]; then
@@ -382,7 +426,14 @@ setup_python_env() {
 
     echo "[3/3] Installing Python dependencies (this may take a minute)..."
     pip install -q --upgrade pip
-    pip install -q -r "${SCRIPT_DIR}/export_requirements.txt"
+    pip install -q -r "${EXPORT_REQUIREMENTS}"
+
+    # pip only warns on unsatisfied pins and carries on; surface that here
+    # instead of as an ImportError 20 minutes into the export.
+    if ! pip check; then
+        echo "  ✗ Export environment has dependency conflicts — see ${EXPORT_REQUIREMENTS}"
+        exit 1
+    fi
     echo "  ✓ Dependencies installed"
 }
 
@@ -396,11 +447,9 @@ export_model() {
     echo "Exporting ${MODEL_NAME} (device: ${TARGET_DEVICE_ENV}, precision: ${VLM_PRECISION_ENV}, cache_size: ${CACHE_SIZE_ENV} GB)"
     echo ""
 
-    # Build optional --target_device argument; CPU is the default so omit it
-    local target_device_args=()
-    if [ "${TARGET_DEVICE_ENV}" != "CPU" ]; then
-        target_device_args=(--target_device "${TARGET_DEVICE_ENV}")
-    fi
+    # The 2026/4 exporter leaves `device` out of the graph when --target_device
+    # is unset, so pass it explicitly (including CPU) to pin the selection.
+    local target_device_args=(--target_device "${TARGET_DEVICE_ENV}")
 
         local export_log
         export_log=$(mktemp)
@@ -595,6 +644,18 @@ echo ""
 echo "=========================================="
 echo "✓ All Model Setup Complete!"
 echo "=========================================="
+
+###############################################
+# EasyOCR and the YOLO frame-selector models are take-away-only; dine-in uses
+# neither, so skip their download entirely rather than failing on it.
+###############################################
+if [ "${APP}" != "take-away" ]; then
+    echo ""
+    echo "=========================================="
+    echo "✓ All Setup Complete! (${APP})"
+    echo "=========================================="
+    exit 0
+fi
 
 ###############################################
 # SHARED VENV FOR EASYOCR + YOLO DOWNLOADS
