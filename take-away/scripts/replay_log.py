@@ -54,7 +54,14 @@ import sys
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(APP_DIR / "src"))
+# mcp_sensor.py is a local module (not an installed package — unlike the
+# removed mcp_service_sdk), so it is only importable by this standalone
+# script once src/ is on sys.path. Insert idempotently so repeated imports
+# in the same interpreter (e.g. test collection) don't accumulate duplicate
+# entries or reorder already-resolved paths.
+_SRC_DIR = str(APP_DIR / "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 
 from core.mcp_sensor import JSONLFileLog, SQLiteLog  # noqa: E402
 

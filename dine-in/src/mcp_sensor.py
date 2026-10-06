@@ -212,6 +212,9 @@ class JSONLFileLog:
         self._path = path
         self._lock = threading.Lock()
         self._seen: set[str] = set()
+        # ref_id -> seq, populated during _rebuild_state()/append() so
+        # idempotent re-appends are O(1) instead of re-scanning the file.
+        self._seq_by_ref: dict[str, int] = {}
         self._seq = 0
         directory = os.path.dirname(path)
         if directory:
@@ -227,25 +230,23 @@ class JSONLFileLog:
                 if not line:
                     continue
                 rec = json.loads(line)
-                self._seq = max(self._seq, int(rec["seq"]))
-                self._seen.add(rec["event"]["ref_id"])
+                seq = int(rec["seq"])
+                ref_id = rec["event"]["ref_id"]
+                self._seq = max(self._seq, seq)
+                self._seen.add(ref_id)
+                self._seq_by_ref[ref_id] = seq
 
     def append(self, event: EventEnvelope) -> int:
         with self._lock:
             if event.ref_id in self._seen:
-                return self._seq_of(event.ref_id)
+                return self._seq_by_ref.get(event.ref_id, 0)
             self._seq += 1
             rec = {"seq": self._seq, "event": json.loads(event.to_json())}
             with open(self._path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
             self._seen.add(event.ref_id)
+            self._seq_by_ref[event.ref_id] = self._seq
             return self._seq
-
-    def _seq_of(self, ref_id: str) -> int:
-        for rec in self._iter_records():
-            if rec["event"]["ref_id"] == ref_id:
-                return int(rec["seq"])
-        return 0
 
     def _iter_records(self) -> Iterator[dict]:
         if not os.path.exists(self._path):
@@ -467,7 +468,7 @@ class SensorService:
         """
 
         @functools.wraps(tool.fn)
-        def wrapper(**args: Any) -> Any:
-            return tool.fn(**args)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            return tool.fn(*args, **kwargs)
 
         return wrapper
