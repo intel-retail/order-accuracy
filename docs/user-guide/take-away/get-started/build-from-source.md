@@ -49,7 +49,8 @@ This builds:
 | gradio-ui      | `intel/order-accuracy-take-away-ui:2026.2.0-rc2`   |
 | rtsp-streamer  | `intel/order-accuracy-take-away-rtsp:2026.2.0-rc2` |
 
-> **Note:** `semantic-service` and OVMS (`openvino/model_server`) are always pulled — they have no local build context.
+> [!NOTE]
+> `semantic-service` and OVMS (`openvino/model_server`) are always pulled — they have no local build context.
 
 ### Build a Single Service
 

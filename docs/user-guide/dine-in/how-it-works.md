@@ -11,9 +11,6 @@ This document provides a comprehensive technical overview of the system architec
 ### Request Flow
 
 ```mermaid
----
-config: {"theme": "dark"}
----
 sequenceDiagram
     actor Staff as Staff Trigger
     participant Gradio as Gradio UI
@@ -41,7 +38,7 @@ sequenceDiagram
 | `dinein_app`              | `intel/order-accuracy-dine-in:2026.2.0-rc2`  | 7861, 8083 | Main application (Gradio + FastAPI) |
 | `dinein_ovms_vlm`         | `openvino/model_server:2026.3.1-gpu`     | 8002       | Vision-Language Model server        |
 | `dinein_semantic_service` | `intel/semantic-search-agent:2026.2.0-rc2`   | 8081, 9091 | Semantic text matching              |
-| `metrics-collector`       | `intel/hl-ai-metrics-collector:2026.1.0` | 8084       | System metrics aggregation          |
+| `metrics-collector`       | `intel/hl-ai-metrics-collector:2026.1.0` | 9000       | System metrics aggregation          |
 
 ### Network Topology
 
@@ -54,7 +51,7 @@ localhost:7861      ← Gradio UI
 localhost:8083      ← REST API
 localhost:8083/docs ← Swagger Docs
 localhost:8002      ← OVMS VLM
-localhost:8084      ← Metrics API
+localhost:9000      ← Metrics API
 localhost:8011/mcp  ← MCP Server (events, read tools)
 ```
 
@@ -167,9 +164,6 @@ FastAPI endpoints with bounded validation cache.
 Prevents cascading failures when external services are unhealthy.
 
 ```mermaid
----
-config: {"theme": "dark"}
----
 flowchart LR
     CLOSED["CLOSED"]
     OPEN["OPEN"]
@@ -252,7 +246,7 @@ Every completed validation from `/api/validate` or `/api/validate/batch`
 emits an `order_validated` or `order_failed` event, which is durably logged
 **before** it is made available to any reader — this guarantees the log
 survives process restarts and that no event is lost. See the
-[Dine-In README](../../../dine-in/README.md#mcp-server-events-durable-log-read-tools)
+[Dine-In README](https://github.com/intel-retail/order-accuracy/blob/main/dine-in/README.md#mcp-server-events-durable-log-read-tools)
 for the full event schema, read-tool list, and a runnable client example.
 
 The separate benchmark/stream-density worker (`dinein-worker`) does not
