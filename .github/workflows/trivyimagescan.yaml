@@ -28,17 +28,17 @@ jobs:
         uses: actions/checkout@v4
         with:
             ref: main
-      - name: Read dine in TAG from Makefile
+      - name: Read dine in TAG from VERSION
         id: vars
         run: |
-          TAG=$(grep -E '^(export\s+)?TAG\s*[:?]?=' dine-in/Makefile | head -n1 | sed -E 's/^(export\s+)?TAG\s*[:?]?=\s*//')
+          TAG=$(tr -d '[:space:]' < VERSION)
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
           echo "Using tag $TAG"
-          
-      - name: Read take away in TAG from Makefile
+
+      - name: Read take away in TAG from VERSION
         id: take-away-vars
         run: |
-          TAG=$(grep -E '^(export\s+)?TAG\s*[:?]?=' dine-in/Makefile | head -n1 | sed -E 's/^(export\s+)?TAG\s*[:?]?=\s*//')
+          TAG=$(tr -d '[:space:]' < VERSION)
           echo "TAG=$TAG" >> "$GITHUB_OUTPUT"
           echo "Using tag $TAG"
            

@@ -58,8 +58,9 @@ OOM_PROTECTION ?= 1
 # Performance tools path
 PERF_TOOLS_DIR ?= ../performance-tools/benchmark-scripts
 
-# Version tag for registry images
-export TAG ?= 2026.2.0-rc2
+# Version tag for registry images; repo-root VERSION is the single source of truth
+TAG ?= $(shell cat ../VERSION 2>/dev/null || echo latest)
+export TAG
 
 # Sample video for quick-start testing (orders 384 → 651 → 925)
 #   SAMPLE_VIDEO_URL=<url> make download-sample-video
