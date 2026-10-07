@@ -1,0 +1,33 @@
+# Export environment for openbmb/MiniCPM-V-4_5 -> OpenVINO IR.
+#
+# Owned by this repo rather than downloaded from a model_server release branch:
+# those files are unpinned on transformers and resolve to the transformers 5 /
+# huggingface_hub 1.x generation, which cannot load MiniCPM-V's trust_remote_code
+# modeling file (written against transformers 4.51).
+#
+# The transformers ceiling below is enforced independently by optimum-intel
+# (<4.56,>=4.45) and optimum-onnx (<4.56), so pip cannot drift to v5 and drag
+# huggingface_hub past 1.0.
+#
+# Deliberately omitted: datasets, diffusers. Both require huggingface_hub>=1.31
+# and neither is used by a weight-only VLM export.
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+optimum-intel[openvino]==1.26.0
+transformers>=4.51,<4.56
+
+nncf==2.19.0
+openvino==2025.4.1
+openvino-tokenizers==2025.4.1.0
+
+torch==2.9.1+cpu
+torchvision
+
+accelerate==1.11.0
+einops==0.8.1
+timm==1.0.22
+sentencepiece==0.2.1
+jinja2
+pillow
+protobuf
