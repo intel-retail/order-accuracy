@@ -71,7 +71,7 @@ REGISTRY ?= true
 # intel/retail-benchmark is published from performance-tools on its own
 # release cadence and does not track the take-away TAG above. Pin to the
 # last known published tag (override with BENCHMARK_TAG=... if needed).
-BENCHMARK_TAG ?= 2026.2.0-rc2
+BENCHMARK_TAG ?= 2026.2.0
 REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(BENCHMARK_TAG)
 
 # Benchmark Order Accuracy settings
