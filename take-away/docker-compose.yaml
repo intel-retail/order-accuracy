@@ -289,7 +289,7 @@ services:
   # cadence, so it does not track the take-away TAG. Pin to the last known
   # published tag here, or override via SEMANTIC_SEARCH_IMAGE in .env.
   semantic-service:
-    image: ${SEMANTIC_SEARCH_IMAGE:-intel/semantic-search-agent:2026.2.0-rc2}
+    image: ${SEMANTIC_SEARCH_IMAGE:-intel/semantic-search-agent:2026.2.0}
     container_name: oa_semantic_service
     ports:
       - "8080:8080"
@@ -379,7 +379,7 @@ services:
     # NOTE: published from performance-tools on its own release cadence, so it
     # does not track the take-away TAG. Pin to the last known published tag
     # here, or override via BENCHMARK_IMAGE in .env.
-    image: ${BENCHMARK_IMAGE:-intel/retail-benchmark:2026.2.0-rc2}
+    image: ${BENCHMARK_IMAGE:-intel/retail-benchmark:2026.2.0}
     container_name: metrics-collector
     profiles:
       - benchmark
