@@ -104,7 +104,8 @@ make up REGISTRY=false
 
 Order Accuracy is agentic-ready: it is a **sensor** (detect/report only, no
 runtime actions) that exposes an [MCP](https://modelcontextprotocol.io)
-server over `mcp-service-sdk`, alongside a durable, restart-safe event log.
+server built directly on FastMCP (via a small local `mcp_sensor` module;
+see below), alongside a durable, restart-safe event log.
 
 **Events emitted** (one per completed order, right after validation):
 

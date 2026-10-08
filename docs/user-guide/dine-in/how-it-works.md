@@ -220,8 +220,8 @@ class BoundedValidationCache:
 
 Order Accuracy is a **sensor**, not an actor: it detects and reports order
 outcomes but never takes runtime actions. This is exposed to agents/other
-services through an [MCP](https://modelcontextprotocol.io) server built on
-`mcp-service-sdk`, separate from the REST API used by the Gradio UI.
+services through an [MCP](https://modelcontextprotocol.io) server built directly on FastMCP via a small local `mcp_sensor`
+module, separate from the REST API used by the Gradio UI.
 
 ```text
 Order Result (api.py)

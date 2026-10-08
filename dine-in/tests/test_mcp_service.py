@@ -325,7 +325,9 @@ def test_no_action_tools_registered(mcp):
     """Issue #102: 'A: none (read/detect only)' — Order Accuracy is a sensor."""
     described = mcp.svc.describe()
     assert described["act_tools"] == {}
-    assert mcp.svc._act_tools == {}
+    # SensorService has no act-tool machinery at all (by construction),
+    # unlike the old SDK-backed ServiceServer which had an (unused) _act_tools.
+    assert not hasattr(mcp.svc, "_act_tools")
 
 
 def test_describe_exposes_expected_read_tools_and_event_types(mcp):

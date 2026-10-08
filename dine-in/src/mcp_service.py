@@ -3,7 +3,9 @@
 Same architecture as the Take-away application
 (``take-away/src/core/mcp_service.py``): Order Accuracy is a **sensor** — it
 detects and reports, it does not act. This module is the *only* place that
-talks to ``mcp_service_sdk``. It:
+talks to the MCP scaffolding (``mcp_sensor.SensorService``, built directly on
+FastMCP — see that module's docstring for why this service no longer depends
+on the shared ``mcp-service-sdk`` package). It:
 
   1. Declares the two Dine-in domain events (``order_validated`` /
      ``order_failed``) derived from ``services.validation_service``'s
@@ -50,7 +52,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from mcp_service_sdk import Delivery, ServiceConfig, ServiceServer, WebhookSink
+from mcp_sensor import Delivery, JSONLFileLog, SensorService, SQLiteLog, WebhookSink
 
 from services.order_events import create_order_event
 
@@ -114,26 +116,37 @@ MCP_PORT = int(os.getenv("MCP_PORT", "8011"))
 _EVENT_TYPES = ("order_validated", "order_failed")
 
 
-def _build_service() -> ServiceServer:
-    # Delivery is intentionally NOT wired through ServiceConfig here: the
-    # SDK's own webhook delivery is synchronous inside svc.emit() (retries
-    # 3x with 5s timeouts + backoff), which would block the calling
-    # validation request for up to ~16.5s if the callback is slow or down.
-    # Instead this service always builds with delivery="off" (an instant
-    # no-op) and, when MCP_WEBHOOK_URL is set, dispatches the SAME SDK
-    # WebhookSink from a background thread after the event is already
-    # durably logged (see _safe_emit / _ASYNC_WEBHOOK_DELIVERY below). The
-    # durable log write itself remains synchronous — only the outbound HTTP
-    # push is moved off the request's critical path.
-    cfg = ServiceConfig(
+def _build_log():
+    """Select the durable log backend, honoring MCP_SERVICE_ENABLED/MCP_LOG_BACKEND.
+
+    Mirrors the previous ``ServiceConfig(log_backend=...)`` selection
+    one-for-one: "memory" when the service is disabled (clean benchmark
+    runs), otherwise whatever ``MCP_LOG_BACKEND`` selects.
+    """
+    backend = MCP_LOG_BACKEND if MCP_SERVICE_ENABLED else "memory"
+    if backend in ("sqlite", "memory"):
+        path = ":memory:" if backend == "memory" else MCP_LOG_PATH
+        return SQLiteLog(path=path, service="order_accuracy_dine_in")
+    if backend == "jsonl":
+        return JSONLFileLog(path=MCP_LOG_PATH, service="order_accuracy_dine_in")
+    raise ValueError(f"unknown MCP_LOG_BACKEND: {backend}")
+
+
+def _build_service() -> SensorService:
+    # Delivery is intentionally NOT wired into the service: the SDK's own
+    # webhook delivery used to be synchronous inside svc.emit() (retries 3x
+    # with 5s timeouts + backoff), which would block the calling validation
+    # request for up to ~16.5s if the callback is slow or down. Instead this
+    # service always logs durably first and, when MCP_WEBHOOK_URL is set,
+    # dispatches a WebhookSink from a background thread after the event is
+    # already durably logged (see _safe_emit / _ASYNC_WEBHOOK_DELIVERY
+    # below). The durable log write itself remains synchronous — only the
+    # outbound HTTP push is moved off the request's critical path.
+    return SensorService(
         service="order_accuracy_dine_in",
         store_id=STORE_ID,
-        log_backend=MCP_LOG_BACKEND if MCP_SERVICE_ENABLED else "memory",
-        log_path=MCP_LOG_PATH,
-        delivery="off",
-        webhook_url=None,
+        log=_build_log(),
     )
-    return ServiceServer.from_config(cfg)
 
 
 svc = _build_service()

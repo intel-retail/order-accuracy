@@ -18,12 +18,13 @@ What this does:
     (re)delivery.
 
 Why this is deterministic:
-  ``mcp_service_sdk``'s ``SQLiteLog``/``JSONLFileLog`` both store each
-  event's full envelope (including its original ``ts_ms``) verbatim at
-  append time (see ``core/mcp_service.py``'s ``emit_order_result()`` ->
-  ``svc.emit()``). ``replay()`` reads records back in ``seq`` order without
-  regenerating or mutating any field, so running this script twice against
-  the same, unmodified log always prints byte-identical output.
+  ``mcp_sensor``'s ``SQLiteLog``/``JSONLFileLog`` (vendored locally — see
+  ``src/core/mcp_sensor.py``) both store each event's full envelope
+  (including its original ``ts_ms``) verbatim at append time (see
+  ``core/mcp_service.py``'s ``emit_order_result()`` -> ``svc.emit()``).
+  ``replay()`` reads records back in ``seq`` order without regenerating or
+  mutating any field, so running this script twice against the same,
+  unmodified log always prints byte-identical output.
 
 Why this is safe:
   This script never calls ``svc.emit()`` or ``log.append()``, so it cannot
@@ -48,11 +49,56 @@ run inside the container with the default configuration).
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import os
 import sys
 from pathlib import Path
 
-from mcp_service_sdk.log import JSONLFileLog, SQLiteLog  # noqa: E402
+APP_DIR = Path(__file__).resolve().parents[1]
+
+
+def _load_mcp_sensor():
+    """Load ``mcp_sensor.py`` directly from its file, bypassing ``core``'s
+    package ``__init__.py``.
+
+    ``mcp_sensor.py`` lives inside the ``core`` package (alongside
+    application modules such as ``pipeline_runner``/``validation_agent``),
+    but is itself a self-contained, dependency-free module (no relative
+    imports). A plain ``from core.mcp_sensor import ...`` would first run
+    ``core/__init__.py``, which eagerly imports unrelated app dependencies
+    (``minio``) and, when ``USE_SEMANTIC_SERVICE=true`` (the Compose
+    default), performs a network health check — before this script even
+    parses its arguments. Loading the file directly avoids all of that.
+
+    Supports the source-checkout layout (``take-away/src/core/``) and both
+    Docker image copies of this script: ``/app/scripts/`` (``APP_DIR`` is
+    ``/app``, so ``core`` is a sibling at ``/app/core/``) and the one
+    actually invoked by ``make replay``, ``/scripts/`` (``APP_DIR`` is
+    ``/``, so ``core`` is *not* a sibling — ``/app/core/`` is checked as a
+    fixed fallback, matching the Dockerfile's ``COPY src/core/ /app/core/``
+    and ``ENV PYTHONPATH=/app:...``).
+    """
+    candidates = (
+        APP_DIR / "src" / "core" / "mcp_sensor.py",
+        APP_DIR / "core" / "mcp_sensor.py",
+        Path("/app/core/mcp_sensor.py"),
+    )
+    for candidate in candidates:
+        if candidate.exists():
+            spec = importlib.util.spec_from_file_location("_oa_mcp_sensor", candidate)
+            module = importlib.util.module_from_spec(spec)
+            # dataclasses' internals resolve forward references via
+            # sys.modules[cls.__module__], so the module must be registered
+            # there before exec_module() runs its class bodies.
+            sys.modules[spec.name] = module
+            spec.loader.exec_module(module)
+            return module
+    raise ImportError(f"mcp_sensor.py not found; checked {', '.join(str(c) for c in candidates)}")
+
+
+_mcp_sensor = _load_mcp_sensor()
+JSONLFileLog = _mcp_sensor.JSONLFileLog
+SQLiteLog = _mcp_sensor.SQLiteLog
 
 # Matches core/mcp_service.py's own RESULTS_DIR/MCP_LOG_BACKEND default
 # convention ("/results", the path docker-compose's ``results/`` bind mount

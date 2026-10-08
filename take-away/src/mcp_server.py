@@ -3,24 +3,16 @@
 
 Exposes ``describe`` and the three required read tools
 (``get_rework_rate``, ``get_order_history``, ``get_station_totals``) over
-MCP. No action tools are registered: Order Accuracy is a sensor.
+MCP, built directly on FastMCP via ``mcp_sensor.SensorService`` (see that
+module's docstring for the rationale for no longer depending on the shared
+``mcp-service-sdk`` package).
 
-Issue #102 explicitly requires "no subscribe/callback" on this server, but
-``mcp_service_sdk.ServiceServer.to_mcp()`` unconditionally binds a
-``subscribe`` tool as part of its own MCP scaffolding — there is no
-``ServiceConfig`` flag or supported constructor argument to suppress it (see
-the SDK's ``server.py``: the ``@app.tool(name="subscribe", ...)`` binding is
-hard-coded inside ``to_mcp()``, right alongside ``describe``). Since the SDK
-is pinned to a shared upstream commit used by both applications, patching it
-directly would be a fork with its own maintenance cost for one tool.
-
-Instead, this module builds the MCP app the same way ``ServiceServer.run()``
-would (``svc.to_mcp()``), then removes the unwanted ``subscribe`` tool at the
-FastMCP layer via the underlying provider's public ``remove_tool()`` API —
-an application-level, SDK-untouched fix. This only changes what is exposed
-over the wire; it does not touch ``ServiceServer.subscribe()`` or
-``_subscriptions`` internals, which remain unused by this application either
-way.
+Order Accuracy is a sensor (Issue #102: "A: none (read/detect only)"), so
+``SensorService.to_mcp()`` only ever binds ``describe`` plus the registered
+read tools — there is no ``subscribe``/callback tool and no action tool to
+strip after construction; the previous SDK-era workaround that removed a
+forced ``subscribe`` tool post-hoc no longer applies because nothing here
+ever adds one.
 
 Run directly:
     python -m mcp_server
@@ -37,32 +29,10 @@ from core.mcp_service import MCP_HOST, MCP_PORT, MCP_SERVICE_ENABLED, MCP_TRANSP
 
 logger = logging.getLogger(__name__)
 
-# Application-defined MCP tools this service is allowed to expose over the
-# wire, per Issue #102 ("no subscribe/callback"). Anything the SDK's
-# to_mcp() adds beyond this set is stripped in _build_app().
-_DISALLOWED_TOOLS = ("subscribe",)
-
 
 def _build_app():
-    """Build the MCP app via the SDK, then strip disallowed SDK-default tools.
-
-    ``ServiceServer.to_mcp()`` returns a live FastMCP app object; removing a
-    tool afterwards is a normal FastMCP operation (``LocalProvider.
-    remove_tool``), not an SDK modification. Issue #102 requires "no
-    subscribe/callback" as a hard constraint, so if a future FastMCP/SDK
-    version changes this internal shape and removal fails, we fail startup
-    closed (raise) rather than silently serve a forbidden tool.
-    """
-    app = svc.to_mcp()
-    for name in _DISALLOWED_TOOLS:
-        try:
-            app._local_provider.remove_tool(name)
-            logger.info("[MCP] Removed disallowed tool '%s' from MCP surface", name)
-        except Exception as exc:
-            raise RuntimeError(
-                f"Could not remove disallowed tool '{name}' from MCP surface"
-            ) from exc
-    return app
+    """Build the MCP app: ``describe`` plus the registered read tools only."""
+    return svc.to_mcp()
 
 
 def run_mcp_server() -> None:

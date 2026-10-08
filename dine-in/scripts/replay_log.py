@@ -18,12 +18,13 @@ What this does:
     (re)delivery.
 
 Why this is deterministic:
-  ``mcp_service_sdk``'s ``SQLiteLog``/``JSONLFileLog`` both store each
-  event's full envelope (including its original ``ts_ms``) verbatim at
-  append time (see ``src/mcp_service.py``'s ``emit_order_result()`` ->
-  ``svc.emit()``). ``replay()`` reads records back in ``seq`` order without
-  regenerating or mutating any field, so running this script twice against
-  the same, unmodified log always prints byte-identical output.
+  ``mcp_sensor``'s ``SQLiteLog``/``JSONLFileLog`` (vendored locally — see
+  that module's docstring) both store each event's full envelope (including
+  its original ``ts_ms``) verbatim at append time (see ``src/mcp_service.py``
+  's ``emit_order_result()`` -> ``svc.emit()``). ``replay()`` reads records
+  back in ``seq`` order without regenerating or mutating any field, so
+  running this script twice against the same, unmodified log always prints
+  byte-identical output.
 
 Why this is safe:
   This script never calls ``svc.emit()`` or ``log.append()``, so it cannot
@@ -52,8 +53,16 @@ import sys
 from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parents[1]
+# mcp_sensor.py is a local module (not an installed package — unlike the
+# removed mcp_service_sdk), so it is only importable by this standalone
+# script once src/ is on sys.path. Insert idempotently so repeated imports
+# in the same interpreter (e.g. test collection) don't accumulate duplicate
+# entries or reorder already-resolved paths.
+_SRC_DIR = str(APP_DIR / "src")
+if _SRC_DIR not in sys.path:
+    sys.path.insert(0, _SRC_DIR)
 
-from mcp_service_sdk.log import JSONLFileLog, SQLiteLog  # noqa: E402
+from mcp_sensor import JSONLFileLog, SQLiteLog  # noqa: E402
 
 _DEFAULT_LOG_BACKEND = os.getenv("MCP_LOG_BACKEND", "sqlite")
 _DEFAULT_LOG_PATH = str(

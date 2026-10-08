@@ -576,8 +576,8 @@ services:
 
 Order Accuracy is a **sensor**, not an actor: it detects and reports order
 outcomes but never takes runtime actions. This is exposed to agents/other
-services through an [MCP](https://modelcontextprotocol.io) server built on
-`mcp-service-sdk`, separate from the REST API on port 8000.
+services through an [MCP](https://modelcontextprotocol.io) server built directly on FastMCP via a small local `mcp_sensor`
+module, separate from the REST API on port 8000.
 
 ```text
 Order Result (station_worker.py / vlm_service.py)

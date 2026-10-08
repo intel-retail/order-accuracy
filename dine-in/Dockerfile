@@ -19,10 +19,10 @@ RUN rm -f /etc/apt/sources.list.d/intel-gpu*.list 2>/dev/null; \
 COPY requirements.txt .
 
 # Remove the apt-provided python3-jwt: it has no pip RECORD metadata, so pip
-# cannot uninstall/upgrade it when the mcp-service-sdk/fastmcp dependency
-# chain (via the mcp package) requires a newer PyJWT, causing the install to
-# fail with "Cannot uninstall PyJWT ... no RECORD file was found". Same fix
-# as take-away/Dockerfile (both share the intel/dlstreamer base image).
+# cannot uninstall/upgrade it when the fastmcp dependency chain (via the mcp
+# package) requires a newer PyJWT, causing the install to fail with "Cannot
+# uninstall PyJWT ... no RECORD file was found". Same fix as
+# take-away/Dockerfile (both share the intel/dlstreamer base image).
 RUN apt-get remove -y --purge python3-jwt 2>/dev/null || true
 
 # Install Python dependencies
