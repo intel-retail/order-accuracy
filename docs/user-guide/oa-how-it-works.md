@@ -255,13 +255,15 @@ Request batching scheduler optimizing OVMS throughput.
 
 Prevents cascading failures when external services are unhealthy.
 
+#### Dine-In Circuit Breaker Pattern
+
 ```mermaid
 flowchart LR
     CLOSED["CLOSED"]
     OPEN["OPEN"]
     HALFOPEN["HALF-OPEN"]
 
-    CLOSED -- "5 consecutive failures" --> OPEN
+    CLOSED -- "5 consecutive failures, decrementing by 1 on success" --> OPEN
     OPEN -- "30s timeout" --> HALFOPEN
     HALFOPEN -- "2 successes" --> CLOSED
     HALFOPEN -- "1 failure" --> OPEN
@@ -271,6 +273,27 @@ flowchart LR
 
 - VLM Client: 5 failures → OPEN, 30s recovery → HALF-OPEN
 - Semantic Client: 15s recovery timeout (faster than VLM)
+
+#### Take-Away Circuit Breaker Pattern
+
+```mermaid
+flowchart LR
+  CLOSED["CLOSED<br/>(Pipeline operating)"]
+  OPEN["OPEN<br/>(Circuit tripped)"]
+  RETRY["Retry check<br/>(Cooldown elapsed)"]
+
+  CLOSED -- "5 failures<br/>within failure window" --> OPEN
+
+  OPEN -- "10s cooldown elapsed" --> RETRY
+  RETRY -- "RTSP probe succeeds<br/>reset breaker and restart pipeline" --> CLOSED
+  RETRY -- "RTSP probe fails<br/>reset cooldown timer" --> OPEN
+```
+
+**Configuration:**
+
+- Failure threshold: 5 failures
+- Time window: 300 seconds (5 minutes)
+- Cooldown period: 10 seconds
 
 ### Connection Pooling
 
