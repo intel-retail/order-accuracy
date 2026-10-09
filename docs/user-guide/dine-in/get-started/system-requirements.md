@@ -32,6 +32,7 @@ instead of dedicated VRAM; in such a case, use a smaller value (e.g. `CACHE_SIZE
 exhausting system RAM. Set `export CACHE_SIZE=<N>` before running `setup_models.sh`. For a
 full per-platform sizing table and step-by-step instructions see [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/release-2026.2.0/ovms-service/README.md#tuning-the-kv-cache-size).
 
+> [!NOTE]
 > **Model Export RAM Note:** 16 GB system RAM is sufficient for **inference-only**
 > deployments. For first-time model export (`setup_models.sh` INT8 quantization), a
 > higher-memory host (48–64 GB recommended) avoids potential OOM and corrupt IR files — export
@@ -75,7 +76,7 @@ Expected output includes `GPU`.
 | REST API          | 8083 | FastAPI endpoints            |
 | OVMS VLM          | 8002 | Model inference (external)   |
 | Semantic Service  | 8081 | Semantic matching (external) |
-| Metrics Collector | 8084 | System metrics               |
+| Metrics Collector | 9000 | System metrics               |
 
 ---
 
@@ -83,7 +84,7 @@ Expected output includes `GPU`.
 
 - [ ] Docker and Docker Compose installed and working
 - [ ] Intel GPU drivers installed and GPU visible to Docker
-- [ ] Required ports available (7861, 8083, 8002, 8081, 8084)
+- [ ] Required ports available (7861, 8083, 8002, 8081, 9000)
 - [ ] At least 50 GB free disk space
 - [ ] **16 GB+ RAM available** (sufficient for inference; for first-time model export 48–64 GB recommended — export on a high-RAM host and copy `ovms-service/models/` to the target system)
 - [ ] VLM model downloaded (`setup_models.sh` completed)

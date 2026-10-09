@@ -6,17 +6,19 @@ This guide walks you through installation, configuration, and first run of the D
 
 1. [Prerequisites](#prerequisites)
 2. [Installation](#installation)
-3. [Verifying Installation](#verifying-installation)
+3. [Verify the Installation](#verify-the-installation)
 4. [First Order Validation](#first-order-validation)
 
 ## Prerequisites
+
+For detailed hardware and software requirements, see the [System Requirements](./get-started/system-requirements.md) guide.
 
 - Docker 24.0+ with Compose V2
 - Intel GPU with drivers installed
 - 16 GB RAM minimum (64 GB recommended for production)
 - 50 GB free disk space
 
-> **Notes:**
+> [!NOTE]
 > **KV Cache on iGPU / low-RAM systems:** 16 GB RAM is sufficient for **inference**.
 > For first-time model export, a higher-memory host (48–64 GB) is recommended.
 > On iGPU platforms, the KV cache is allocated from **system RAM** — set `export CACHE_SIZE=2`
@@ -33,7 +35,7 @@ docker compose version
 ### Step 1: Clone the Repository
 
 ```bash
-git clone -b release-2026.2.0 https://github.com/intel-retail/order-accuracy.git
+git clone -b release-2026.2.0 --single-branch https://github.com/intel-retail/order-accuracy.git
 cd order-accuracy/dine-in
 ```
 
@@ -58,8 +60,6 @@ cd ../ovms-service
 cd ../dine-in
 ```
 
-> **Note:** Only needed once. Model files are shared between Dine-In and Take-Away.
-
 This downloads MiniCPM-V-4.5 and converts it to OpenVINO™ INT4 format. This is only needed once — the model files are shared with Take-Away.
 
 ### Step 4: Prepare Test Data
@@ -67,12 +67,12 @@ This downloads MiniCPM-V-4.5 and converts it to OpenVINO™ INT4 format. This is
 Before running the application, you must prepare your test data:
 
 1. **Add Images**: Place your food tray images in the `images/` folder
-   - Supported formats: `.jpg`, `.jpeg`, `.png`
+   - Supported formats: `.jpg`, `.jpeg` or `.png`
    - Images should clearly show the food items on the tray
 
 2. **Update Orders**: Edit `configs/orders.json` with your test orders
-   - Each order should have an `order_id` and list of `items`
-   - `order_id` should match your `image_id`
+   - Each order should have an `items_ordered` entry, each with `item` and `quantity`
+   - `image_id` should match your image filenames in the `images/` folder
 
 3. **Update Inventory**: Edit `configs/inventory.json` to match your menu items
    - Define all possible food items that can appear in orders
@@ -95,11 +95,11 @@ This starts 4 containers:
 | `dinein_app`              | 7861, 8083 | Gradio UI + FastAPI     |
 | `dinein_ovms_vlm`         | 8002       | VLM model server (OVMS) |
 | `dinein_semantic_service` | 8081, 9091 | Semantic matching       |
-| `metrics-collector`       | 8084       | System metrics          |
+| `metrics-collector`       | 9000       | System metrics          |
 
 ---
 
-## Verifying Installation
+## Verify the Installation
 
 ```bash
 # API health check
@@ -149,7 +149,7 @@ curl -X POST "http://localhost:8083/api/validate" \
 # Expected: order_complete=true, accuracy_score=1.0
 ```
 
-### Via Make
+### Via Make Target
 
 ```bash
 # Services must be running first

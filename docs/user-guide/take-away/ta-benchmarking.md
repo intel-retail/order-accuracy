@@ -2,13 +2,15 @@
 
 This guide covers performance testing, stream density benchmarking, and metrics collection for the Take-Away Order Accuracy system.
 
-> **Note — Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
+> [!IMPORTANT]
+>
+> **Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
 >
 > 1. Set **both** variables in your `.env` file:
 >
 >    ```bash
->    TARGET_DEVICE=GPU      # used by setup_models.sh and docker-compose
->    OPENVINO_DEVICE=GPU    # used by the Makefile benchmark targets
+>    TARGET_DEVICE=CPU      # used by setup_models.sh and docker-compose
+>    OPENVINO_DEVICE=CPU    # used by the Makefile benchmark targets
 >    ```
 >
 > 2. Re-export the model for the new device:
@@ -56,12 +58,14 @@ make update-submodules
 make up
 ```
 
-> **Important:** Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
+> [!IMPORTANT]
+> Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
 >
 > ```bash
 > make download-sample-video
 > ```
 
+> [!CAUTION]
 > **Order manifests:** The benchmark validates the orders detected in the video
 > against `config/orders.json`. Order IDs must match the order numbers shown in
 > the video, and each order's expected items must match what is actually visible.
@@ -123,6 +127,8 @@ make benchmark-stream-density \
 | `BENCHMARK_WORKER_INCREMENT`  | `1`     | Workers added per iteration                            |
 | `BENCHMARK_INIT_DURATION`     | `10`    | Warmup time per iteration (seconds)                    |
 | `BENCHMARK_MIN_TRANSACTIONS`  | `1`     | Min transactions before measuring latency              |
+| `BENCHMARK_WORKERS`           | `1`     | Number of workers (fixed mode)                         |
+| `BENCHMARK_DURATION`          | `200`   | Test duration (seconds)                                |
 | `OOM_PROTECTION`              | `1`     | Set to `0` to disable OOM protection (not recommended) |
 
 ---
@@ -142,12 +148,12 @@ results/
 # View VLM metrics
 make benchmark-oa-metrics
 
-# View all result files
+# View benchmark results
 make benchmark-oa-results
 
-# Consolidate metrics from multiple runs into a single CSV
+# Consolidate metrics from multiple runs into a single CSV file
 make consolidate-metrics
 
-# Generate plots from consolidated metrics
+# Generate plots from the consolidated metrics
 make plot-metrics
 ```
