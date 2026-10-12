@@ -382,8 +382,58 @@ USE_STATION_QUEUE = os.environ.get('USE_STATION_QUEUE', 'true').lower() == 'true
 VLM_FIRE_AND_FORGET = os.environ.get('VLM_FIRE_AND_FORGET', 'true').lower() == 'true'
 
 # Thread pool for fire-and-forget HTTP calls
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor, wait
 _vlm_executor = ThreadPoolExecutor(max_workers=8, thread_name_prefix="VLM-Fire")
+_vlm_futures_lock = threading.Lock()
+_vlm_futures: Dict[str, Set] = {}
+_vlm_errors: Dict[str, List[Exception]] = {}
+
+
+def wait_for_station_vlm(station_id: str):
+    """Wait for VLM requests submitted for a station to finish."""
+    station_queue = _station_vlm_queues.get(station_id)
+    if station_queue:
+        station_queue.wait_until_idle()
+
+    while True:
+        with _vlm_futures_lock:
+            errors = _vlm_errors.pop(station_id, [])
+            pending = set(_vlm_futures.get(station_id, set()))
+        if errors:
+            raise RuntimeError(f"VLM request failed: {errors[0]}") from errors[0]
+        if not pending:
+            return
+        wait(pending)
+        errors = [future.exception() for future in pending if future.exception()]
+        with _vlm_futures_lock:
+            _vlm_futures.get(station_id, set()).difference_update(pending)
+        if errors:
+            raise RuntimeError(f"VLM request failed: {errors[0]}") from errors[0]
+
+
+def finalize_video_status(station_id: str, video_id: str):
+    """Update API video history after all station validation calls finish."""
+    api_base = VLM_ENDPOINT.rsplit("/run_vlm", 1)[0]
+    try:
+        wait_for_station_vlm(station_id)
+        response = requests.post(
+            f"{api_base}/videos/{video_id}/complete", timeout=10
+        )
+        response.raise_for_status()
+        logger.info(f"[{station_id}] Video {video_id} marked completed")
+    except Exception as e:
+        logger.exception(f"[{station_id}] Video {video_id} processing failed: {e}")
+        try:
+            response = requests.post(
+                f"{api_base}/videos/{video_id}/fail",
+                params={"error": str(e)},
+                timeout=10,
+            )
+            response.raise_for_status()
+        except Exception as status_error:
+            logger.error(
+                f"[{station_id}] Could not mark video {video_id} failed: {status_error}"
+            )
 
 
 def _fire_vlm_request(order_id: str, station_id: str, endpoint: str):
@@ -396,16 +446,18 @@ def _fire_vlm_request(order_id: str, station_id: str, endpoint: str):
         logger.info(f"[VLM-FIRE] Firing request: order_id={order_id}, station_id={station_id}")
         # Short timeout for connection, but don't wait for full response
         resp = requests.post(endpoint, json=payload, timeout=300)
-        if resp.status_code == 200:
-            result = resp.json()
-            status = result.get('status', 'unknown')
-            logger.info(f"[VLM-FIRE] Completed: order_id={order_id}, status={status}")
-        else:
-            logger.warning(f"[VLM-FIRE] Non-200 response for order_id={order_id}: {resp.status_code}")
+        resp.raise_for_status()
+        result = resp.json()
+        status = result.get('status', 'unknown')
+        if status not in ('validated', 'mismatch'):
+            raise RuntimeError(f"VLM returned status={status} for order_id={order_id}")
+        logger.info(f"[VLM-FIRE] Completed: order_id={order_id}, status={status}")
     except requests.exceptions.Timeout:
         logger.error(f"[VLM-FIRE] Timeout for order_id={order_id}")
+        raise
     except Exception as e:
         logger.error(f"[VLM-FIRE] Error for order_id={order_id}: {e}")
+        raise
 
 
 def fire_and_forget_vlm(order_id: str, station_id: str):
@@ -413,7 +465,15 @@ def fire_and_forget_vlm(order_id: str, station_id: str):
     Submit VLM request without blocking. Returns immediately.
     The request is processed by vlm_service which writes results.
     """
-    _vlm_executor.submit(_fire_vlm_request, order_id, station_id, VLM_ENDPOINT)
+    future = _vlm_executor.submit(_fire_vlm_request, order_id, station_id, VLM_ENDPOINT)
+    with _vlm_futures_lock:
+        futures = _vlm_futures.setdefault(station_id, set())
+        completed = {pending for pending in futures if pending.done()}
+        errors = [pending.exception() for pending in completed if pending.exception()]
+        futures.difference_update(completed)
+        if errors:
+            _vlm_errors.setdefault(station_id, []).extend(errors)
+        futures.add(future)
     logger.info(f"[VLM-FIRE] Submitted: order_id={order_id}, station_id={station_id}")
     return {"status": "fired", "order_id": order_id, "station_id": station_id}
 class StationVLMQueue:
@@ -439,6 +499,7 @@ class StationVLMQueue:
         self._lock = threading.Lock()
         self._current_order: Optional[str] = None
         self._processed_count = 0
+        self._errors = []
         
         logger.info(f"[STATION-QUEUE][{station_id}] Queue initialized")
     
@@ -490,6 +551,12 @@ class StationVLMQueue:
             "station_id": self.station_id,
             "queue_depth": queue_size + 1
         }
+
+    def wait_until_idle(self):
+        self._queue.join()
+        errors, self._errors = self._errors, []
+        if errors:
+            raise RuntimeError(f"Queued VLM request failed: {errors[0]}") from errors[0]
     
     def _worker_loop(self):
         """Worker thread: process orders from queue sequentially."""
@@ -520,6 +587,7 @@ class StationVLMQueue:
                     logger.info(f"[STATION-QUEUE][{self.station_id}] Order {order_id} completed "
                                 f"(processed_count={self._processed_count})")
                 except Exception as e:
+                    self._errors.append(e)
                     logger.error(f"[STATION-QUEUE][{self.station_id}] Order {order_id} failed: {e}")
                 finally:
                     self._current_order = None
@@ -868,12 +936,20 @@ def list_frames_sorted(station_id: str):
     logger.debug(f"Listing frames from bucket: {FRAMES_BUCKET} (station: {station_id})")
     frames = []
     eos_seen = False
+    eos_video_id = None
     finalized_order_ids = set()  # orders whose upload is complete
 
     for obj in client.list_objects(FRAMES_BUCKET, recursive=True):
         # Station-level EOS — full end-of-video cleanup signal
         if obj.object_name == f"{station_id}/__EOS__":
             eos_seen = True
+            eos_object = client.get_object(FRAMES_BUCKET, obj.object_name)
+            try:
+                marker = eos_object.read().decode("utf-8").strip()
+                eos_video_id = marker if marker and marker != "done" else None
+            finally:
+                eos_object.close()
+                eos_object.release_conn()
             logger.info(f"EOS marker detected for station {station_id}")
             continue
 
@@ -903,7 +979,7 @@ def list_frames_sorted(station_id: str):
     frames.sort(key=lambda x: x[1])
     logger.debug(f"Found {len(frames)} frames for station {station_id}, eos_seen={eos_seen}, "
                  f"finalized_orders={finalized_order_ids}")
-    return frames, eos_seen, finalized_order_ids
+    return frames, eos_seen, finalized_order_ids, eos_video_id
 
 
 def load_image(key):
@@ -1271,7 +1347,7 @@ def process_station(station_id: str, state: StationState) -> bool:
     Returns True if EOS was detected for this station.
     """
     try:
-        frames, eos_seen, finalized_order_ids = list_frames_sorted(station_id)
+        frames, eos_seen, finalized_order_ids, eos_video_id = list_frames_sorted(station_id)
     except S3Error as e:
         logger.error(f"[{station_id}] MinIO list error: {e}")
         return False
@@ -1451,6 +1527,14 @@ def process_station(station_id: str, state: StationState) -> bool:
         logger.info(f"[{station_id}][MAIN-LOOP] Clearing state for next video")
         state.reset()
         
+        if eos_video_id:
+            threading.Thread(
+                target=finalize_video_status,
+                args=(station_id, eos_video_id),
+                name=f"VideoStatus-{station_id}",
+                daemon=True,
+            ).start()
+
         return True  # EOS detected
     
     return False
