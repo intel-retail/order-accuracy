@@ -2,7 +2,8 @@
 
 Guide to using the Dine-In Order Accuracy application features.
 
-> **Note — `TARGET_DEVICE`:** To change the inference device, set `TARGET_DEVICE` in `.env` to `GPU` or `CPU`, then re-run setup:
+> [!NOTE]
+> **Inference Device:** To change the inference device, set `TARGET_DEVICE` in `.env` to `GPU` or `CPU`, then re-run setup:
 >
 > ```bash
 > cd ../ovms-service && ./setup_models.sh --app dine-in && cd ../dine-in
@@ -15,7 +16,8 @@ Access the web interface at `http://localhost:7861`.
 
 ### Interface Overview
 
-> **Note — negative test case:** The default MCD-1001 scenario in the Gradio UI
+> [!NOTE]
+> **Negative test case:** The default MCD-1001 scenario in the Gradio UI
 > intentionally submits a mismatched order (Cheeseburger / French Fries) against a tray
 > image that contains Filet-O-Fish and Cheesy Fries. This demonstrates the application's
 > ability to detect an incorrect order. The result will show `order_complete: ✗`. To see a
@@ -215,6 +217,7 @@ make fetch-benchmark
 
 For a quick validation test with curl:
 
+> [!NOTE]
 > **Prerequisite:** Services must be running. Start them first with `make up`.
 
 ```bash

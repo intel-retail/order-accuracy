@@ -431,6 +431,7 @@ rtspsrc location=<url> latency=0 buffer-mode=0 protocols=tcp ntp-sync=false do-r
 }
 ```
 
+> [!NOTE]
 > **`enable_thinking`:** MiniCPM-V-4.5 is a hybrid reasoning model. Unless
 > thinking is explicitly disabled, its chat template opens a `<think>` block and
 > the entire `max_completion_tokens` budget is spent on reasoning, leaving the

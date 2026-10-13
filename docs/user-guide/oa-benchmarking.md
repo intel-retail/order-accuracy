@@ -6,21 +6,63 @@ Test your Order Accuracy pipeline performance on various hardware configurations
 
 **Goal**: Run a basic performance test to verify your system works correctly
 
+> [!IMPORTANT]
+>
+> **Inference Device:** The default device is `GPU`. To switch to `CPU`, you must do **both** steps below, otherwise the model will be exported for the wrong device:
+>
+>    <!--hide_directive::::{tab-set}
+>    :::{tab-item}hide_directive--> **Dine-In**
+>    <!--hide_directive:sync: dine-in hide_directive-->
+>
+> 1. Set this variable in your `.env` file:
+>
+>    ```bash
+>    TARGET_DEVICE=CPU      # used by setup_models.sh and docker-compose
+>    ```
+>
+> 2. Re-export the model for the new device:
+>
+>    ```bash
+>    cd ../ovms-service && ./setup_models.sh --app dine-in
+>    ```
+>
+> `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format.
+>
+>    <!--hide_directive:::
+>    :::{tab-item}hide_directive--> **Take-Away**
+>    <!--hide_directive:sync: take-away hide_directive-->
+>
+> 1. Set **both** variables in your `.env` file:
+>
+>    ```bash
+>    TARGET_DEVICE=CPU      # used by setup_models.sh and docker-compose
+>    OPENVINO_DEVICE=CPU    # used by the Makefile benchmark targets
+>    ```
+>
+> 2. Re-export the model for the new device:
+>
+>    ```bash
+>    cd ../ovms-service && ./setup_models.sh --app take-away
+>    ```
+>
+> `TARGET_DEVICE` is what `setup_models.sh` reads to export the model in the correct format. `OPENVINO_DEVICE` is what the Makefile passes to the benchmark script. Both must match.
+>
+>    <!--hide_directive:::
+>    ::::hide_directive-->
+
 ### 1. Initialize Performance Tools
-
-```bash
-make update-submodules
-```
-
-### 2. Run Quick Benchmark
 
 <!--hide_directive::::{tab-set}
 :::{tab-item}hide_directive--> **Dine-In**
 <!--hide_directive:sync: dine-in hide_directive-->
 
 ```bash
+# 1. Initialize git submodules (first time only)
 cd dine-in
-make benchmark
+make update-submodules
+
+# 2. Start services
+make up
 ```
 
 <!--hide_directive:::
@@ -28,19 +70,72 @@ make benchmark
 <!--hide_directive:sync: take-away hide_directive-->
 
 ```bash
+# 1. Initialize git submodules (first time only)
 cd take-away
-make benchmark
+make update-submodules
+
+# 2. Start services
+make up
 ```
 
 <!--hide_directive:::
 ::::hide_directive-->
 
-**What this does:**
+### 2. Run Quick Benchmark
 
-- Tests GPU/CPU performance for order validation
-- Measures end-to-end latency
-- Generates performance metrics
-- Outputs results to `results/` directory
+<!--hide_directive::::{tab-set}
+:::{tab-item}hide_directive--> **Dine-In**
+<!--hide_directive:sync: dine-in hide_directive-->
+
+> [!NOTE]
+> The `images/` folder contains some sample images for testing. To use your own images, add them before testing:
+>
+> 1. Place plate images in `images/` (`.jpg`, `.jpeg`, or `.png`)
+> 2. Edit `configs/orders.json` — add entries with `image_id` matching your filenames
+> 3. Edit `configs/inventory.json` — define all possible menu items
+
+```bash
+make benchmark
+```
+
+> [!NOTE]
+> `make benchmark` uses Docker profiles to start worker containers. Both the `dine-in` app and `dinein-worker` services use the **same Docker image** (built from the same Dockerfile). The worker is simply the same container running `worker.py` instead of the UI.
+
+**Variables:**
+
+| Variable                      | Default | Description            |
+| ----------------------------- | ------- | ---------------------- |
+| `BENCHMARK_WORKERS`           | 1       | Concurrent workers     |
+| `BENCHMARK_DURATION`          | 180     | Duration (seconds)     |
+| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Latency threshold (ms) |
+| `TARGET_DEVICE`               | GPU     | Device: CPU, GPU       |
+
+<!--hide_directive:::
+:::{tab-item}hide_directive--> **Take-Away**
+<!--hide_directive:sync: take-away hide_directive-->
+
+> [!IMPORTANT]
+> Before running benchmarks, ensure a test video file is present at `storage/videos/test.mp4`. You can download a sample video using:
+>
+> ```bash
+> make download-sample-video
+> ```
+
+> [!CAUTION]
+> **Order manifests:** The benchmark validates the orders detected in the video
+> against `config/orders.json`. Order IDs must match the order numbers shown in
+> the video, and each order's expected items must match what is actually visible.
+> A stale manifest reports correct detections as mismatches; an unparseable one
+> (for example a trailing comma) makes every order fail and the benchmark reports
+> zero transactions.
+
+```bash
+# Default run
+make benchmark
+```
+
+<!--hide_directive:::
+::::hide_directive-->
 
 ## Understanding Benchmark Types
 
@@ -53,7 +148,7 @@ make benchmark
 <!--hide_directive:sync: singlehide_directive-->
 
 ```bash
-make benchmark
+make benchmark-single IMAGE_ID=MCD-1001
 ```
 
 Tests single image validation latency:
@@ -68,8 +163,14 @@ Tests single image validation latency:
 <!--hide_directive:sync: density hide_directive-->
 
 ```bash
-make benchmark-density
+make benchmark-stream-density
+
+# With overrides
+make benchmark-stream-density BENCHMARK_TARGET_LATENCY_MS=20000 BENCHMARK_INIT_DURATION=30
 ```
+
+> [!NOTE]
+> `make benchmark-stream-density` runs a Python script locally that sends concurrent HTTP requests to the running `dine-in` API. No separate worker containers are needed for this mode.
 
 Finds maximum concurrent requests the system can handle under latency constraints:
 
@@ -102,23 +203,43 @@ Tests end-to-end latency for single order validation:
 <!--hide_directive:::
 :::{tab-item}hide_directive--> **Fixed Workers Benchmark**
 
+Runs `benchmark_order_accuracy.py` with a fixed number of concurrent workers.
+
 ```bash
-make benchmark-oa BENCHMARK_WORKERS=4 BENCHMARK_DURATION=300
+# Default run
+make benchmark
+
+# Custom run
+make benchmark \
+  BENCHMARK_WORKERS=4 \
+  BENCHMARK_DURATION=300 \
+  BENCHMARK_INIT_DURATION=30
 ```
 
 Tests system with fixed number of concurrent workers:
 
-- Throughput (orders/minute)
-- Latency percentiles (P50, P95, P99)
-- GPU utilization
-- Memory usage
+- Tests GPU/CPU performance for order validation
+- Measures end-to-end latency
+- Generates performance metrics
+- Outputs results to `results/` directory
 
 <!--hide_directive:::
 :::{tab-item}hide_directive--> **Stream Density Benchmark**
 <!--hide_directive:sync: density hide_directive-->
 
+Finds the maximum number of concurrent workers the system can sustain under a target latency threshold. Runs `stream_density_latency_oa.py`.
+
 ```bash
+# Default run
 make benchmark-stream-density
+
+# Custom run
+make benchmark-stream-density \
+  BENCHMARK_TARGET_LATENCY_MS=25000 \
+  BENCHMARK_LATENCY_METRIC=avg \
+  BENCHMARK_INIT_DURATION=30 \
+  BENCHMARK_MIN_TRANSACTIONS=3 \
+  BENCHMARK_WORKER_INCREMENT=1
 ```
 
 Finds maximum sustainable worker count under latency constraints:
@@ -140,32 +261,31 @@ Finds maximum sustainable worker count under latency constraints:
 :::{tab-item}hide_directive--> **Dine-In Configuration**
 <!--hide_directive:sync: dine-in hide_directive-->
 
-| Variable            | Default                 | Description                          |
-| ------------------- | ----------------------- | ------------------------------------ |
-| `TARGET_LATENCY_MS` | 15000                   | Target latency threshold (ms)        |
-| `LATENCY_METRIC`    | avg                     | 'avg', 'p95', or 'max'               |
-| `DENSITY_INCREMENT` | 1                       | Concurrent images per iteration      |
-| `INIT_DURATION`     | 60                      | Warmup time (seconds)                |
-| `MIN_REQUESTS`      | 3                       | Min requests before measuring        |
-| `REQUEST_TIMEOUT`   | 300                     | Individual request timeout (seconds) |
-| `API_ENDPOINT`      | `http://localhost:8083` | API endpoint URL                     |
-| `RESULTS_DIR`       | `./results`             | Results output directory             |
+| Variable                      | Default                 | Description                          |
+| ----------------------------- | ----------------------- | ------------------------------------ |
+| `BENCHMARK_TARGET_LATENCY_MS` | `25000`                 | Target latency threshold (ms)        |
+| `BENCHMARK_LATENCY_METRIC`    | `avg`                   | `avg`, `p95`, or `max`               |
+| `BENCHMARK_DENSITY_INCREMENT` | `1`                     | Concurrent images per iteration      |
+| `BENCHMARK_INIT_DURATION`     | `60`                    | Warmup time (seconds)                |
+| `BENCHMARK_MIN_REQUESTS`      | `3`                     | Min requests before measuring        |
+| `BENCHMARK_REQUEST_TIMEOUT`   | `300`                   | Individual request timeout (seconds) |
+| `BENCHMARK_API_ENDPOINT`      | `http://localhost:8083` | API endpoint URL                     |
+| `RESULTS_DIR`                 | `./results`             | Results output directory             |
 
 <!--hide_directive:::
 :::{tab-item}hide_directive--> **Take-Away Configuration**
 <!--hide_directive:sync: take-away hide_directive-->
 
-| Variable             | Default | Description                       |
-| -------------------- | ------- | --------------------------------- |
-| `TARGET_LATENCY_MS`  | 25000   | Target latency threshold (ms)     |
-| `LATENCY_METRIC`     | avg     | 'avg', 'p95', or 'max'            |
-| `WORKER_INCREMENT`   | 1       | Workers added per iteration       |
-| `INIT_DURATION`      | 10      | Warmup time (seconds)             |
-| `MIN_TRANSACTIONS`   | 3       | Min transactions before measuring |
-| `MAX_ITERATIONS`     | 50      | Max scaling iterations            |
-| `MAX_WAIT_SEC`       | 600     | Max wait per iteration (seconds)  |
-| `BENCHMARK_WORKERS`  | 1       | Number of workers (fixed mode)    |
-| `BENCHMARK_DURATION` | 60      | Test duration (seconds)           |
+| Variable                      | Default | Description                                            |
+| ----------------------------- | ------- | ------------------------------------------------------ |
+| `BENCHMARK_TARGET_LATENCY_MS` | `25000` | Target latency threshold (ms)                          |
+| `BENCHMARK_LATENCY_METRIC`    | `avg`   | Metric to evaluate: `avg` or `p95`                     |
+| `BENCHMARK_WORKER_INCREMENT`  | `1`     | Workers added per iteration                            |
+| `BENCHMARK_INIT_DURATION`     | `10`    | Warmup time per iteration (seconds)                    |
+| `BENCHMARK_MIN_TRANSACTIONS`  | `1`     | Min transactions before measuring latency              |
+| `BENCHMARK_WORKERS`           | `1`     | Number of workers (fixed mode)                         |
+| `BENCHMARK_DURATION`          | `200`   | Test duration (seconds)                                |
+| `OOM_PROTECTION`              | `1`     | Set to `0` to disable OOM protection (not recommended) |
 
 <!--hide_directive:::
 ::::hide_directive-->
@@ -219,7 +339,7 @@ make benchmark-stream-density \
   BENCHMARK_MAX_ITERATIONS=20
 ```
 
-## Viewing Results
+## Viewing Results and Metrics
 
 <!--hide_directive::::{tab-set}
 :::{tab-item}hide_directive--> **Dine-In Results**
@@ -238,13 +358,21 @@ ls -la results/
 :::{tab-item}hide_directive--> **Take-Away Results**
 <!--hide_directive:sync: take-away hide_directive-->
 
+Results are saved to the `results/` directory:
+
+```text
+results/
+├── vlm_application_metrics_*.txt    # VLM application metrics
+├── vlm_performance_metrics_*.txt    # VLM performance metrics
+└── consolidated_metrics.csv         # Generated by make consolidate-metrics
+```
+
 ```bash
+# View VLM metrics
+make benchmark-oa-metrics
+
 # View benchmark results
 make benchmark-oa-results
-
-# View density results
-cat results/stream_density_results.json
-ls -la results/
 ```
 
 <!--hide_directive:::
@@ -252,9 +380,16 @@ ls -la results/
 
 ### Consolidate Metrics
 
+Consolidate metrics from multiple runs into a single CSV file:
+
 ```bash
 make consolidate-metrics
-cat results/metrics_summary.csv
+```
+
+Generate plots from the consolidated metrics:
+
+```bash
+make plot-metrics
 ```
 
 ## Expected Performance
