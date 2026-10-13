@@ -584,6 +584,12 @@ def upload_video_with_progress(file, progress=gr.Progress()):
         
         progress(1.0, desc="Processing complete!")
         
+        # Mark video as completed via API
+        try:
+            _api.post(f"{API_BASE}/videos/{video_id}/complete", timeout=5)
+        except Exception as e:
+            print(f"Failed to mark video complete: {e}")
+        
         # Fetch final results
         results = fetch_results()
         

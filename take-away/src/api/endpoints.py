@@ -154,8 +154,7 @@ def create_app() -> FastAPI:
         logger.info(f"Triggering GStreamer pipeline for video_id={internal_id}")
         run_pipeline_async(
             source_type="file",
-            source=save_path,
-            video_id=internal_id
+            source=save_path
         )
 
         logger.info(f"Pipeline started for video_id={internal_id}")
@@ -192,7 +191,7 @@ def create_app() -> FastAPI:
         logger.info(f"Registered source in history: video_id={video_id}")
 
         # Launch GStreamer pipeline in background thread
-        run_pipeline_async(source_type=source_type, source=source, video_id=video_id)
+        run_pipeline_async(source_type=source_type, source=source)
         logger.info(f"Pipeline started: source_type={source_type}, source={source}")
 
         return {

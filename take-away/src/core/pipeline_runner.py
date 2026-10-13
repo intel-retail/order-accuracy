@@ -74,7 +74,7 @@ def build_gstreamer_pipeline(source_type: str, source: str) -> str:
     logger.info(f"GStreamer pipeline built: {pipeline[:100]}...")
     return pipeline
 
-def run_pipeline(source_type: str, source: str, video_id: str = ""):
+def run_pipeline(source_type: str, source: str):
     logger.info(f"Starting pipeline execution: source_type={source_type}, source={source}")
     pipeline = build_gstreamer_pipeline(source_type, source)
 
@@ -148,34 +148,22 @@ def run_pipeline(source_type: str, source: str, video_id: str = ""):
         # Write station-specific EOS marker: {station_id}/__EOS__
         # This signals to frame_selector that all frames for this station are ready
         eos_key = f"{station_id}/__EOS__"
-        marker = (video_id or "done").encode("utf-8")
         client.put_object(
             "frames",
             eos_key,
-            io.BytesIO(marker),
-            length=len(marker),
+            io.BytesIO(b"done"),
+            length=4,
             content_type="text/plain",
         )
         logger.info(f"EOS marker written successfully to frames bucket: {eos_key}")
     except Exception as e:
         logger.error(f"Failed to write EOS marker: {e}")
-        raise
 
-def _run_pipeline_with_status(source_type: str, source: str, video_id: str):
-    try:
-        run_pipeline(source_type, source, video_id)
-    except Exception as e:
-        if video_id:
-            from core.video_history import fail_video
-            fail_video(video_id, str(e))
-        logger.exception(f"Pipeline failed for video_id={video_id or 'unknown'}")
-
-
-def run_pipeline_async(source_type: str, source: str, video_id: str = ""):
+def run_pipeline_async(source_type: str, source: str):
     logger.info(f"Starting pipeline in background thread: source_type={source_type}")
     t = threading.Thread(
-        target=_run_pipeline_with_status,
-        args=(source_type, source, video_id),
+        target=run_pipeline,
+        args=(source_type, source),
         daemon=True
     )
     t.start()
