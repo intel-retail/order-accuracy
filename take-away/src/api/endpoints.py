@@ -8,6 +8,9 @@ import re
 import logging
 import uuid
 import shutil
+import threading
+import time
+from datetime import datetime
 from pathlib import Path
 from fastapi import FastAPI, Body, Form, UploadFile, File, Query, HTTPException
 from fastapi.responses import FileResponse
@@ -76,6 +79,43 @@ def _is_within_root(path: Path, root: Path) -> bool:
         return False
 
 
+def _monitor_api_upload(video_id: str, upload_time: str, initial_processed: int):
+    """Mirror the UI's completion heuristic for API-only video uploads."""
+    poll_interval = 1
+    max_wait = 300
+    elapsed = 0
+    upload_timestamp = upload_time.replace("-", "").replace(":", "").replace(" ", "")
+
+    try:
+        while elapsed < max_wait:
+            time.sleep(poll_interval)
+            elapsed += poll_interval
+
+            video = get_video(video_id)
+            if not video or video.get("status") != "processing":
+                return
+
+            stats = get_statistics()
+            orders_completed = max(
+                0, (stats or {}).get("total_processed", 0) - initial_processed
+            )
+            results = get_results()
+            new_results = [
+                result for result in results
+                if result.get("completed_at", "").replace("-", "").replace(":", "").replace(" ", "")
+                >= upload_timestamp
+            ]
+
+            if new_results and len(new_results) >= orders_completed and orders_completed > 0:
+                break
+
+        video = get_video(video_id)
+        if video and video.get("status") == "processing":
+            complete_video(video_id)
+    except Exception:
+        logger.exception(f"[API] Could not monitor completion for video_id={video_id}")
+
+
 def create_app() -> FastAPI:
     """Create and configure FastAPI application"""
     app = FastAPI(title="Order Accuracy Service - Single Worker Mode")
@@ -93,6 +133,7 @@ def create_app() -> FastAPI:
     async def upload_and_run_video(
         file: UploadFile = File(...),
         video_id: Optional[str] = Form(None),
+        status_managed_by_ui: bool = Form(False),
     ):
         """Upload video file and start processing pipeline.
         
@@ -147,6 +188,9 @@ def create_app() -> FastAPI:
         logger.info(f"Video saved successfully: video_id={internal_id}, path={save_path}")
 
         # Register video in history tracker
+        upload_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        initial_stats = get_statistics()
+        initial_processed = (initial_stats or {}).get("total_processed", 0)
         start_video(internal_id, safe_filename, save_path)
         logger.info(f"Video registered in history: video_id={internal_id}")
 
@@ -156,6 +200,14 @@ def create_app() -> FastAPI:
             source_type="file",
             source=save_path
         )
+
+        if not status_managed_by_ui:
+            threading.Thread(
+                target=_monitor_api_upload,
+                args=(internal_id, upload_time, initial_processed),
+                name=f"UploadStatus-{internal_id}",
+                daemon=True,
+            ).start()
 
         logger.info(f"Pipeline started for video_id={internal_id}")
         return {
