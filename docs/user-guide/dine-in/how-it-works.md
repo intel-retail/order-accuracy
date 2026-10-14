@@ -162,7 +162,7 @@ flowchart LR
     OPEN["OPEN"]
     HALFOPEN["HALF-OPEN"]
 
-    CLOSED -- "5 consecutive failures" --> OPEN
+    CLOSED -- "5 net failures (each success removes one failure)" --> OPEN
     OPEN -- "30s timeout" --> HALFOPEN
     HALFOPEN -- "2 successes" --> CLOSED
     HALFOPEN -- "1 failure" --> OPEN
