@@ -39,6 +39,8 @@ logger = logging.getLogger(__name__)
 cfg = load_config()
 
 SERVICE_MODE = os.getenv('SERVICE_MODE', 'single')
+_single_upload_lock = threading.Lock()
+_active_single_upload_id: Optional[str] = None
 
 # ── Order Recall configuration ───────────────────────────────────────────────
 # Directory where frame-selector saves ALL frames per order
@@ -79,6 +81,24 @@ def _is_within_root(path: Path, root: Path) -> bool:
         return False
 
 
+def _claim_single_upload(video_id: str) -> bool:
+    global _active_single_upload_id
+    with _single_upload_lock:
+        if _active_single_upload_id is not None:
+            return False
+        if any(video.get("status") == "processing" for video in get_video_history(limit=50)):
+            return False
+        _active_single_upload_id = video_id
+        return True
+
+
+def _release_single_upload(video_id: str) -> None:
+    global _active_single_upload_id
+    with _single_upload_lock:
+        if _active_single_upload_id == video_id:
+            _active_single_upload_id = None
+
+
 def _monitor_api_upload(video_id: str, upload_time: str, initial_processed: int):
     """Mirror the UI's completion heuristic for API-only video uploads."""
     poll_interval = 1
@@ -93,6 +113,7 @@ def _monitor_api_upload(video_id: str, upload_time: str, initial_processed: int)
 
             video = get_video(video_id)
             if not video or video.get("status") != "processing":
+                _release_single_upload(video_id)
                 return
 
             stats = get_statistics()
@@ -112,6 +133,7 @@ def _monitor_api_upload(video_id: str, upload_time: str, initial_processed: int)
         video = get_video(video_id)
         if video and video.get("status") == "processing":
             complete_video(video_id)
+        _release_single_upload(video_id)
     except Exception:
         logger.exception(f"[API] Could not monitor completion for video_id={video_id}")
 
@@ -191,7 +213,17 @@ def create_app() -> FastAPI:
         upload_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         initial_stats = get_statistics()
         initial_processed = (initial_stats or {}).get("total_processed", 0)
-        start_video(internal_id, safe_filename, save_path)
+        if SERVICE_MODE.lower() == "single" and not _claim_single_upload(internal_id):
+            candidate_path.unlink(missing_ok=True)
+            raise HTTPException(
+                status_code=409,
+                detail="A video is already processing in single-worker mode",
+            )
+        try:
+            start_video(internal_id, safe_filename, save_path)
+        except Exception:
+            _release_single_upload(internal_id)
+            raise
         logger.info(f"Video registered in history: video_id={internal_id}")
 
         # Trigger pipeline
@@ -396,6 +428,7 @@ def create_app() -> FastAPI:
         """Mark a video as completed"""
         logger.info(f"[API] Marking video complete: video_id={video_id}")
         complete_video(video_id)
+        _release_single_upload(video_id)
         return {
             "status": "success",
             "video_id": video_id,
@@ -407,6 +440,7 @@ def create_app() -> FastAPI:
         """Mark a video as failed"""
         logger.info(f"[API] Marking video failed: video_id={video_id}, error={error}")
         fail_video(video_id, error)
+        _release_single_upload(video_id)
         return {
             "status": "success",
             "video_id": video_id,
