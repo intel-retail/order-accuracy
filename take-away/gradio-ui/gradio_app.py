@@ -529,6 +529,7 @@ def upload_video_with_progress(file, progress=gr.Progress()):
             resp = _api.post(
                 f"{API_BASE}/upload-video",
                 files={"file": f},
+                data={"status_managed_by_ui": "true"},
                 timeout=60
             )
 
