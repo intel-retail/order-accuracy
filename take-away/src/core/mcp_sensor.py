@@ -345,9 +345,14 @@ def _post_json(url: str, body: bytes, headers: dict[str, str], timeout: float) -
     import urllib.error
     import urllib.request
 
+    class _NoRedirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            return None
+
     request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    opener = urllib.request.build_opener(_NoRedirect())
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as response:
+        with opener.open(request, timeout=timeout) as response:
             return response.status
     except urllib.error.HTTPError as error:
         return error.code

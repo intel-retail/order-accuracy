@@ -488,6 +488,49 @@ def test_autonomy_retry_policy_matches_weather_service(status, attempts):
     assert len(calls) == attempts
 
 
+def test_autonomy_does_not_follow_redirects_or_leak_token(monkeypatch):
+    from core.mcp_sensor import AutonomyEventSink
+
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    target_hits = []
+
+    class Target(BaseHTTPRequestHandler):
+        def do_GET(self):
+            target_hits.append(dict(self.headers))
+            self.send_response(200)
+            self.end_headers()
+
+        do_POST = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    target = ThreadingHTTPServer(("127.0.0.1", 0), Target)
+    threading.Thread(target=target.serve_forever, daemon=True).start()
+    location = f"http://127.0.0.1:{target.server_port}/"
+
+    class Redirector(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(302)
+            self.send_header("Location", location)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    redirector = ThreadingHTTPServer(("127.0.0.1", 0), Redirector)
+    threading.Thread(target=redirector.serve_forever, daemon=True).start()
+    try:
+        sink = AutonomyEventSink(f"http://127.0.0.1:{redirector.server_port}/",
+                                 store_id="qsr-001", token="s3cret")
+        assert sink.push(_envelope()) is False
+        assert target_hits == []
+    finally:
+        redirector.shutdown()
+        target.shutdown()
+
+
 def test_autonomy_does_not_change_existing_webhook(tmp_path):
     gen = _reload_mcp_service(tmp_path, MCP_WEBHOOK_URL="http://legacy/hook")
     mcp = next(gen)
