@@ -34,13 +34,18 @@ built directly on FastMCP:
 from __future__ import annotations
 
 import functools
+import http.client
 import json
+import logging
 import os
 import threading
 import time
 import uuid
 from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
 from typing import Any, Callable, Iterator, Protocol
+
+logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
 # Event envelope (same shape as mcp_service_sdk.envelope.EventEnvelope)
@@ -332,6 +337,107 @@ class WebhookSink:
             return False
 
 
+# Returns the HTTP status code; raises OSError subclasses on transport failure.
+PostJson = Callable[[str, bytes, dict[str, str], float], int]
+
+
+def _post_json(url: str, body: bytes, headers: dict[str, str], timeout: float) -> int:
+    import urllib.error
+    import urllib.request
+
+    request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return response.status
+    except urllib.error.HTTPError as error:
+        return error.code
+
+
+class PermanentDeliveryError(Exception):
+    """Delivery failed and retrying the same request cannot help."""
+
+
+class AutonomyEventSink:
+    """POSTs events to a QSR agent ``/autonomy/events`` webhook.
+
+    Uses the same envelope as the QSR weather service's ``weather_changed``
+    events: ``{event_id, event_type, store_id, occurred_at, data}``.
+    """
+
+    name = "autonomy"
+
+    # order_failed is published under the event name the QSR agent's
+    # order-accuracy skill documents for remake decisions.
+    EVENT_TYPE_MAP = {
+        "order_failed": "order_mismatch_detected",
+        "order_validated": "order_validated",
+    }
+
+    def __init__(
+        self,
+        url: str,
+        store_id: str,
+        token: str | None = None,
+        event_types: tuple[str, ...] = ("order_failed", "order_validated"),
+        timeout_s: float = 5.0,
+        post_json: PostJson = _post_json,
+    ) -> None:
+        self._url = url
+        self._store_id = store_id
+        self._token = token
+        self._event_types = frozenset(event_types)
+        self._timeout_s = timeout_s
+        self._post_json = post_json
+
+    def accepts(self, event: EventEnvelope) -> bool:
+        # Synthetic baseline history (ref_id "seed:...") must not trigger live decisions.
+        return event.event_type in self._event_types and not event.ref_id.startswith("seed:")
+
+    def build_event(self, event: EventEnvelope) -> dict[str, Any]:
+        payload = dict(event.payload)
+        # Stable across retries so the QSR agent deduplicates redeliveries.
+        source_event_id = payload.pop("event_id", None) or f"{event.event_type}-{event.ref_id}"
+        occurred_at = payload.pop("dispatched_at", None) or datetime.fromtimestamp(
+            event.ts_ms / 1000, tz=timezone.utc
+        ).isoformat(timespec="milliseconds")
+        return {
+            "event_id": f"{event.service}-{source_event_id}",
+            "event_type": self.EVENT_TYPE_MAP.get(event.event_type, event.event_type),
+            "store_id": self._store_id,
+            "occurred_at": occurred_at,
+            "data": {
+                **payload,
+                "source": event.service,
+                "source_event_type": event.event_type,
+                "ref_id": event.ref_id,
+            },
+        }
+
+    def push(self, event: EventEnvelope) -> bool:
+        if not self.accepts(event):
+            return True
+        autonomy_event = self.build_event(event)
+        body = json.dumps(autonomy_event).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self._token:
+            headers["Authorization"] = f"Bearer {self._token}"
+        try:
+            status = self._post_json(self._url, body, headers, self._timeout_s)
+        except (OSError, http.client.HTTPException) as error:
+            logger.warning("[MCP] autonomy event %s delivery failed: %s", autonomy_event["event_id"], error)
+            return False
+        if 200 <= status < 300:
+            logger.info(
+                "[MCP] autonomy event %s (%s) delivered: HTTP %s",
+                autonomy_event["event_id"], autonomy_event["event_type"], status,
+            )
+            return True
+        logger.warning("[MCP] autonomy event %s rejected: HTTP %s", autonomy_event["event_id"], status)
+        if 400 <= status < 500 and status != 429:
+            raise PermanentDeliveryError(f"autonomy webhook rejected event: HTTP {status}")
+        return False
+
+
 class Delivery:
     """Fans an event out to all enabled sinks with bounded retries."""
 
@@ -354,8 +460,11 @@ class Delivery:
 
     def _push_with_retry(self, sink: Sink, event: EventEnvelope) -> bool:
         for attempt in range(self._max_retries):
-            if sink.push(event):
-                return True
+            try:
+                if sink.push(event):
+                    return True
+            except PermanentDeliveryError:
+                return False
             if attempt < self._max_retries - 1:
                 time.sleep(self._backoff_s * (2**attempt))
         return False
