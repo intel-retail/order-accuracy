@@ -158,20 +158,27 @@ class SQLiteLog:
             )
 
     def append(self, event: EventEnvelope) -> int:
+        return self.append_new(event)[0]
+
+    def append_new(self, event: EventEnvelope) -> tuple[int, bool]:
+        """Persist ``event``; return ``(seq, inserted)``.
+
+        ``inserted`` is False when ``ref_id`` was already stored (idempotent
+        replay), so callers can tell the insertion winner from a loser.
+        """
         with self._lock, self._conn:
             cur = self._conn.execute(
                 "SELECT seq FROM events WHERE ref_id = ?", (event.ref_id,)
             )
             row = cur.fetchone()
             if row is not None:
-                # Idempotent replay: same ref_id already stored.
-                return int(row[0])
+                return int(row[0]), False
             cur = self._conn.execute(
                 "INSERT INTO events (ref_id, event_type, ts_ms, envelope) "
                 "VALUES (?, ?, ?, ?)",
                 (event.ref_id, event.event_type, event.ts_ms, event.to_json()),
             )
-            return int(cur.lastrowid)
+            return int(cur.lastrowid), True
 
     def read(
         self,
@@ -242,16 +249,20 @@ class JSONLFileLog:
                 self._seq_by_ref[ref_id] = seq
 
     def append(self, event: EventEnvelope) -> int:
+        return self.append_new(event)[0]
+
+    def append_new(self, event: EventEnvelope) -> tuple[int, bool]:
+        """Persist ``event``; return ``(seq, inserted)`` (see SQLiteLog)."""
         with self._lock:
             if event.ref_id in self._seen:
-                return self._seq_by_ref.get(event.ref_id, 0)
+                return self._seq_by_ref.get(event.ref_id, 0), False
             self._seq += 1
             rec = {"seq": self._seq, "event": json.loads(event.to_json())}
             with open(self._path, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
             self._seen.add(event.ref_id)
             self._seq_by_ref[event.ref_id] = self._seq
-            return self._seq
+            return self._seq, True
 
     def _iter_records(self) -> Iterator[dict]:
         if not os.path.exists(self._path):
@@ -534,9 +545,24 @@ class SensorService:
         ref_id: str | None = None,
     ) -> EventEnvelope:
         """Emit-to-log-first, then fan out to enabled sinks."""
+        return self.emit_new(event_type, payload, ref_id)[0]
+
+    def emit_new(
+        self,
+        event_type: str,
+        payload: dict[str, Any],
+        ref_id: str | None = None,
+    ) -> tuple[EventEnvelope, bool]:
+        """Like ``emit``, also reporting whether this call inserted the event.
+
+        Logs without ``append_new`` are assumed to have inserted it.
+        """
         event = new_event(event_type, self.service, self.store_id, payload, ref_id)
-        self.log.append(event)
-        return event
+        append_new = getattr(self.log, "append_new", None)
+        if append_new is None:
+            self.log.append(event)
+            return event, True
+        return event, append_new(event)[1]
 
     def describe(self) -> dict[str, Any]:
         """Self-description rich enough for a coding agent to use unassisted.

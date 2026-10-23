@@ -340,7 +340,7 @@ def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
         return existing
 
     try:
-        event = svc.emit(event_type, payload, ref_id=ref_id)
+        event, inserted = svc.emit_new(event_type, payload, ref_id=ref_id)
     except sqlite3.IntegrityError:
         logger.info(
             "[MCP] ref_id=%s already recorded by a concurrent writer; "
@@ -361,15 +361,14 @@ def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
         return None
 
     # Concurrent emits can both pass the existence check above; the log keeps
-    # only the first insert. Dispatch only if the stored record is ours.
-    stored = _find_stored_event_by_ref(ref_id)
-    if stored is not None and stored.to_json() != event.to_json():
+    # only the first insert. Dispatch only for the insertion winner.
+    if not inserted:
         logger.info(
             "[MCP] ref_id=%s already recorded by a concurrent emit; "
             "skipping duplicate dispatch",
             ref_id,
         )
-        return stored
+        return _find_stored_event_by_ref(ref_id)
 
     if _ASYNC_WEBHOOK_DELIVERY is not None:
         threading.Thread(

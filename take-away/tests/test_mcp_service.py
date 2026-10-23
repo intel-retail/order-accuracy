@@ -594,6 +594,23 @@ def test_autonomy_opposite_outcome_for_same_ref_is_not_dispatched(tmp_path, qsr_
     assert [e["event_type"] for e in qsr_agent.events] == ["order_mismatch_detected"]
 
 
+def test_fresh_emit_does_not_rescan_log_for_ownership(tmp_path):
+    gen = _reload_mcp_service(tmp_path)
+    mcp = next(gen)
+    try:
+        real = mcp._read_entire_log
+        reads = []
+        mcp._read_entire_log = lambda: reads.append(1) or real()
+        event = mcp._safe_emit("order_failed", {"event_id": "order_failed-scan-1", "order_id": "MCD-SCAN"},
+                               "MCD-SCAN:MCD-SCAN")
+        mcp._read_entire_log = real
+    finally:
+        gen.close()
+
+    assert event is not None and event.ref_id == "MCD-SCAN:MCD-SCAN"
+    assert len(reads) == 1
+
+
 def test_autonomy_does_not_change_existing_webhook(tmp_path):
     gen = _reload_mcp_service(tmp_path, MCP_WEBHOOK_URL="http://legacy/hook")
     mcp = next(gen)
