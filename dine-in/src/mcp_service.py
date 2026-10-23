@@ -304,6 +304,17 @@ def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
         )
         return None
 
+    # Concurrent emits can both pass the existence check above; the log keeps
+    # only the first insert. Dispatch only if the stored record is ours.
+    stored = _find_existing_event(event_type, ref_id)
+    if stored is not None and stored.to_json() != event.to_json():
+        logger.info(
+            "[MCP] ref_id=%s already recorded by a concurrent emit; "
+            "skipping duplicate dispatch",
+            ref_id,
+        )
+        return stored
+
     if _ASYNC_WEBHOOK_DELIVERY is not None:
         threading.Thread(
             target=_ASYNC_WEBHOOK_DELIVERY.dispatch,

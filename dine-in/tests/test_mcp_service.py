@@ -605,6 +605,49 @@ def test_autonomy_does_not_follow_redirects_or_leak_token(monkeypatch):
         target.shutdown()
 
 
+def test_autonomy_concurrent_same_ref_emits_dispatch_once(tmp_path, qsr_agent):
+    import time
+
+    gen = _reload_mcp_service(tmp_path, QSR_AUTONOMY_EVENTS_URL=qsr_agent.url)
+    mcp = next(gen)
+    try:
+        real_find = mcp._find_existing_event
+        barrier = threading.Barrier(2)
+        seen = threading.local()
+
+        def racing_find(event_type, ref_id):
+            # Force both threads past the pre-emit existence check together.
+            if not getattr(seen, "checked", False):
+                seen.checked = True
+                barrier.wait(5)
+                return None
+            return real_find(event_type, ref_id)
+
+        mcp._find_existing_event = racing_find
+        payloads = [
+            {"event_id": f"order_failed-race-{i}", "dispatched_at": "2026-10-14T12:00:00.000+00:00",
+             "order_id": "MCD-RACE", "missing_items": []}
+            for i in range(2)
+        ]
+        threads = [
+            threading.Thread(target=mcp._safe_emit, args=("order_failed", p, "MCD-RACE:MCD-RACE"))
+            for p in payloads
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        time.sleep(0.5)
+        mcp._find_existing_event = real_find
+        recorded = [e for e in mcp._read_entire_log() if e.ref_id == "MCD-RACE:MCD-RACE"]
+    finally:
+        gen.close()
+
+    assert len(recorded) == 1
+    assert len(qsr_agent.events) == 1
+    assert qsr_agent.events[0]["event_id"].endswith(recorded[0].payload["event_id"])
+
+
 def test_autonomy_does_not_change_existing_webhook(tmp_path):
     gen = _reload_mcp_service(tmp_path, MCP_WEBHOOK_URL="http://legacy/hook")
     mcp = next(gen)
