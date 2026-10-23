@@ -244,6 +244,18 @@ def _find_existing_event(event_type: str, ref_id: str):
     return None
 
 
+def _find_stored_event_by_ref(ref_id: str):
+    """Return the durable record for ``ref_id`` whatever its event type.
+
+    The log de-duplicates on ``ref_id`` alone, so an opposite outcome for the
+    same reference is also skipped at insert time.
+    """
+    for e in _read_entire_log():
+        if e.ref_id == ref_id:
+            return e
+    return None
+
+
 def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
     """``svc.emit()``, made idempotent-safe end-to-end (not just at the log).
 
@@ -306,7 +318,7 @@ def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
 
     # Concurrent emits can both pass the existence check above; the log keeps
     # only the first insert. Dispatch only if the stored record is ours.
-    stored = _find_existing_event(event_type, ref_id)
+    stored = _find_stored_event_by_ref(ref_id)
     if stored is not None and stored.to_json() != event.to_json():
         logger.info(
             "[MCP] ref_id=%s already recorded by a concurrent emit; "

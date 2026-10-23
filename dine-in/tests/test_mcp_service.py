@@ -648,6 +648,26 @@ def test_autonomy_concurrent_same_ref_emits_dispatch_once(tmp_path, qsr_agent):
     assert qsr_agent.events[0]["event_id"].endswith(recorded[0].payload["event_id"])
 
 
+def test_autonomy_opposite_outcome_for_same_ref_is_not_dispatched(tmp_path, qsr_agent):
+    import time
+
+    gen = _reload_mcp_service(tmp_path, QSR_AUTONOMY_EVENTS_URL=qsr_agent.url)
+    mcp = next(gen)
+    try:
+        first = mcp._safe_emit("order_failed", {"event_id": "order_failed-opp-1", "order_id": "MCD-OPP",
+                               "dispatched_at": "2026-10-14T12:00:00.000+00:00"}, "MCD-OPP:MCD-OPP")
+        second = mcp._safe_emit("order_validated", {"event_id": "order_validated-opp-2", "order_id": "MCD-OPP",
+                                "dispatched_at": "2026-10-14T12:00:01.000+00:00"}, "MCD-OPP:MCD-OPP")
+        time.sleep(0.5)
+        recorded = [e for e in mcp._read_entire_log() if e.ref_id == "MCD-OPP:MCD-OPP"]
+    finally:
+        gen.close()
+
+    assert len(recorded) == 1 and recorded[0].event_type == "order_failed"
+    assert second.event_type == "order_failed" and second.payload == first.payload
+    assert [e["event_type"] for e in qsr_agent.events] == ["order_mismatch_detected"]
+
+
 def test_autonomy_does_not_change_existing_webhook(tmp_path):
     gen = _reload_mcp_service(tmp_path, MCP_WEBHOOK_URL="http://legacy/hook")
     mcp = next(gen)
