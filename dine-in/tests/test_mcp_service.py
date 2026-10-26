@@ -14,8 +14,11 @@ Run with: python -m pytest tests/test_mcp_service.py -v
 from __future__ import annotations
 
 import importlib
+import json
 import os
 import sys
+import threading
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
@@ -33,6 +36,7 @@ def _reload_mcp_service(tmp_path, **env_overrides):
         "MCP_LOG_PATH": str(tmp_path / "events.db"),
         "MCP_SERVICE_ENABLED": "true",
         "MCP_WEBHOOK_URL": "",
+        "QSR_AUTONOMY_EVENTS_URL": "",
     }
     env.update(env_overrides)
     old_env = {k: os.environ.get(k) for k in env}
@@ -339,3 +343,353 @@ def test_describe_exposes_expected_read_tools_and_event_types(mcp):
     }
     assert set(described["event_types"]) == {"order_validated", "order_failed"}
     assert described["service"] == "order_accuracy_dine_in"
+
+
+# ---------------------------------------------------------------------------
+# QSR agent autonomy events (POST /autonomy/events, weather_changed envelope)
+# ---------------------------------------------------------------------------
+
+_FAILED_RESULT = {
+    "order_id": "MCD-2001",
+    "station": "T7",
+    "image_id": "MCD-2001",
+    "order_complete": False,
+    "accuracy_score": 0.5,
+    "missing_items": [{"name": "Veg Burger", "quantity": 1}],
+    "extra_items": [],
+    "quantity_mismatches": [],
+}
+
+
+class _FakeQsrAgent:
+    """Accepts events with the same rules as qsr-agent's AutonomyController._validate_event."""
+
+    def __init__(self, restaurant_id: str = "qsr-001") -> None:
+        self.restaurant_id = restaurant_id
+        self.events: list[dict] = []
+        self.headers: list[dict] = []
+        self.rejections: list[str] = []
+        self.received = threading.Event()
+        agent = self
+
+        class Handler(BaseHTTPRequestHandler):
+            def do_POST(self):  # noqa: N802
+                event = json.loads(self.rfile.read(int(self.headers.get("Content-Length", "0"))))
+                error = agent.validate(event)
+                if error:
+                    agent.rejections.append(error)
+                    code, reply = 400, {"ok": False, "error": error}
+                else:
+                    agent.events.append(event)
+                    agent.headers.append(dict(self.headers))
+                    code = 202
+                    reply = {"ok": True, "event_id": event["event_id"], "duplicate": False, "status": "queued"}
+                    agent.received.set()
+                raw = json.dumps(reply).encode()
+                self.send_response(code)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(raw)))
+                self.end_headers()
+                self.wfile.write(raw)
+
+            def log_message(self, *_args):
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        self.url = f"http://127.0.0.1:{self.server.server_port}/autonomy/events"
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+
+    def validate(self, event: dict) -> str | None:
+        event_id = event.get("event_id", "")
+        if not isinstance(event_id, str) or not event_id.strip() or len(event_id) > 200:
+            return "event_id is required"
+        event_type = event.get("event_type", "")
+        if not isinstance(event_type, str) or not event_type.strip() or len(event_type) > 200:
+            return "event_type is required"
+        if not isinstance(event.get("data"), dict):
+            return "data must be an object"
+        if len(json.dumps(event, allow_nan=False)) > 32768:
+            return "event exceeds 32 KiB"
+        if event.get("store_id", self.restaurant_id) != self.restaurant_id:
+            return "event restaurant does not match this deployment"
+        return None
+
+
+@pytest.fixture
+def qsr_agent(monkeypatch):
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    agent = _FakeQsrAgent()
+    yield agent
+    agent.server.shutdown()
+
+
+def _envelope(event_type="order_failed", payload=None):
+    from mcp_sensor import new_event
+
+    return new_event(
+        event_type,
+        "order_accuracy_dine_in",
+        "store-001",
+        payload or {"event_id": "order_failed-20261014-120000-abcd1234",
+                    "dispatched_at": "2026-10-14T12:00:00.000+00:00", "order_id": "MCD-1"},
+        ref_id="MCD-1:MCD-1",
+    )
+
+
+def test_autonomy_delivery_off_by_default(mcp):
+    assert mcp._AUTONOMY_DELIVERY is None
+
+
+def test_autonomy_event_posted_in_qsr_envelope(tmp_path, qsr_agent):
+    gen = _reload_mcp_service(tmp_path, QSR_AUTONOMY_EVENTS_URL=qsr_agent.url)
+    mcp = next(gen)
+    try:
+        event = mcp.emit_order_result(dict(_FAILED_RESULT))
+        assert qsr_agent.received.wait(5), qsr_agent.rejections
+    finally:
+        gen.close()
+
+    assert len(qsr_agent.events) == 1, "seed history must not be forwarded"
+    posted = qsr_agent.events[0]
+    assert set(posted) == {"event_id", "event_type", "store_id", "occurred_at", "data"}
+    assert posted["event_type"] == "order_mismatch_detected"
+    assert posted["store_id"] == "qsr-001"
+    assert posted["event_id"] == f"order_accuracy_dine_in-{event.payload['event_id']}"
+    assert posted["occurred_at"] == event.payload["dispatched_at"]
+    data = posted["data"]
+    assert data["order_id"] == "MCD-2001"
+    assert data["station"] == "T7"
+    assert data["missing_items"] == [{"name": "Veg Burger", "quantity": 1}]
+    assert data["reason"] == "missing:1"
+    assert data["source"] == "order_accuracy_dine_in"
+    assert data["source_event_type"] == "order_failed"
+    assert data["ref_id"] == "MCD-2001:MCD-2001"
+    assert "Authorization" not in qsr_agent.headers[0]
+    # The durable log and payload are unchanged by autonomy delivery.
+    assert event.event_type == "order_failed"
+    assert event.store_id == "store-001"
+
+
+def test_autonomy_posts_both_validated_and_failed_orders(tmp_path, qsr_agent):
+    import time
+
+    gen = _reload_mcp_service(tmp_path, QSR_AUTONOMY_EVENTS_URL=qsr_agent.url)
+    mcp = next(gen)
+    try:
+        mcp.emit_order_result({"order_id": "MCD-1001", "station": "T12", "image_id": "MCD-1001",
+                               "order_complete": True, "accuracy_score": 1.0})
+        mcp.emit_order_result(dict(_FAILED_RESULT))
+        deadline = time.time() + 5
+        while len(qsr_agent.events) < 2 and time.time() < deadline:
+            time.sleep(0.05)
+    finally:
+        gen.close()
+
+    by_type = {e["event_type"]: e for e in qsr_agent.events}
+    assert len(qsr_agent.events) == 2, qsr_agent.rejections
+    assert set(by_type) == {"order_validated", "order_mismatch_detected"}
+    validated = by_type["order_validated"]["data"]
+    assert validated["order_id"] == "MCD-1001"
+    assert validated["accuracy_score"] == 1.0
+    assert validated["source_event_type"] == "order_validated"
+    assert "missing_items" not in validated
+
+
+def test_autonomy_skips_seed_history():
+    from mcp_sensor import AutonomyEventSink, new_event
+
+    calls = []
+    sink = AutonomyEventSink("http://qsr", store_id="qsr-001",
+                             post_json=lambda *a: calls.append(a) or 202)
+    seed = new_event("order_failed", "order_accuracy_dine_in", "store-001",
+                     {"order_id": "seed-002"}, ref_id="seed:seed-002:seed-002")
+    assert sink.push(seed) is True
+    assert calls == []
+
+
+def test_autonomy_event_types_can_be_restricted():
+    from mcp_sensor import AutonomyEventSink
+
+    calls = []
+    sink = AutonomyEventSink("http://qsr", store_id="qsr-001", event_types=("order_failed",),
+                             post_json=lambda *a: calls.append(a) or 202)
+    assert sink.push(_envelope("order_validated")) is True
+    assert calls == []
+
+
+def test_autonomy_sends_bearer_token(qsr_agent):
+    from mcp_sensor import AutonomyEventSink
+
+    sink = AutonomyEventSink(qsr_agent.url, store_id="qsr-001", token="s3cret")
+    assert sink.push(_envelope()) is True
+    assert qsr_agent.headers[0]["Authorization"] == "Bearer s3cret"
+
+
+def test_autonomy_store_mismatch_is_rejected_without_retry(qsr_agent):
+    from mcp_sensor import AutonomyEventSink, Delivery
+
+    sink = AutonomyEventSink(qsr_agent.url, store_id="store-001")
+    Delivery(sinks=[sink], backoff_s=0).dispatch(_envelope())
+    assert qsr_agent.rejections == ["event restaurant does not match this deployment"]
+
+
+@pytest.mark.parametrize("status, attempts", [(202, 1), (400, 1), (422, 1), (429, 3), (500, 3)])
+def test_autonomy_retry_policy_matches_weather_service(status, attempts):
+    from mcp_sensor import AutonomyEventSink, Delivery
+
+    calls = []
+    sink = AutonomyEventSink("http://qsr", store_id="qsr-001",
+                             post_json=lambda *a: calls.append(a) or status)
+    result = Delivery(sinks=[sink], backoff_s=0).dispatch(_envelope())
+    assert result == {"autonomy": 200 <= status < 300}
+    assert len(calls) == attempts
+
+
+def test_autonomy_retries_transport_errors_with_same_event_id():
+    from mcp_sensor import AutonomyEventSink, Delivery
+
+    bodies = []
+
+    def flaky(url, body, headers, timeout):
+        bodies.append(json.loads(body))
+        if len(bodies) < 3:
+            raise ConnectionRefusedError("down")
+        return 202
+
+    sink = AutonomyEventSink("http://qsr", store_id="qsr-001", post_json=flaky)
+    assert Delivery(sinks=[sink], backoff_s=0).dispatch(_envelope()) == {"autonomy": True}
+    assert len({b["event_id"] for b in bodies}) == 1
+
+
+def test_autonomy_does_not_follow_redirects_or_leak_token(monkeypatch):
+    from mcp_sensor import AutonomyEventSink
+
+    monkeypatch.setenv("no_proxy", "127.0.0.1,localhost")
+    monkeypatch.setenv("NO_PROXY", "127.0.0.1,localhost")
+    target_hits = []
+
+    class Target(BaseHTTPRequestHandler):
+        def do_GET(self):
+            target_hits.append(dict(self.headers))
+            self.send_response(200)
+            self.end_headers()
+
+        do_POST = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    target = ThreadingHTTPServer(("127.0.0.1", 0), Target)
+    threading.Thread(target=target.serve_forever, daemon=True).start()
+    location = f"http://127.0.0.1:{target.server_port}/"
+
+    class Redirector(BaseHTTPRequestHandler):
+        def do_POST(self):
+            self.send_response(302)
+            self.send_header("Location", location)
+            self.end_headers()
+
+        def log_message(self, *args):
+            pass
+
+    redirector = ThreadingHTTPServer(("127.0.0.1", 0), Redirector)
+    threading.Thread(target=redirector.serve_forever, daemon=True).start()
+    try:
+        sink = AutonomyEventSink(f"http://127.0.0.1:{redirector.server_port}/",
+                                 store_id="qsr-001", token="s3cret")
+        assert sink.push(_envelope()) is False
+        assert target_hits == []
+    finally:
+        redirector.shutdown()
+        target.shutdown()
+
+
+def test_autonomy_concurrent_same_ref_emits_dispatch_once(tmp_path, qsr_agent):
+    import time
+
+    gen = _reload_mcp_service(tmp_path, QSR_AUTONOMY_EVENTS_URL=qsr_agent.url)
+    mcp = next(gen)
+    try:
+        real_find = mcp._find_existing_event
+        barrier = threading.Barrier(2)
+        seen = threading.local()
+
+        def racing_find(event_type, ref_id):
+            # Force both threads past the pre-emit existence check together.
+            if not getattr(seen, "checked", False):
+                seen.checked = True
+                barrier.wait(5)
+                return None
+            return real_find(event_type, ref_id)
+
+        mcp._find_existing_event = racing_find
+        payloads = [
+            {"event_id": f"order_failed-race-{i}", "dispatched_at": "2026-10-14T12:00:00.000+00:00",
+             "order_id": "MCD-RACE", "missing_items": []}
+            for i in range(2)
+        ]
+        threads = [
+            threading.Thread(target=mcp._safe_emit, args=("order_failed", p, "MCD-RACE:MCD-RACE"))
+            for p in payloads
+        ]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join(10)
+        time.sleep(0.5)
+        mcp._find_existing_event = real_find
+        recorded = [e for e in mcp._read_entire_log() if e.ref_id == "MCD-RACE:MCD-RACE"]
+    finally:
+        gen.close()
+
+    assert len(recorded) == 1
+    assert len(qsr_agent.events) == 1
+    assert qsr_agent.events[0]["event_id"].endswith(recorded[0].payload["event_id"])
+
+
+def test_autonomy_opposite_outcome_for_same_ref_is_not_dispatched(tmp_path, qsr_agent):
+    import time
+
+    gen = _reload_mcp_service(tmp_path, QSR_AUTONOMY_EVENTS_URL=qsr_agent.url)
+    mcp = next(gen)
+    try:
+        first = mcp._safe_emit("order_failed", {"event_id": "order_failed-opp-1", "order_id": "MCD-OPP",
+                               "dispatched_at": "2026-10-14T12:00:00.000+00:00"}, "MCD-OPP:MCD-OPP")
+        second = mcp._safe_emit("order_validated", {"event_id": "order_validated-opp-2", "order_id": "MCD-OPP",
+                                "dispatched_at": "2026-10-14T12:00:01.000+00:00"}, "MCD-OPP:MCD-OPP")
+        time.sleep(0.5)
+        recorded = [e for e in mcp._read_entire_log() if e.ref_id == "MCD-OPP:MCD-OPP"]
+    finally:
+        gen.close()
+
+    assert len(recorded) == 1 and recorded[0].event_type == "order_failed"
+    assert second.event_type == "order_failed" and second.payload == first.payload
+    assert [e["event_type"] for e in qsr_agent.events] == ["order_mismatch_detected"]
+
+
+def test_fresh_emit_does_not_rescan_log_for_ownership(tmp_path):
+    gen = _reload_mcp_service(tmp_path)
+    mcp = next(gen)
+    try:
+        real = mcp._read_entire_log
+        reads = []
+        mcp._read_entire_log = lambda: reads.append(1) or real()
+        event = mcp._safe_emit("order_failed", {"event_id": "order_failed-scan-1", "order_id": "MCD-SCAN"},
+                               "MCD-SCAN:MCD-SCAN")
+        mcp._read_entire_log = real
+    finally:
+        gen.close()
+
+    assert event is not None and event.ref_id == "MCD-SCAN:MCD-SCAN"
+    assert len(reads) == 1
+
+
+def test_autonomy_does_not_change_existing_webhook(tmp_path):
+    gen = _reload_mcp_service(tmp_path, MCP_WEBHOOK_URL="http://legacy/hook")
+    mcp = next(gen)
+    try:
+        assert mcp._AUTONOMY_DELIVERY is None
+        assert [s.name for s in mcp._ASYNC_WEBHOOK_DELIVERY._sinks] == ["webhook"]
+    finally:
+        gen.close()

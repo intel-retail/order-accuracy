@@ -41,7 +41,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-from .mcp_sensor import Delivery, JSONLFileLog, SensorService, SQLiteLog, WebhookSink
+from .mcp_sensor import AutonomyEventSink, Delivery, JSONLFileLog, SensorService, SQLiteLog, WebhookSink
 
 from .order_events import create_order_event
 
@@ -99,6 +99,15 @@ if MCP_LOG_BACKEND == "sqlite" and MCP_LOG_PATH.endswith(".jsonl"):
 # push events to an agent inbox / event hub callback.
 MCP_WEBHOOK_URL = os.getenv("MCP_WEBHOOK_URL")
 
+# QSR agent autonomy webhook (POST /autonomy/events); off unless the URL is set.
+QSR_AUTONOMY_EVENTS_URL = os.getenv("QSR_AUTONOMY_EVENTS_URL", "").strip()
+QSR_AUTONOMY_EVENTS_TOKEN = os.getenv("QSR_AUTONOMY_EVENTS_TOKEN", "").strip() or None
+# Must equal the QSR agent's QSR_RESTAURANT_ID or the event is rejected.
+QSR_AUTONOMY_STORE_ID = os.getenv("QSR_AUTONOMY_STORE_ID", "qsr-001")
+QSR_AUTONOMY_EVENT_TYPES = tuple(
+    t.strip() for t in os.getenv("QSR_AUTONOMY_EVENT_TYPES", "order_failed,order_validated").split(",") if t.strip()
+)
+
 MCP_TRANSPORT = os.getenv("MCP_TRANSPORT", "streamable-http")
 MCP_HOST = os.getenv("MCP_HOST", "0.0.0.0")
 MCP_PORT = int(os.getenv("MCP_PORT", "8010"))
@@ -146,6 +155,17 @@ svc = _build_service()
 # reused for every event's background dispatch. None when no webhook is
 # configured, matching the previous "off" delivery behavior exactly.
 _ASYNC_WEBHOOK_DELIVERY = Delivery(sinks=[WebhookSink(MCP_WEBHOOK_URL)]) if MCP_WEBHOOK_URL else None
+
+_AUTONOMY_DELIVERY = (
+    Delivery(sinks=[AutonomyEventSink(
+        QSR_AUTONOMY_EVENTS_URL,
+        store_id=QSR_AUTONOMY_STORE_ID,
+        token=QSR_AUTONOMY_EVENTS_TOKEN,
+        event_types=QSR_AUTONOMY_EVENT_TYPES,
+    )])
+    if QSR_AUTONOMY_EVENTS_URL
+    else None
+)
 
 # -- 1. declare event types (feeds `describe`) -----------------------------
 
@@ -268,6 +288,18 @@ def _find_existing_event(event_type: str, ref_id: str):
     return None
 
 
+def _find_stored_event_by_ref(ref_id: str):
+    """Return the durable record for ``ref_id`` whatever its event type.
+
+    The log de-duplicates on ``ref_id`` alone, so an opposite outcome for the
+    same reference is also skipped at insert time.
+    """
+    for e in _read_entire_log():
+        if e.ref_id == ref_id:
+            return e
+    return None
+
+
 def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
     """``svc.emit()``, made idempotent-safe end-to-end (not just at the log).
 
@@ -308,7 +340,7 @@ def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
         return existing
 
     try:
-        event = svc.emit(event_type, payload, ref_id=ref_id)
+        event, inserted = svc.emit_new(event_type, payload, ref_id=ref_id)
     except sqlite3.IntegrityError:
         logger.info(
             "[MCP] ref_id=%s already recorded by a concurrent writer; "
@@ -328,12 +360,29 @@ def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
         )
         return None
 
+    # Concurrent emits can both pass the existence check above; the log keeps
+    # only the first insert. Dispatch only for the insertion winner.
+    if not inserted:
+        logger.info(
+            "[MCP] ref_id=%s already recorded by a concurrent emit; "
+            "skipping duplicate dispatch",
+            ref_id,
+        )
+        return _find_stored_event_by_ref(ref_id)
+
     if _ASYNC_WEBHOOK_DELIVERY is not None:
         threading.Thread(
             target=_ASYNC_WEBHOOK_DELIVERY.dispatch,
             args=(event,),
             daemon=True,
             name="mcp-webhook-delivery",
+        ).start()
+    if _AUTONOMY_DELIVERY is not None:
+        threading.Thread(
+            target=_AUTONOMY_DELIVERY.dispatch,
+            args=(event,),
+            daemon=True,
+            name="qsr-autonomy-delivery",
         ).start()
     return event
 

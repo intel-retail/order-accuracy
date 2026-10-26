@@ -123,6 +123,11 @@ services:
       - MCP_LOG_PATH=${MCP_LOG_PATH:-/app/results/order_accuracy_events.db}
       - MCP_WEBHOOK_URL=${MCP_WEBHOOK_URL:-}
       - STORE_ID=${STORE_ID:-store-001}
+      # QSR agent autonomy events (e.g. http://host.docker.internal:8600/autonomy/events); empty = off.
+      - QSR_AUTONOMY_EVENTS_URL=${QSR_AUTONOMY_EVENTS_URL:-}
+      - QSR_AUTONOMY_EVENTS_TOKEN=${QSR_AUTONOMY_EVENTS_TOKEN:-}
+      - QSR_AUTONOMY_STORE_ID=${QSR_AUTONOMY_STORE_ID:-qsr-001}
+      - QSR_AUTONOMY_EVENT_TYPES=${QSR_AUTONOMY_EVENT_TYPES:-order_failed,order_validated}
     depends_on:
       ovms-vlm:
         condition: service_healthy
