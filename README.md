@@ -150,6 +150,16 @@ Copyright © 2025 Intel Corporation
 
 Licensed under the Apache License, Version 2.0. See [LICENSE](LICENSE) for details.
 
+## Intended Use
+
+Applications developed in this repository, unless stated otherwise, are intended for reference
+and demonstration purposes, not for production environments.
+Certain features, such as authentication, TLS termination, and external access controls are
+assumed to be covered at the infrastructure level.
+For more information, refer to the
+[Notes on Usage](https://docs.openedgeplatform.intel.com/dev/OEP-articles/notes-on-usage.html)
+document.
+
 ## Support
 
 For application-specific issues, refer to the respective documentation:
