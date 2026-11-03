@@ -14,8 +14,9 @@ docstring for why this service no longer depends on the shared
      (vs. baseline), order/validation history, and per-station pass/fail
      totals — all answered from the SDK's durable log, not from the
      in-memory ``core.order_results`` tracker, so a restart loses nothing.
-  3. Registers **no** action tools. Per Issue #102: "Order Accuracy is a
-     sensor (no runtime action)" / "A: none (read/detect only)".
+  3. Adds the QSR agent contract (``agent_contract.py``): the
+     ``get_order_accuracy_context`` read and the ``request_remake`` action,
+     which the agent only calls after an operator approves it.
 
 Nothing here duplicates business logic: validation itself still happens in
 ``core.validation_agent``/``core.vlm_service``; this module only records the
@@ -41,6 +42,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from .agent_contract import register as register_agent_contract
 from .mcp_sensor import AutonomyEventSink, Delivery, JSONLFileLog, SensorService, SQLiteLog, WebhookSink
 
 from .order_events import create_order_event
@@ -162,6 +164,7 @@ _AUTONOMY_DELIVERY = (
         store_id=QSR_AUTONOMY_STORE_ID,
         token=QSR_AUTONOMY_EVENTS_TOKEN,
         event_types=QSR_AUTONOMY_EVENT_TYPES,
+        venue="take-away",
     )])
     if QSR_AUTONOMY_EVENTS_URL
     else None
@@ -610,6 +613,10 @@ def get_station_totals(station: str | None = None) -> dict[str, Any]:
     if station:
         return totals.get(station, {"validated": 0, "failed": 0, "total": 0, "rework_rate": 0.0})
     return totals
+
+
+# QSR agent contract: live context read + operator-approved remake action.
+register_agent_contract(svc, _read_entire_log, _safe_emit, QSR_AUTONOMY_STORE_ID, "take_away")
 
 
 # ---------------------------------------------------------------------------

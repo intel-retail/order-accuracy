@@ -378,8 +378,11 @@ resource. An agent connects once and can call any of:
 | `get_rework_rate`     | Rework rate for a period, vs. a baseline period             |
 | `describe`            | Self-description of event types, schemas and tools (SDK built-in) |
 
-There are **no action tools** — Order Accuracy only reports what it sees; it
-never accepts commands to change orders or system state via MCP.
+For the Central QSR Agent there are also `get_order_accuracy_context` (live
+snapshot: recent orders with `result` and `issues`) and one action,
+`request_remake(order_id, reason)`, which only accepts a currently flagged order and
+records a `remake_requested` event. The agent calls it only after an operator approves.
+Events pushed to the agent carry `"service": "accuracy"` and `data.venue: "dine-in"`.
 
 See the [Dine-In README](https://github.com/intel-retail/order-accuracy/blob/main/dine-in/README.md#mcp-server-events-durable-log-read-tools)
 for the full event schema and a runnable `fastmcp` client example.

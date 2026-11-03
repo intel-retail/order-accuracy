@@ -32,6 +32,8 @@ _REQUIRED_TOOLS = {
     "get_rework_rate",
     "get_order_history",
     "get_station_totals",
+    "get_order_accuracy_context",
+    "request_remake",
 }
 
 
@@ -83,7 +85,7 @@ def test_all_required_read_tools_still_exposed(mcp_server_module):
 
 
 def test_mcp_surface_is_exactly_the_required_set(mcp_server_module):
-    """No subscribe, no action tools, no unexpected extras."""
+    """No subscribe, only the QSR agent's remake action, no unexpected extras."""
     app = mcp_server_module._build_app()
     tools = asyncio.run(app.list_tools())
     names = {t.name for t in tools}
@@ -97,11 +99,12 @@ def test_describe_and_service_internals_unaffected(mcp_server_module):
     from mcp_service import svc
 
     described = svc.describe()
-    assert described["act_tools"] == {}
+    assert set(described["act_tools"]) == {"request_remake"}
     assert set(described["read_tools"]) == {
         "get_rework_rate",
         "get_order_history",
         "get_station_totals",
+        "get_order_accuracy_context",
     }
     # Order Accuracy is a sensor: SensorService never had a subscribe() or
     # _subscriptions attribute to begin with (unlike the old SDK-backed

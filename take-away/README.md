@@ -102,8 +102,8 @@ make up REGISTRY=false
 
 ## MCP Server (Events, Durable Log, Read Tools)
 
-Order Accuracy is agentic-ready: it is a **sensor** (detect/report only, no
-runtime actions) that exposes an [MCP](https://modelcontextprotocol.io)
+Order Accuracy is agentic-ready: it is a **sensor** (detects and reports; its only action is the
+QSR agent's operator-approved `request_remake`) that exposes an [MCP](https://modelcontextprotocol.io)
 server built directly on FastMCP (via a small local `mcp_sensor` module;
 see below), alongside a durable, restart-safe event log.
 
@@ -125,7 +125,7 @@ comparative queries ("today vs. baseline") work immediately after `make up`
 The Dine-In application ships the equivalent seeding, adapted to its own
 event schema (see the [Dine-In README](../dine-in/README.md#mcp-server-events-durable-log-read-tools)).
 
-**Read tools** (no action tools — Order Accuracy never acts):
+**Read tools**:
 
 | Tool                 | Purpose                                                        |
 | --------------------- | --------------------------------------------------------------- |
@@ -133,6 +133,24 @@ event schema (see the [Dine-In README](../dine-in/README.md#mcp-server-events-du
 | `get_order_history`   | Order validation history, optionally filtered by station/order_id |
 | `get_station_totals`  | Per-station pass/fail totals and rework rate                   |
 | `describe`            | Self-description of event types, schemas and tools (SDK built-in) |
+
+**QSR agent contract** — the Central QSR Agent's built-in `accuracy` capability uses two more tools:
+
+| Tool                         | Purpose |
+| ----------------------------- | ------- |
+| `get_order_accuracy_context` | Restaurant id (`QSR_AUTONOMY_STORE_ID`), last-30-minute accuracy, per-station totals, and recent orders with `result` (`flagged`/`accurate`) and `issues` |
+| `request_remake`             | Action: remake a currently flagged order. Records a `remake_requested` event (sent to `MCP_WEBHOOK_URL` for the kitchen). The agent only calls it after an operator approves |
+
+To connect a QSR agent on another machine: publish the MCP port with
+`MCP_BIND_HOST=0.0.0.0` (behind an authenticating proxy on untrusted networks), set
+`QSR_AUTONOMY_EVENTS_URL=http://<agent-host>:8600/autonomy/events`, and on the
+agent set `QSR_ORDER_ACCURACY_TAKE_AWAY_MCP_URL=http://<this-host>:8010/mcp`. Events are sent
+with `"service": "accuracy"`; `order_failed` arrives as `order_mismatch_detected`.
+Each event's `data.venue` is `take-away`, so the agent sends remakes for it to this
+service; `request_remake` for an order this service did not flag names the dine-in
+service instead. With a live agent, set `QSR_AUTONOMY_EVENT_TYPES=order_failed`:
+every forwarded event costs the agent a model call, and validated orders need no
+action. After restarting this service, restart the agent so it reconnects.
 
 **Try it yourself** (from a clone, no code reading required):
 
@@ -160,7 +178,7 @@ delivery URL).
 identically from the log"): a small developer/validation script,
 `scripts/replay_log.py`, replays every event in the durable log in its
 original order. It is a read-only diagnostic workflow — **not** an MCP
-tool — since Order Accuracy's MCP surface is read/detect only:
+tool — since it only reads the log:
 
 ```bash
 make replay

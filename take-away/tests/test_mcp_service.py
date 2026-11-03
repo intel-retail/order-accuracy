@@ -263,13 +263,36 @@ def test_get_station_totals_pass_fail_counts(mcp):
 # ---------------------------------------------------------------------------
 
 
-def test_no_action_tools_registered(mcp):
-    """Issue #102: 'A: none (read/detect only)' — Order Accuracy is a sensor."""
+def test_only_the_agent_remake_action_is_registered(mcp):
     described = mcp.svc.describe()
-    assert described["act_tools"] == {}
-    # SensorService has no act-tool machinery at all (by construction),
-    # unlike the old SDK-backed ServiceServer which had an (unused) _act_tools.
-    assert not hasattr(mcp.svc, "_act_tools")
+    assert set(described["act_tools"]) == {"request_remake"}
+
+
+def test_agent_context_and_remake_follow_the_qsr_agent_contract(mcp):
+    mcp.emit_order_result(dict(_MISMATCH_RESULT))
+    context = mcp.svc._read_tools["get_order_accuracy_context"].fn()
+    assert context["restaurant"] == {"id": "qsr-001"}
+    assert context["observed_at"]
+    # Seeded baseline history is not offered for remakes.
+    assert [o["order_id"] for o in context["recent_orders"]] == ["539"]
+    order = context["recent_orders"][0]
+    assert (order["result"], order["station_id"], order["venue"]) == ("flagged", "station_2", "take_away")
+    assert order["issues"] == [{'name': 'apple', 'quantity': 1, 'type': 'missing_item'}]
+    assert context["summary"]["orders_flagged"] == 1
+
+    remake = mcp.svc._act_tools["request_remake"].fn
+    with pytest.raises(ValueError):
+        remake("not-an-order", "missing item")
+    with pytest.raises(ValueError):
+        remake("539", "  ")
+    result = remake("539", "missing item at the counter")
+    assert result["executed"] is True and result["order_id"] == "539"
+    recorded = [e for e in mcp.svc.log.read(limit=1000) if e.event_type == "remake_requested"]
+    assert [e.payload["remake_id"] for e in recorded] == [result["remake_id"]]
+    after = mcp.svc._read_tools["get_order_accuracy_context"].fn()
+    assert after["recent_orders"][0]["remake_requested_at"]
+    # Remake requests are not validation outcomes.
+    assert {o["status"] for o in mcp.get_order_history(limit=0)} <= {"validated", "failed"}
 
 
 def test_describe_exposes_expected_read_tools_and_event_types(mcp):
@@ -278,8 +301,9 @@ def test_describe_exposes_expected_read_tools_and_event_types(mcp):
         "get_rework_rate",
         "get_order_history",
         "get_station_totals",
+        "get_order_accuracy_context",
     }
-    assert set(described["event_types"]) == {"order_validated", "order_failed"}
+    assert set(described["event_types"]) == {"order_validated", "order_failed", "remake_requested"}
     assert described["service"] == "order_accuracy"
 
 
@@ -393,7 +417,8 @@ def test_autonomy_event_posted_in_qsr_envelope(tmp_path, qsr_agent):
 
     assert len(qsr_agent.events) == 1, "seed history must not be forwarded"
     posted = qsr_agent.events[0]
-    assert set(posted) == {"event_id", "event_type", "store_id", "occurred_at", "data"}
+    assert set(posted) == {"event_id", "event_type", "service", "store_id", "occurred_at", "data"}
+    assert posted["service"] == "accuracy"
     assert posted["event_type"] == "order_mismatch_detected"
     assert posted["store_id"] == "qsr-001"
     assert posted["event_id"] == f"order_accuracy-{event.payload['event_id']}"
@@ -406,6 +431,7 @@ def test_autonomy_event_posted_in_qsr_envelope(tmp_path, qsr_agent):
     assert data["reason"] == "missing:1"
     assert data["source"] == "order_accuracy"
     assert data["source_event_type"] == "order_failed"
+    assert data["venue"] == "take-away"
     assert data["ref_id"] == "station_2:539:1"
     assert event.event_type == "order_failed"
     assert event.store_id == "store-001"
