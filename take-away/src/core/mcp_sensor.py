@@ -397,9 +397,11 @@ class AutonomyEventSink:
         event_types: tuple[str, ...] = ("order_failed", "order_validated"),
         timeout_s: float = 5.0,
         post_json: PostJson = _post_json,
+        venue: str | None = None,
     ) -> None:
         self._url = url
         self._store_id = store_id
+        self._venue = venue
         self._token = token
         self._event_types = frozenset(event_types)
         self._timeout_s = timeout_s
@@ -419,6 +421,8 @@ class AutonomyEventSink:
         return {
             "event_id": f"{event.service}-{source_event_id}",
             "event_type": self.EVENT_TYPE_MAP.get(event.event_type, event.event_type),
+            # The QSR agent files take-away and dine-in under its `accuracy` service.
+            "service": "accuracy",
             "store_id": self._store_id,
             "occurred_at": occurred_at,
             "data": {
@@ -426,6 +430,8 @@ class AutonomyEventSink:
                 "source": event.service,
                 "source_event_type": event.event_type,
                 "ref_id": event.ref_id,
+                # take-away | dine-in: the order-accuracy-<venue> MCP service that owns this order.
+                **({"venue": self._venue} if self._venue else {}),
             },
         }
 
@@ -501,13 +507,12 @@ class _ReadTool:
 
 @dataclass
 class SensorService:
-    """One per service. Domain code registers event types + read tools; this
-    builds ``describe`` and the FastMCP app.
+    """One per service. Domain code registers event types, read tools and
+    act tools; this builds ``describe`` and the FastMCP app.
 
-    Deliberately has no ``subscribe``, no act tools, and no policy gate:
-    Order Accuracy is a sensor (Issue #102 — "A: none (read/detect only)"),
-    so the MCP surface built by :meth:`to_mcp` is exactly ``describe`` plus
-    the registered read tools, with nothing to strip after the fact.
+    No ``subscribe`` and no policy gate: the only act tool is the QSR agent's
+    ``request_remake``, which the agent proposes and an operator approves
+    before it is called (see ``agent_contract.py``).
     """
 
     service: str
@@ -516,6 +521,7 @@ class SensorService:
 
     _event_types: dict[str, dict] = field(default_factory=dict)
     _read_tools: dict[str, _ReadTool] = field(default_factory=dict)
+    _act_tools: dict[str, _ReadTool] = field(default_factory=dict)
 
     def register_event_type(self, name: str, schema: dict[str, Any]) -> None:
         self._event_types[name] = schema
@@ -534,6 +540,17 @@ class SensorService:
 
             desc = description if description is not None else (inspect.getdoc(fn) or "")
             self._read_tools[name] = _ReadTool(name, fn, desc, schema or {})
+            return fn
+
+        return deco
+
+    def act_tool(
+        self, name: str, description: str, schema: dict | None = None
+    ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register a state-changing tool exposed over MCP."""
+
+        def deco(fn: Callable[..., Any]) -> Callable[..., Any]:
+            self._act_tools[name] = _ReadTool(name, fn, description, schema or {})
             return fn
 
         return deco
@@ -565,11 +582,7 @@ class SensorService:
         return event, append_new(event)[1]
 
     def describe(self) -> dict[str, Any]:
-        """Self-description rich enough for a coding agent to use unassisted.
-
-        ``act_tools`` is always empty: this service never registers action
-        tools, by construction (Order Accuracy is read/detect only).
-        """
+        """Self-description rich enough for a coding agent to use unassisted."""
         return {
             "service": self.service,
             "store_id": self.store_id,
@@ -578,13 +591,15 @@ class SensorService:
                 t.name: {"description": t.description, "schema": t.schema}
                 for t in self._read_tools.values()
             },
-            "act_tools": {},
+            "act_tools": {
+                t.name: {"description": t.description, "schema": t.schema}
+                for t in self._act_tools.values()
+            },
         }
 
     def to_mcp(self):
         """Build a FastMCP app exposing ``describe`` plus the registered read
-        tools — nothing else. No ``subscribe``/callback tool is ever bound,
-        so there is nothing to remove post-construction.
+        and act tools. No ``subscribe``/callback tool is ever bound.
         """
         from fastmcp import FastMCP
 
@@ -594,7 +609,7 @@ class SensorService:
         def _describe() -> dict:
             return self.describe()
 
-        for tool in self._read_tools.values():
+        for tool in (*self._read_tools.values(), *self._act_tools.values()):
             app.tool(name=tool.name, description=tool.description)(
                 self._wrap_read(tool)
             )

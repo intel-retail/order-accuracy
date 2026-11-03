@@ -325,13 +325,151 @@ def test_get_station_totals_pass_fail_counts(mcp):
 # ---------------------------------------------------------------------------
 
 
-def test_no_action_tools_registered(mcp):
-    """Issue #102: 'A: none (read/detect only)' — Order Accuracy is a sensor."""
+def test_only_the_agent_remake_action_is_registered(mcp):
     described = mcp.svc.describe()
-    assert described["act_tools"] == {}
-    # SensorService has no act-tool machinery at all (by construction),
-    # unlike the old SDK-backed ServiceServer which had an (unused) _act_tools.
-    assert not hasattr(mcp.svc, "_act_tools")
+    assert set(described["act_tools"]) == {"request_remake"}
+
+
+def test_agent_context_and_remake_follow_the_qsr_agent_contract(mcp):
+    mcp.emit_order_result(dict(_FAILED_RESULT))
+    context = mcp.svc._read_tools["get_order_accuracy_context"].fn()
+    assert context["restaurant"] == {"id": "qsr-001"}
+    assert context["observed_at"]
+    # Seeded baseline history is not offered for remakes.
+    assert [o["order_id"] for o in context["recent_orders"]] == ["MCD-2001"]
+    order = context["recent_orders"][0]
+    assert (order["result"], order["station_id"], order["venue"]) == ("flagged", "T7", "dine_in")
+    assert order["issues"] == [{'name': 'Veg Burger', 'quantity': 1, 'type': 'missing_item'}]
+    assert context["summary"]["orders_flagged"] == 1
+
+    remake = mcp.svc._act_tools["request_remake"].fn
+    with pytest.raises(ValueError):
+        remake("not-an-order", "missing item")
+    with pytest.raises(ValueError):
+        remake("MCD-2001", "  ")
+    result = remake("MCD-2001", "missing item at the counter")
+    assert result["executed"] is True and result["order_id"] == "MCD-2001"
+    recorded = [e for e in mcp.svc.log.read(limit=1000) if e.event_type == "remake_requested"]
+    assert [e.payload["remake_id"] for e in recorded] == [result["remake_id"]]
+    after = mcp.svc._read_tools["get_order_accuracy_context"].fn()
+    assert after["recent_orders"][0]["remake_requested_at"]
+    # Remake requests are not validation outcomes.
+    assert {o["status"] for o in mcp.get_order_history(limit=0)} <= {"validated", "failed"}
+
+
+def test_remake_retry_is_deduplicated_and_log_order_beats_wall_clock(mcp):
+    from types import SimpleNamespace
+
+    from agent_contract import latest_orders
+
+    mcp.emit_order_result(dict(_FAILED_RESULT))
+    remake = mcp.svc._act_tools["request_remake"].fn
+    first = remake("MCD-2001", "missing item")
+    retry = remake("MCD-2001", "missing item again")
+    assert first["already_requested"] is False and retry["already_requested"] is True
+    assert retry["remake_id"] == first["remake_id"]
+    assert len([e for e in mcp.svc.log.read(limit=1000) if e.event_type == "remake_requested"]) == 1
+
+    # A later failed validation of the same order is a new request, not a retry.
+    failed = lambda ref, ts: SimpleNamespace(
+        event_type="order_failed", ref_id=ref, ts_ms=ts, payload={"order_id": "X", "station": "S"})
+    passed = SimpleNamespace(event_type="order_validated", ref_id="r2", ts_ms=1000, payload={"order_id": "X"})
+    # Log order is failed -> validated even though the clock went backwards.
+    assert latest_orders([failed("r1", 5000), passed])["X"]["result"] == "accurate"
+    assert latest_orders([failed("r1", 1000), failed("r2", 2000)])["X"]["_validation_ref"] == "r2"
+
+
+def test_remake_matches_current_validation_and_is_resent_until_acknowledged(mcp):
+    from types import SimpleNamespace
+
+    from agent_contract import latest_orders
+
+    failed = SimpleNamespace(
+        event_type="order_failed", ref_id="r2", ts_ms=2000, payload={"order_id": "X", "station": "S"})
+    stale = SimpleNamespace(
+        event_type="remake_requested", ref_id="remake:r1", ts_ms=3000,
+        payload={"order_id": "X", "validation_ref": "r1"})
+    assert "remake_requested_at" not in latest_orders([failed, stale])["X"]  # raised for an older failure
+
+    mcp.emit_order_result(dict(_FAILED_RESULT))
+    remake = mcp.svc._act_tools["request_remake"].fn
+    first = remake("MCD-2001", "missing item")
+    sent = []
+    mcp.redeliver_remake = sent.append  # from here on, record resends instead of sending
+    assert remake("MCD-2001", "retry")["already_requested"] is True
+    assert [e.payload["remake_id"] for e in sent] == [first["remake_id"]]  # never acknowledged: resend
+
+    recorded = next(e for e in mcp.svc.log.read(limit=1000) if e.event_type == "remake_requested")
+    mcp.svc.emit_new("remake_delivered", {"remake_id": first["remake_id"], "order_id": "MCD-2001"},
+                     ref_id=f"delivered:{recorded.ref_id}")
+    remake("MCD-2001", "retry again")
+    assert len(sent) == 1  # acknowledged: no further resend
+
+
+def test_remake_waits_for_in_flight_validation_write(mcp):
+    import threading
+
+    mcp.emit_order_result(dict(_FAILED_RESULT))
+    remake = mcp.svc._act_tools["request_remake"].fn
+    outcome = {}
+
+    def run():
+        try:
+            outcome["result"] = remake("MCD-2001", "missing item")
+        except ValueError as exc:
+            outcome["error"] = exc
+
+    with mcp._EMIT_LOCK:  # a validation writer is mid-append
+        worker = threading.Thread(target=run)
+        worker.start()
+        worker.join(0.3)
+        assert worker.is_alive()  # the remake cannot check eligibility until the write finishes
+        mcp.emit_order_result(dict(_FAILED_RESULT, order_complete=True, image_id="MCD-2001-b", missing_items=[]))
+    worker.join(5)
+    assert "error" in outcome and "result" not in outcome
+
+
+def test_emit_lock_is_held_across_processes(mcp):
+    import subprocess
+    import sys
+    import textwrap
+
+    probe = textwrap.dedent("""
+        import fcntl, os, sys
+        fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            print("free")
+        except BlockingIOError:
+            print("held")
+    """)
+
+    def probe_lock():
+        return subprocess.run([sys.executable, "-c", probe, mcp._EMIT_LOCK._lock_path],
+                              capture_output=True, text=True).stdout.strip()
+
+    assert probe_lock() == "free"
+    with mcp._EMIT_LOCK:
+        with mcp._EMIT_LOCK:  # re-entrant
+            assert probe_lock() == "held"
+        assert probe_lock() == "held"
+    assert probe_lock() == "free"
+
+
+def test_remake_is_not_acknowledged_without_a_kitchen_webhook(mcp):
+    class _Accepting:
+        def dispatch(self, event):
+            return {"autonomy": True}
+
+    mcp._ASYNC_WEBHOOK_DELIVERY = None
+    mcp._AUTONOMY_DELIVERY = _Accepting()
+    event = mcp._safe_emit("remake_requested", {"remake_id": "r1", "order_id": "o1"}, "remake:o1:x")
+    for _ in range(50):
+        if not mcp._REMAKE_IN_FLIGHT:
+            break
+        __import__("time").sleep(0.05)
+    assert event is not None
+    assert not [e for e in mcp._read_entire_log() if e.event_type == "remake_delivered"]
 
 
 def test_describe_exposes_expected_read_tools_and_event_types(mcp):
@@ -340,8 +478,9 @@ def test_describe_exposes_expected_read_tools_and_event_types(mcp):
         "get_rework_rate",
         "get_order_history",
         "get_station_totals",
+        "get_order_accuracy_context",
     }
-    assert set(described["event_types"]) == {"order_validated", "order_failed"}
+    assert set(described["event_types"]) == {"order_validated", "order_failed", "remake_requested", "remake_delivered"}
     assert described["service"] == "order_accuracy_dine_in"
 
 
@@ -452,7 +591,8 @@ def test_autonomy_event_posted_in_qsr_envelope(tmp_path, qsr_agent):
 
     assert len(qsr_agent.events) == 1, "seed history must not be forwarded"
     posted = qsr_agent.events[0]
-    assert set(posted) == {"event_id", "event_type", "store_id", "occurred_at", "data"}
+    assert set(posted) == {"event_id", "event_type", "service", "store_id", "occurred_at", "data"}
+    assert posted["service"] == "accuracy"
     assert posted["event_type"] == "order_mismatch_detected"
     assert posted["store_id"] == "qsr-001"
     assert posted["event_id"] == f"order_accuracy_dine_in-{event.payload['event_id']}"
@@ -464,6 +604,7 @@ def test_autonomy_event_posted_in_qsr_envelope(tmp_path, qsr_agent):
     assert data["reason"] == "missing:1"
     assert data["source"] == "order_accuracy_dine_in"
     assert data["source_event_type"] == "order_failed"
+    assert data["venue"] == "dine-in"
     assert data["ref_id"] == "MCD-2001:MCD-2001"
     assert "Authorization" not in qsr_agent.headers[0]
     # The durable log and payload are unchanged by autonomy delivery.
@@ -606,6 +747,8 @@ def test_autonomy_does_not_follow_redirects_or_leak_token(monkeypatch):
 
 
 def test_autonomy_concurrent_same_ref_emits_dispatch_once(tmp_path, qsr_agent):
+    # Uses the unlocked emit: in one process the emit lock already serialises writers, so this
+    # covers separate processes sharing one log file.
     import time
 
     gen = _reload_mcp_service(tmp_path, QSR_AUTONOMY_EVENTS_URL=qsr_agent.url)
@@ -630,7 +773,7 @@ def test_autonomy_concurrent_same_ref_emits_dispatch_once(tmp_path, qsr_agent):
             for i in range(2)
         ]
         threads = [
-            threading.Thread(target=mcp._safe_emit, args=("order_failed", p, "MCD-RACE:MCD-RACE"))
+            threading.Thread(target=mcp._safe_emit_locked, args=("order_failed", p, "MCD-RACE:MCD-RACE"))
             for p in payloads
         ]
         for t in threads:

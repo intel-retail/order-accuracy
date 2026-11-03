@@ -17,8 +17,9 @@ on the shared ``mcp-service-sdk`` package). It:
      pass/fail totals — all answered from the SDK's durable log, not from
      the request-scoped ``validation_store`` in ``api.py``, so a restart
      loses nothing.
-  3. Registers **no** action tools. Per Issue #102: "Order Accuracy is a
-     sensor (no runtime action)" / "A: none (read/detect only)".
+  3. Adds the QSR agent contract (``agent_contract.py``): the
+     ``get_order_accuracy_context`` read and the ``request_remake`` action,
+     which the agent only calls after an operator approves it.
   4. Seeds one day of synthetic "yesterday" baseline history on first run
      (idempotent — only when the log is empty) so `get_rework_rate`'s
      baseline comparison works immediately on a fresh setup, mirroring
@@ -52,6 +53,7 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
+from agent_contract import register as register_agent_contract
 from mcp_sensor import AutonomyEventSink, Delivery, JSONLFileLog, SensorService, SQLiteLog, WebhookSink
 
 from services.order_events import create_order_event
@@ -171,6 +173,7 @@ _AUTONOMY_DELIVERY = (
         store_id=QSR_AUTONOMY_STORE_ID,
         token=QSR_AUTONOMY_EVENTS_TOKEN,
         event_types=QSR_AUTONOMY_EVENT_TYPES,
+        venue="dine-in",
     )])
     if QSR_AUTONOMY_EVENTS_URL
     else None
@@ -256,7 +259,58 @@ def _find_stored_event_by_ref(ref_id: str):
     return None
 
 
+# One lock for every durable write that decides an order's outcome (validation results and
+# remake requests), so "check the latest validation, then record a remake" cannot interleave
+# with a new validation result.
+class _CrossProcessLock:
+    """Re-entrant lock held across threads and across processes sharing the log file.
+
+    Station/table containers share one SQLite log, so an in-process lock alone cannot
+    stop another process recording a validation between a remake's check and its append.
+    """
+
+    def __init__(self, lock_path: Optional[str]):
+        self._thread_lock = threading.RLock()
+        self._lock_path = lock_path
+        self._depth = 0
+        self._fd: Optional[int] = None
+
+    def __enter__(self):
+        self._thread_lock.acquire()
+        if self._depth == 0 and self._lock_path:
+            try:
+                import fcntl
+                self._fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR, 0o666)
+                fcntl.flock(self._fd, fcntl.LOCK_EX)
+            except Exception:
+                logger.warning("[MCP] cross-process lock unavailable at %s; using in-process lock only",
+                               self._lock_path, exc_info=True)
+                if self._fd is not None:
+                    os.close(self._fd)
+                    self._fd = None
+        self._depth += 1
+        return self
+
+    def __exit__(self, *exc):
+        self._depth -= 1
+        if self._depth == 0 and self._fd is not None:
+            try:
+                os.close(self._fd)  # closing releases the flock
+            finally:
+                self._fd = None
+        self._thread_lock.release()
+
+
+_EMIT_LOCK = _CrossProcessLock(
+    f"{MCP_LOG_PATH}.lock" if MCP_SERVICE_ENABLED and MCP_LOG_BACKEND == "sqlite" else None)
+
+
 def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
+    with _EMIT_LOCK:
+        return _safe_emit_locked(event_type, payload, ref_id)
+
+
+def _safe_emit_locked(event_type: str, payload: dict[str, Any], ref_id: str):
     """``svc.emit()``, made idempotent-safe end-to-end (not just at the log).
 
     ``ServiceServer.emit()`` always builds a brand-new envelope, and this
@@ -325,6 +379,10 @@ def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
             ref_id,
         )
         return _find_stored_event_by_ref(ref_id)
+
+    if event_type == "remake_requested":
+        redeliver_remake(event)
+        return event
 
     if _ASYNC_WEBHOOK_DELIVERY is not None:
         threading.Thread(
@@ -560,6 +618,52 @@ def get_station_totals(station: str | None = None) -> dict[str, Any]:
     if station:
         return totals.get(station, {"validated": 0, "failed": 0, "total": 0, "rework_rate": 0.0})
     return totals
+
+
+# QSR agent contract: live context read + operator-approved remake action.
+_REMAKE_IN_FLIGHT: set[str] = set()
+
+
+def redeliver_remake(event) -> None:
+    """Send a remake request to every configured sink in the background.
+
+    Once all sinks accept it, a ``remake_delivered`` event is logged. A later retry of
+    ``request_remake`` re-sends the original event (same ``remake_id``/``ref_id``) only
+    while that acknowledgement is missing.
+    """
+    deliveries = [d for d in (_ASYNC_WEBHOOK_DELIVERY, _AUTONOMY_DELIVERY) if d is not None]
+    with _EMIT_LOCK:
+        if not deliveries or event.ref_id in _REMAKE_IN_FLIGHT:
+            return
+        _REMAKE_IN_FLIGHT.add(event.ref_id)
+    threading.Thread(target=_deliver_remake, args=(event, deliveries), daemon=True,
+                     name="mcp-remake-delivery").start()
+
+
+def _deliver_remake(event, deliveries) -> None:
+    try:
+        results = [all(d.dispatch(event).values()) for d in deliveries]
+        # The default autonomy filter skips remake events and reports success, so only a
+        # configured kitchen webhook that accepted the request counts as delivery.
+        if _ASYNC_WEBHOOK_DELIVERY is None or not all(results):
+            logger.warning("[MCP] remake %s was not delivered; a retry of request_remake will resend it",
+                           event.payload.get("remake_id"))
+            return
+        try:
+            svc.emit_new("remake_delivered",
+                         {"remake_id": event.payload.get("remake_id"), "order_id": event.payload.get("order_id")},
+                         ref_id=f"delivered:{event.ref_id}")
+        except sqlite3.IntegrityError:
+            pass
+        except Exception:
+            logger.exception("[MCP] Failed to record remake delivery for %s", event.ref_id)
+    finally:
+        with _EMIT_LOCK:
+            _REMAKE_IN_FLIGHT.discard(event.ref_id)
+
+
+register_agent_contract(svc, _read_entire_log, _safe_emit, QSR_AUTONOMY_STORE_ID, "dine_in",
+                        lambda event: redeliver_remake(event), _EMIT_LOCK)
 
 
 # ---------------------------------------------------------------------------
