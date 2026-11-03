@@ -42,7 +42,9 @@ def _issues(payload: dict[str, Any]) -> list[dict[str, Any]]:
 
 def _live(events: Iterable[Any]) -> list[Any]:
     # Synthetic baseline history ("seed:" ref ids) is not a real order to act on.
-    return sorted((e for e in events if not str(e.ref_id).startswith("seed:")), key=lambda e: e.ts_ms)
+    # Keep the log's own order: it is the source of truth for "latest", and wall-clock
+    # timestamps can go backwards. Timestamps are only used for the reporting window.
+    return [e for e in events if not str(e.ref_id).startswith("seed:")]
 
 
 def latest_orders(events: Iterable[Any]) -> dict[str, dict[str, Any]]:
@@ -66,6 +68,7 @@ def latest_orders(events: Iterable[Any]) -> dict[str, dict[str, Any]]:
             "result": "flagged" if failed else "accurate",
             "issues": _issues(event.payload) if failed else [],
             "observed_at": _iso(event.ts_ms),
+            "_validation_ref": event.ref_id,
             **({"accuracy_score": event.payload["accuracy_score"]}
                if isinstance(event.payload.get("accuracy_score"), (int, float)) else {}),
         }
@@ -92,6 +95,7 @@ def accuracy_context(events: Iterable[Any], store_id: str, venue: str, source: s
             flagged += 1
     recent = list(latest_orders(events).values())[-limit:]
     for order in recent:
+        order.pop("_validation_ref", None)
         order["venue"] = venue
     return {
         "schema_version": "1.0",
@@ -152,8 +156,14 @@ def register(svc: Any, read_events: Callable[[], list], emit: Callable[[str, dic
         remake_id = f"remake-{uuid.uuid4().hex[:12]}"
         payload = {"remake_id": remake_id, "order_id": order_id, "station": order["station_id"],
                    "issues": order["issues"], "reason": reason}
-        if emit(REMAKE_EVENT, payload, f"remake:{order_id}:{remake_id}") is None:
+        # The key is tied to this failed validation, so a retry finds the request already
+        # recorded (emit returns it without dispatching again) while a later failed
+        # validation of the same order gets a new key.
+        event = emit(REMAKE_EVENT, payload, f"remake:{order['_validation_ref']}")
+        if event is None:
             raise RuntimeError("remake request could not be recorded")
-        return {"executed": True, "remake_id": remake_id, "order_id": order_id,
-                "station_id": order["station_id"], "reason": reason,
-                "requested_at": datetime.now(timezone.utc).isoformat()}
+        recorded = event.payload
+        return {"executed": True, "already_requested": recorded.get("remake_id") != remake_id,
+                "remake_id": recorded.get("remake_id", remake_id), "order_id": order_id,
+                "station_id": order["station_id"], "reason": recorded.get("reason", reason),
+                "requested_at": _iso(event.ts_ms)}

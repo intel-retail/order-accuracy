@@ -295,6 +295,28 @@ def test_agent_context_and_remake_follow_the_qsr_agent_contract(mcp):
     assert {o["status"] for o in mcp.get_order_history(limit=0)} <= {"validated", "failed"}
 
 
+def test_remake_retry_is_deduplicated_and_log_order_beats_wall_clock(mcp):
+    from types import SimpleNamespace
+
+    from core.agent_contract import latest_orders
+
+    mcp.emit_order_result(dict(_MISMATCH_RESULT))
+    remake = mcp.svc._act_tools["request_remake"].fn
+    first = remake("539", "missing item")
+    retry = remake("539", "missing item again")
+    assert first["already_requested"] is False and retry["already_requested"] is True
+    assert retry["remake_id"] == first["remake_id"]
+    assert len([e for e in mcp.svc.log.read(limit=1000) if e.event_type == "remake_requested"]) == 1
+
+    # A later failed validation of the same order is a new request, not a retry.
+    failed = lambda ref, ts: SimpleNamespace(
+        event_type="order_failed", ref_id=ref, ts_ms=ts, payload={"order_id": "X", "station": "S"})
+    passed = SimpleNamespace(event_type="order_validated", ref_id="r2", ts_ms=1000, payload={"order_id": "X"})
+    # Log order is failed -> validated even though the clock went backwards.
+    assert latest_orders([failed("r1", 5000), passed])["X"]["result"] == "accurate"
+    assert latest_orders([failed("r1", 1000), failed("r2", 2000)])["X"]["_validation_ref"] == "r2"
+
+
 def test_describe_exposes_expected_read_tools_and_event_types(mcp):
     described = mcp.svc.describe()
     assert set(described["read_tools"]) == {
