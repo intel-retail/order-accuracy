@@ -44,7 +44,7 @@ see each application's README for details:
 Image-based order validation for full-service restaurant expo operations. Staff
 place a plate or tray in the validation station and trigger a check via the
 Gradio UI or REST API. The system analyzes plate contents with a pre-trained
-Qwen2.5-VL model and reconciles detected items against the order manifest —
+MiniCPM-V-4.5 vision-language model and reconciles detected items against the order manifest —
 no model fine-tuning required.
 
 **Best for:** table service, fixed-position cameras, accuracy-prioritized
@@ -87,7 +87,7 @@ Both applications share a common set of services:
 
 | Service              | Description                                                              |
 | -------------------- | ------------------------------------------------------------------------ |
-| **OVMS VLM**         | OpenVINO™ Model Server running Qwen2.5-VL with an OpenAI-compatible API  |
+| **OVMS VLM**         | OpenVINO™ Model Server running MiniCPM-V-4.5 (INT4) with an OpenAI-compatible API (Qwen2.5-VL optional) |
 | **Semantic Service** | AI-powered item matching (exact → semantic → hybrid) with local fallback |
 | **MinIO Storage**    | S3-compatible object storage for frames, selections, and results         |
 | **Gradio UI**        | Web interface for manual validation and demos                            |
@@ -109,7 +109,7 @@ application you plan to deploy:
 - [Dine-In — System Requirements](./docs/user-guide/dine-in/get-started/system-requirements.md)
 - [Take-Away — System Requirements](./docs/user-guide/take-away/get-started/system-requirements.md)
 
-> **⚠ Model Export RAM Requirement:** `setup_models.sh` performs INT8 quantization of Qwen2.5-VL-7B, which temporarily requires up to 40 GB of system RAM (FP16 model ~15 GB + INT8 compressed ~8 GB + calibration buffers ~8–15 GB). On platforms with 32 GB RAM (e.g. Wildcat Lake, Meteor Lake), the export OOMs and writes partial, corrupt XML files, causing the `oa_ovms_vlm` container to fail at startup with "Unable to read the model" errors. Always run `setup_models.sh` on a system with at least 48 GB RAM (64 GB recommended). The exported model files can then be copied to lower-memory systems for inference-only deployments.
+> **⚠ Model Export RAM Requirement:** The default model is MiniCPM-V-4.5 (INT4). If you instead select Qwen2.5-VL-7B (INT8), `setup_models.sh` performs INT8 quantization that temporarily requires up to 40 GB of system RAM (FP16 model ~15 GB + INT8 compressed ~8 GB + calibration buffers ~8–15 GB). On platforms with 32 GB RAM (e.g. Wildcat Lake, Meteor Lake), the export OOMs and writes partial, corrupt XML files, causing the `oa_ovms_vlm` container to fail at startup with "Unable to read the model" errors. Always run `setup_models.sh` on a system with at least 48 GB RAM (64 GB recommended). The exported model files can then be copied to lower-memory systems for inference-only deployments.
 >
 > **ℹ OVMS KV Cache (`cache_size`):** The default `CACHE_SIZE=4` reserves 4 GB of VRAM for the KV cache. The INT8 model itself uses ~8 GB VRAM, so total VRAM ≈ 12 GB (fits in Intel Arc A770 16 GB). On **integrated GPU** platforms (Wildcat Lake, Meteor Lake), the KV cache is allocated from **system RAM** — on a 32 GB system this can exhaust all available memory. Use a smaller value (`CACHE_SIZE=2`) on iGPU platforms. Set `export CACHE_SIZE=<N>` before running `setup_models.sh`, or edit `graph.pbtxt` directly after export. See [OVMS Service README — Tuning the KV Cache Size](./ovms-service/README.md#tuning-the-kv-cache-size) for a full sizing guide and per-platform recommendations.
 

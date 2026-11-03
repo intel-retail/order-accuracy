@@ -60,7 +60,7 @@ make benchmark
 | ----------------------------- | ------- | ---------------------- |
 | `BENCHMARK_WORKERS`           | 1       | Concurrent workers     |
 | `BENCHMARK_DURATION`          | 180     | Duration (seconds)     |
-| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Latency threshold (ms) |
+| `BENCHMARK_TARGET_LATENCY_MS` | 10000   | Latency threshold (ms) |
 | `TARGET_DEVICE`               | GPU     | Device: CPU, GPU       |
 
 ### Stream Density Benchmark

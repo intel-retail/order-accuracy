@@ -254,7 +254,7 @@ Configuration options:
 | ----------------------------- | ------- | -------------------------------- |
 | `BENCHMARK_WORKERS`           | 1       | Number of concurrent workers     |
 | `BENCHMARK_DURATION`          | 180     | Benchmark duration (seconds)     |
-| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Target latency threshold (ms)    |
+| `BENCHMARK_TARGET_LATENCY_MS` | 10000   | Target latency threshold (ms)    |
 | `BENCHMARK_LATENCY_METRIC`    | avg     | Metric: `avg`, `p95`, or `max`   |
 | `BENCHMARK_DENSITY_INCREMENT` | 1       | Concurrent images per iteration  |
 | `BENCHMARK_INIT_DURATION`     | 60      | Warmup time (seconds)            |

@@ -257,7 +257,7 @@ make benchmark-oa BENCHMARK_WORKERS=4 BENCHMARK_DURATION=300
 
 ```bash
 make benchmark-stream-density \
-  BENCHMARK_TARGET_LATENCY_MS=25000 \
+  BENCHMARK_TARGET_LATENCY_MS=10000 \
   BENCHMARK_MIN_TRANSACTIONS=3 \
   BENCHMARK_WORKER_INCREMENT=1
 ```
@@ -266,7 +266,7 @@ make benchmark-stream-density \
 
 | Variable            | Default   | Description                       |
 | ------------------- | --------- | --------------------------------- |
-| `TARGET_LATENCY_MS` | 25000     | Target latency threshold (ms)     |
+| `BENCHMARK_TARGET_LATENCY_MS` | 10000     | Target latency threshold (ms)     |
 | `LATENCY_METRIC`    | avg       | 'avg', 'p95', or 'max'            |
 | `WORKER_INCREMENT`  | 1         | Workers added per iteration       |
 | `INIT_DURATION`     | 10        | Warmup time (seconds)             |

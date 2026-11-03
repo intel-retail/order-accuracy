@@ -107,7 +107,7 @@ make benchmark
 | ----------------------------- | ------- | ---------------------- |
 | `BENCHMARK_WORKERS`           | 1       | Concurrent workers     |
 | `BENCHMARK_DURATION`          | 180     | Duration (seconds)     |
-| `BENCHMARK_TARGET_LATENCY_MS` | 25000   | Latency threshold (ms) |
+| `BENCHMARK_TARGET_LATENCY_MS` | 10000   | Latency threshold (ms) |
 | `TARGET_DEVICE`               | GPU     | Device: CPU, GPU       |
 
 <!--hide_directive:::
@@ -235,7 +235,7 @@ make benchmark-stream-density
 
 # Custom run
 make benchmark-stream-density \
-  BENCHMARK_TARGET_LATENCY_MS=25000 \
+  BENCHMARK_TARGET_LATENCY_MS=10000 \
   BENCHMARK_LATENCY_METRIC=avg \
   BENCHMARK_INIT_DURATION=30 \
   BENCHMARK_MIN_TRANSACTIONS=3 \
@@ -263,7 +263,7 @@ Finds maximum sustainable worker count under latency constraints:
 
 | Variable                      | Default                 | Description                          |
 | ----------------------------- | ----------------------- | ------------------------------------ |
-| `BENCHMARK_TARGET_LATENCY_MS` | `25000`                 | Target latency threshold (ms)        |
+| `BENCHMARK_TARGET_LATENCY_MS` | `10000`                 | Target latency threshold (ms)        |
 | `BENCHMARK_LATENCY_METRIC`    | `avg`                   | `avg`, `p95`, or `max`               |
 | `BENCHMARK_DENSITY_INCREMENT` | `1`                     | Concurrent images per iteration      |
 | `BENCHMARK_INIT_DURATION`     | `60`                    | Warmup time (seconds)                |
@@ -278,7 +278,7 @@ Finds maximum sustainable worker count under latency constraints:
 
 | Variable                      | Default | Description                                            |
 | ----------------------------- | ------- | ------------------------------------------------------ |
-| `BENCHMARK_TARGET_LATENCY_MS` | `25000` | Target latency threshold (ms)                          |
+| `BENCHMARK_TARGET_LATENCY_MS` | `10000` | Target latency threshold (ms)                          |
 | `BENCHMARK_LATENCY_METRIC`    | `avg`   | Metric to evaluate: `avg` or `p95`                     |
 | `BENCHMARK_WORKER_INCREMENT`  | `1`     | Workers added per iteration                            |
 | `BENCHMARK_INIT_DURATION`     | `10`    | Warmup time per iteration (seconds)                    |
@@ -334,7 +334,7 @@ make benchmark-oa BENCHMARK_WORKERS=8
 ```bash
 # Automatically find maximum sustainable workers
 make benchmark-stream-density \
-  BENCHMARK_TARGET_LATENCY_MS=25000 \
+  BENCHMARK_TARGET_LATENCY_MS=10000 \
   BENCHMARK_WORKER_INCREMENT=1 \
   BENCHMARK_MAX_ITERATIONS=20
 ```
