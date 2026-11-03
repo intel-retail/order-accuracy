@@ -18,6 +18,7 @@ from typing import Any, Callable, Iterable
 
 OUTCOMES = ("order_validated", "order_failed")
 REMAKE_EVENT = "remake_requested"
+REMAKE_DELIVERED_EVENT = "remake_delivered"
 ISSUE_FIELDS = (
     ("missing_items", "missing_item"),
     ("extra_items", "extra_item"),
@@ -55,8 +56,10 @@ def latest_orders(events: Iterable[Any]) -> dict[str, dict[str, Any]]:
         if not order_id:
             continue
         if event.event_type == REMAKE_EVENT:
-            if order_id in orders:
-                orders[order_id]["remake_requested_at"] = _iso(event.ts_ms)
+            # Only a request raised for the order's current failed validation counts.
+            order = orders.get(order_id)
+            if order is not None and event.payload.get("validation_ref") == order["_validation_ref"]:
+                order["remake_requested_at"] = _iso(event.ts_ms)
             continue
         if event.event_type not in OUTCOMES:
             continue
@@ -115,11 +118,18 @@ def accuracy_context(events: Iterable[Any], store_id: str, venue: str, source: s
 
 
 def register(svc: Any, read_events: Callable[[], list], emit: Callable[[str, dict, str], Any],
-             store_id: str, venue: str) -> None:
-    """Add the agent's context read and remake action to ``svc``."""
+             store_id: str, venue: str, redeliver: Callable[[Any], None], lock: Any) -> None:
+    """Add the agent's context read and remake action to ``svc``.
+
+    ``lock`` is the one validation writers also hold while appending, so a remake is
+    never recorded for an order whose validation has just passed. ``redeliver`` re-sends
+    a recorded remake request whose delivery was never acknowledged.
+    """
     label = venue.replace("_", "-")
     svc.register_event_type(REMAKE_EVENT, {"remake_id": "str", "order_id": "str", "station": "str",
-                                           "issues": "list[dict]", "reason": "str"})
+                                           "issues": "list[dict]", "reason": "str",
+                                           "validation_ref": "str"})
+    svc.register_event_type(REMAKE_DELIVERED_EVENT, {"remake_id": "str", "order_id": "str"})
 
     @svc.read_tool(
         "get_order_accuracy_context",
@@ -146,24 +156,31 @@ def register(svc: Any, read_events: Callable[[], list], emit: Callable[[str, dic
         reason = (reason or "").strip()[:MAX_REASON_CHARS]
         if not reason:
             raise ValueError("reason is required")
-        order = latest_orders(read_events()).get(order_id)
-        if order is None or order["result"] != "flagged":
-            # Two venues expose the same tool; point the caller at the other one.
-            other = "dine-in" if label == "take-away" else "take-away"
-            raise ValueError(
-                f"order {order_id} is not a flagged {label} order. If it is a {other} order, call "
-                f"request_remake on the order-accuracy-{other} service instead.")
-        remake_id = f"remake-{uuid.uuid4().hex[:12]}"
-        payload = {"remake_id": remake_id, "order_id": order_id, "station": order["station_id"],
-                   "issues": order["issues"], "reason": reason}
-        # The key is tied to this failed validation, so a retry finds the request already
-        # recorded (emit returns it without dispatching again) while a later failed
-        # validation of the same order gets a new key.
-        event = emit(REMAKE_EVENT, payload, f"remake:{order['_validation_ref']}")
-        if event is None:
-            raise RuntimeError("remake request could not be recorded")
-        recorded = event.payload
-        return {"executed": True, "already_requested": recorded.get("remake_id") != remake_id,
+        with lock:
+            order = latest_orders(read_events()).get(order_id)
+            if order is None or order["result"] != "flagged":
+                # Two venues expose the same tool; point the caller at the other one.
+                other = "dine-in" if label == "take-away" else "take-away"
+                raise ValueError(
+                    f"order {order_id} is not a flagged {label} order. If it is a {other} order, call "
+                    f"request_remake on the order-accuracy-{other} service instead.")
+            remake_id = f"remake-{uuid.uuid4().hex[:12]}"
+            payload = {"remake_id": remake_id, "order_id": order_id, "station": order["station_id"],
+                       "issues": order["issues"], "reason": reason,
+                       "validation_ref": order["_validation_ref"]}
+            # The key is tied to this failed validation, so a retry finds the request already
+            # recorded (emit returns it without dispatching again) while a later failed
+            # validation of the same order gets a new key.
+            event = emit(REMAKE_EVENT, payload, f"remake:{order['_validation_ref']}")
+            if event is None:
+                raise RuntimeError("remake request could not be recorded")
+            recorded = event.payload
+            already = recorded.get("remake_id") != remake_id
+            if already and not any(
+                    e.event_type == REMAKE_DELIVERED_EVENT and e.payload.get("remake_id") == recorded.get("remake_id")
+                    for e in read_events()):
+                redeliver(event)  # the kitchen never acknowledged it; send the original again
+        return {"executed": True, "already_requested": already,
                 "remake_id": recorded.get("remake_id", remake_id), "order_id": order_id,
                 "station_id": order["station_id"], "reason": recorded.get("reason", reason),
                 "requested_at": _iso(event.ts_ms)}

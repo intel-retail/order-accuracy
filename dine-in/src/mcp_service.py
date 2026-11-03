@@ -259,7 +259,18 @@ def _find_stored_event_by_ref(ref_id: str):
     return None
 
 
+# One lock for every durable write that decides an order's outcome (validation results and
+# remake requests), so "check the latest validation, then record a remake" cannot interleave
+# with a new validation result.
+_EMIT_LOCK = threading.RLock()
+
+
 def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
+    with _EMIT_LOCK:
+        return _safe_emit_locked(event_type, payload, ref_id)
+
+
+def _safe_emit_locked(event_type: str, payload: dict[str, Any], ref_id: str):
     """``svc.emit()``, made idempotent-safe end-to-end (not just at the log).
 
     ``ServiceServer.emit()`` always builds a brand-new envelope, and this
@@ -328,6 +339,10 @@ def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
             ref_id,
         )
         return _find_stored_event_by_ref(ref_id)
+
+    if event_type == "remake_requested":
+        redeliver_remake(event)
+        return event
 
     if _ASYNC_WEBHOOK_DELIVERY is not None:
         threading.Thread(
@@ -566,7 +581,47 @@ def get_station_totals(station: str | None = None) -> dict[str, Any]:
 
 
 # QSR agent contract: live context read + operator-approved remake action.
-register_agent_contract(svc, _read_entire_log, _safe_emit, QSR_AUTONOMY_STORE_ID, "dine_in")
+_REMAKE_IN_FLIGHT: set[str] = set()
+
+
+def redeliver_remake(event) -> None:
+    """Send a remake request to every configured sink in the background.
+
+    Once all sinks accept it, a ``remake_delivered`` event is logged. A later retry of
+    ``request_remake`` re-sends the original event (same ``remake_id``/``ref_id``) only
+    while that acknowledgement is missing.
+    """
+    deliveries = [d for d in (_ASYNC_WEBHOOK_DELIVERY, _AUTONOMY_DELIVERY) if d is not None]
+    with _EMIT_LOCK:
+        if not deliveries or event.ref_id in _REMAKE_IN_FLIGHT:
+            return
+        _REMAKE_IN_FLIGHT.add(event.ref_id)
+    threading.Thread(target=_deliver_remake, args=(event, deliveries), daemon=True,
+                     name="mcp-remake-delivery").start()
+
+
+def _deliver_remake(event, deliveries) -> None:
+    try:
+        results = [all(d.dispatch(event).values()) for d in deliveries]
+        if not all(results):
+            logger.warning("[MCP] remake %s was not delivered; a retry of request_remake will resend it",
+                           event.payload.get("remake_id"))
+            return
+        try:
+            svc.emit_new("remake_delivered",
+                         {"remake_id": event.payload.get("remake_id"), "order_id": event.payload.get("order_id")},
+                         ref_id=f"delivered:{event.ref_id}")
+        except sqlite3.IntegrityError:
+            pass
+        except Exception:
+            logger.exception("[MCP] Failed to record remake delivery for %s", event.ref_id)
+    finally:
+        with _EMIT_LOCK:
+            _REMAKE_IN_FLIGHT.discard(event.ref_id)
+
+
+register_agent_contract(svc, _read_entire_log, _safe_emit, QSR_AUTONOMY_STORE_ID, "dine_in",
+                        lambda event: redeliver_remake(event), _EMIT_LOCK)
 
 
 # ---------------------------------------------------------------------------

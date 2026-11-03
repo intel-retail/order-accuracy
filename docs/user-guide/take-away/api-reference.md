@@ -584,6 +584,8 @@ For the Central QSR Agent there are also `get_order_accuracy_context` (live
 snapshot: recent orders with `result` and `issues`) and one action,
 `request_remake(order_id, reason)`, which only accepts a currently flagged order and
 records a `remake_requested` event. The agent calls it only after an operator approves.
+Retrying it for the same failed validation returns the original request (`already_requested: true`)
+and resends it only if the kitchen never acknowledged it (acknowledgements are logged as `remake_delivered`).
 Events pushed to the agent carry `"service": "accuracy"` and `data.venue: "take-away"`.
 
 See the [Take-Away README](https://github.com/intel-retail/order-accuracy/blob/main/take-away/README.md#mcp-server-events-durable-log-read-tools)

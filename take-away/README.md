@@ -139,7 +139,7 @@ event schema (see the [Dine-In README](../dine-in/README.md#mcp-server-events-du
 | Tool                         | Purpose |
 | ----------------------------- | ------- |
 | `get_order_accuracy_context` | Restaurant id (`QSR_AUTONOMY_STORE_ID`), last-30-minute accuracy, per-station totals, and recent orders with `result` (`flagged`/`accurate`) and `issues` |
-| `request_remake`             | Action: remake a currently flagged order. Records a `remake_requested` event (sent to `MCP_WEBHOOK_URL` for the kitchen). The agent only calls it after an operator approves |
+| `request_remake`             | Action: remake a currently flagged order. Records a `remake_requested` event (sent to `MCP_WEBHOOK_URL` for the kitchen; a retry returns the same request and resends it only until the kitchen acknowledges it, logged as `remake_delivered`). The agent only calls it after an operator approves |
 
 To connect a QSR agent on another machine: publish the MCP port with
 `MCP_BIND_HOST=0.0.0.0` (behind an authenticating proxy on untrusted networks), set
