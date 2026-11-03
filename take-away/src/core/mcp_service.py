@@ -306,7 +306,47 @@ def _find_stored_event_by_ref(ref_id: str):
 # One lock for every durable write that decides an order's outcome (validation results and
 # remake requests), so "check the latest validation, then record a remake" cannot interleave
 # with a new validation result.
-_EMIT_LOCK = threading.RLock()
+class _CrossProcessLock:
+    """Re-entrant lock held across threads and across processes sharing the log file.
+
+    Station/table containers share one SQLite log, so an in-process lock alone cannot
+    stop another process recording a validation between a remake's check and its append.
+    """
+
+    def __init__(self, lock_path: Optional[str]):
+        self._thread_lock = threading.RLock()
+        self._lock_path = lock_path
+        self._depth = 0
+        self._fd: Optional[int] = None
+
+    def __enter__(self):
+        self._thread_lock.acquire()
+        if self._depth == 0 and self._lock_path:
+            try:
+                import fcntl
+                self._fd = os.open(self._lock_path, os.O_CREAT | os.O_RDWR, 0o666)
+                fcntl.flock(self._fd, fcntl.LOCK_EX)
+            except Exception:
+                logger.warning("[MCP] cross-process lock unavailable at %s; using in-process lock only",
+                               self._lock_path, exc_info=True)
+                if self._fd is not None:
+                    os.close(self._fd)
+                    self._fd = None
+        self._depth += 1
+        return self
+
+    def __exit__(self, *exc):
+        self._depth -= 1
+        if self._depth == 0 and self._fd is not None:
+            try:
+                os.close(self._fd)  # closing releases the flock
+            finally:
+                self._fd = None
+        self._thread_lock.release()
+
+
+_EMIT_LOCK = _CrossProcessLock(
+    f"{MCP_LOG_PATH}.lock" if MCP_SERVICE_ENABLED and MCP_LOG_BACKEND == "sqlite" else None)
 
 
 def _safe_emit(event_type: str, payload: dict[str, Any], ref_id: str):
@@ -653,7 +693,9 @@ def redeliver_remake(event) -> None:
 def _deliver_remake(event, deliveries) -> None:
     try:
         results = [all(d.dispatch(event).values()) for d in deliveries]
-        if not all(results):
+        # The default autonomy filter skips remake events and reports success, so only a
+        # configured kitchen webhook that accepted the request counts as delivery.
+        if _ASYNC_WEBHOOK_DELIVERY is None or not all(results):
             logger.warning("[MCP] remake %s was not delivered; a retry of request_remake will resend it",
                            event.payload.get("remake_id"))
             return

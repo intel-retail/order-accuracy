@@ -367,6 +367,49 @@ def test_remake_waits_for_in_flight_validation_write(mcp):
     assert "error" in outcome and "result" not in outcome
 
 
+def test_emit_lock_is_held_across_processes(mcp):
+    import subprocess
+    import sys
+    import textwrap
+
+    probe = textwrap.dedent("""
+        import fcntl, os, sys
+        fd = os.open(sys.argv[1], os.O_CREAT | os.O_RDWR)
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            print("free")
+        except BlockingIOError:
+            print("held")
+    """)
+
+    def probe_lock():
+        return subprocess.run([sys.executable, "-c", probe, mcp._EMIT_LOCK._lock_path],
+                              capture_output=True, text=True).stdout.strip()
+
+    assert probe_lock() == "free"
+    with mcp._EMIT_LOCK:
+        with mcp._EMIT_LOCK:  # re-entrant
+            assert probe_lock() == "held"
+        assert probe_lock() == "held"
+    assert probe_lock() == "free"
+
+
+def test_remake_is_not_acknowledged_without_a_kitchen_webhook(mcp):
+    class _Accepting:
+        def dispatch(self, event):
+            return {"autonomy": True}
+
+    mcp._ASYNC_WEBHOOK_DELIVERY = None
+    mcp._AUTONOMY_DELIVERY = _Accepting()
+    event = mcp._safe_emit("remake_requested", {"remake_id": "r1", "order_id": "o1"}, "remake:o1:x")
+    for _ in range(50):
+        if not mcp._REMAKE_IN_FLIGHT:
+            break
+        __import__("time").sleep(0.05)
+    assert event is not None
+    assert not [e for e in mcp._read_entire_log() if e.event_type == "remake_delivered"]
+
+
 def test_describe_exposes_expected_read_tools_and_event_types(mcp):
     described = mcp.svc.describe()
     assert set(described["read_tools"]) == {
