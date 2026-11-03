@@ -111,7 +111,7 @@ make benchmark-stream-density
 
 # Custom run
 make benchmark-stream-density \
-  BENCHMARK_TARGET_LATENCY_MS=25000 \
+  BENCHMARK_TARGET_LATENCY_MS=10000 \
   BENCHMARK_LATENCY_METRIC=avg \
   BENCHMARK_INIT_DURATION=30 \
   BENCHMARK_MIN_TRANSACTIONS=3 \
@@ -122,7 +122,7 @@ make benchmark-stream-density \
 
 | Variable                      | Default | Description                                            |
 | ----------------------------- | ------- | ------------------------------------------------------ |
-| `BENCHMARK_TARGET_LATENCY_MS` | `25000` | Target latency threshold (ms)                          |
+| `BENCHMARK_TARGET_LATENCY_MS` | `10000` | Target latency threshold (ms)                          |
 | `BENCHMARK_LATENCY_METRIC`    | `avg`   | Metric to evaluate: `avg` or `p95`                     |
 | `BENCHMARK_WORKER_INCREMENT`  | `1`     | Workers added per iteration                            |
 | `BENCHMARK_INIT_DURATION`     | `10`    | Warmup time per iteration (seconds)                    |

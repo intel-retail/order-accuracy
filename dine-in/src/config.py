@@ -94,7 +94,7 @@ class ConfigManager:
             initial_workers=int(os.getenv("BENCHMARK_INITIAL_WORKERS", "1")),
             max_workers=int(os.getenv("BENCHMARK_MAX_WORKERS", "10")),
             min_workers=int(os.getenv("BENCHMARK_MIN_WORKERS", "1")),
-            target_latency_ms=float(os.getenv("BENCHMARK_TARGET_LATENCY_MS", "2000")),
+            target_latency_ms=float(os.getenv("BENCHMARK_TARGET_LATENCY_MS", "10000")),
             max_latency_ms=float(os.getenv("BENCHMARK_MAX_LATENCY_MS", "5000")),
             cpu_threshold_percent=float(os.getenv("BENCHMARK_CPU_THRESHOLD", "80.0")),
             gpu_threshold_percent=float(os.getenv("BENCHMARK_GPU_THRESHOLD", "80.0")),
