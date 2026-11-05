@@ -74,7 +74,7 @@ DINEIN_IMAGE_NAME ?= intel/order-accuracy-dine-in
 # Tag for the dine-in image only. Kept separate from TAG because TAG also
 # selects the benchmark image (intel/retail-benchmark:$(TAG)), which is
 # published per-version and has no "latest" tag.
-DINEIN_TAG ?= 2026.2.0-rc2
+DINEIN_TAG ?= 2026.3.0-rc1
 DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(DINEIN_TAG)
 
 # Host user identity, passed to the container so the app user is remapped to
