@@ -59,7 +59,7 @@ OOM_PROTECTION ?= 1
 PERF_TOOLS_DIR ?= ../performance-tools/benchmark-scripts
 
 # Version tag for registry images
-export TAG ?= 2026.2.3
+export TAG ?= 2026.3.0-rc1
 
 # Sample video for quick-start testing (orders 384 → 651 → 925)
 #   SAMPLE_VIDEO_URL=<url> make download-sample-video
@@ -71,7 +71,7 @@ REGISTRY ?= true
 # intel/retail-benchmark is published from performance-tools on its own
 # release cadence and does not track the take-away TAG above. Pin to the
 # last known published tag (override with BENCHMARK_TAG=... if needed).
-BENCHMARK_TAG ?= 2026.2.0
+BENCHMARK_TAG ?= 2026.3.0-rc1
 REGISTRY_BENCHMARK ?= intel/retail-benchmark:$(BENCHMARK_TAG)
 
 # Benchmark Order Accuracy settings
