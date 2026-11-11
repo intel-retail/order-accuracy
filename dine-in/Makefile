@@ -67,7 +67,7 @@ endif
 COMPOSE_FILE ?= docker-compose.yaml
 
 # Version tag for registry images
-export TAG = 2026.2.0-rc2
+export TAG = 2026.3.0-rc1
 
 # Dine-In image configuration
 DINEIN_IMAGE_NAME ?= intel/order-accuracy-dine-in

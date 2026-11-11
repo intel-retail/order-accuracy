@@ -37,7 +37,7 @@ sequenceDiagram
 | ------------------------- | ---------------------------------------- | ---------- | ----------------------------------- |
 | `dinein_app`              | `intel/order-accuracy-dine-in:2026.3.0-rc1`  | 7861, 8083 | Main application (Gradio + FastAPI) |
 | `dinein_ovms_vlm`         | `openvino/model_server:2026.3.1-gpu`     | 8002       | Vision-Language Model server        |
-| `dinein_semantic_service` | `intel/semantic-search-agent:2026.2.0`   | 8081, 9091 | Semantic text matching              |
+| `dinein_semantic_service` | `intel/semantic-search-agent:2026.3.0-rc1` | 8081, 9091 | Semantic text matching              |
 | `metrics-collector`       | `intel/hl-ai-metrics-collector:2026.1.0` | 9000       | System metrics aggregation          |
 
 ### Network Topology
