@@ -87,6 +87,9 @@ make up REGISTRY=false
 | ------------------------------ | ---------- |
 | `intel/order-accuracy-dine-in` | `2026.2.0-rc2` |
 
+> **Note (GPU groups):** `make up` detects the host's `render` and `video` group IDs and saves them to `.env` as `RENDER_GID` and `VIDEO_GID`. If you run `docker compose` directly without ever running `make up`, set them first:
+> `export RENDER_GID=$(getent group render | cut -d: -f3) VIDEO_GID=$(getent group video | cut -d: -f3)`
+
 ### 4. Access Services
 
 | Service            | URL                        | Purpose                       |

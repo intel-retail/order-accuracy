@@ -16,8 +16,26 @@
 # =============================================================================
 # Load Environment Variables from .env file
 # =============================================================================
+# Shell-provided GPU group IDs must win over values saved in .env
+ifeq ($(origin RENDER_GID),environment)
+_ENV_RENDER_GID := $(RENDER_GID)
+endif
+ifeq ($(origin VIDEO_GID),environment)
+_ENV_VIDEO_GID := $(VIDEO_GID)
+endif
+
 -include .env
 export
+ifdef _ENV_RENDER_GID
+RENDER_GID := $(_ENV_RENDER_GID)
+endif
+ifdef _ENV_VIDEO_GID
+VIDEO_GID := $(_ENV_VIDEO_GID)
+endif
+
+# Render group ID differs per host; detect it so GPU access works in containers
+RENDER_GID ?= $(shell getent group render | cut -d: -f3)
+VIDEO_GID ?= $(shell getent group video | cut -d: -f3)
 
 # =============================================================================
 # Configuration Variables (with defaults)
@@ -354,7 +372,19 @@ build: check-env
 	fi
 	@echo "$(GREEN)✓ Build complete$(NC)"
 
-up: check-env setup-dirs
+sync-gpu-gids:
+	@touch .env; [ -z "$$(tail -c1 .env)" ] || echo >> .env
+	@for kv in RENDER_GID=$(RENDER_GID) VIDEO_GID=$(VIDEO_GID); do \
+		k=$${kv%%=*}; v=$${kv#*=}; \
+		if [ -z "$$v" ]; then continue; fi; \
+		if grep -q "^$$k=" .env; then \
+			[ "$$(grep "^$$k=" .env | tail -1 | cut -d= -f2)" = "$$v" ] || echo "$(YELLOW)Warning: $$k in .env differs from the value in use ($$v)$(NC)"; \
+		else \
+			echo "$$k=$$v" >> .env; \
+		fi; \
+	done
+
+up: check-env setup-dirs sync-gpu-gids
 	@echo "$(BLUE)Starting Take-Away services...$(NC)"
 	@if [ "$(REGISTRY)" = "false" ] || [ "$(REGISTRY)" = "FALSE" ]; then \
 		echo "$(YELLOW)REGISTRY=false → Building and starting services locally...$(NC)"; \

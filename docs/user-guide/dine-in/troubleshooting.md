@@ -23,6 +23,14 @@ OVMS can take 2–5 minutes to load the model. Wait for `"Server started"` in th
 
 ## GPU Not Detected
 
+If the container fails with `RENDER_GID not set` (or a GPU permission error on a host whose render group ID is not the default), run `make up` so the host's group IDs are saved to `.env`, or export them before using `docker compose` directly:
+
+```bash
+export RENDER_GID=$(getent group render | cut -d: -f3) VIDEO_GID=$(getent group video | cut -d: -f3)
+```
+
+Otherwise make sure your user is in the `render` group:
+
 ```bash
 sudo usermod -aG render $USER
 # Log out and log back in, then restart services
