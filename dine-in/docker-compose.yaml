@@ -17,8 +17,8 @@ services:
     devices:
       - /dev/dri:/dev/dri
     group_add:
-      - "44"   # video group for GPU access
-      - "992"  # render group for GPU access
+      - "${VIDEO_GID:-video}"   # video group for GPU access
+      - "${RENDER_GID:-render}"  # render group for GPU access
     restart: unless-stopped
     healthcheck:
       # Check that model is AVAILABLE, not just that HTTP server is up

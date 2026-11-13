@@ -47,6 +47,14 @@ make up
 
 ## GPU Not Detected
 
+If the container fails with a GPU permission error or an empty `group_add` entry (or a GPU permission error on a host whose render group ID is not the default), run `make up` so the host's group IDs are saved to `.env`, or export them before using `docker compose` directly:
+
+```bash
+export RENDER_GID=$(getent group render | cut -d: -f3) VIDEO_GID=$(getent group video | cut -d: -f3)
+```
+
+Otherwise make sure your user is in the `render` group:
+
 ```bash
 sudo usermod -aG render $USER
 # Log out and log back in, then restart services
