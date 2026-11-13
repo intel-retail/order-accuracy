@@ -296,7 +296,7 @@ sync-gpu-gids:
 	@touch .env; [ -z "$$(tail -c1 .env)" ] || echo >> .env
 	@for kv in RENDER_GID=$(RENDER_GID) VIDEO_GID=$(VIDEO_GID); do \
 		k=$${kv%%=*}; v=$${kv#*=}; \
-		if [ -z "$$v" ]; then continue; fi; \
+		if [ -z "$$v" ]; then echo "$(RED)Error: $$k is empty - host has no matching group. Set $$k manually (shell or .env) to start GPU services.$(NC)"; exit 1; fi; \
 		if grep -q "^$$k=" .env; then \
 			[ "$$(grep "^$$k=" .env | tail -1 | cut -d= -f2)" = "$$v" ] || echo "$(YELLOW)Warning: $$k in .env differs from the value in use ($$v)$(NC)"; \
 		else \
@@ -347,7 +347,7 @@ worker: ## Run worker locally (WORKERS=N ITERATIONS=M)
 		--orders-file $(CURDIR)/configs/orders.json \
 		--results-dir $(CURDIR)/$(RESULTS_DIR)
 
-worker-start: ## Start N workers in Docker (WORKERS=N)
+worker-start: sync-gpu-gids ## Start N workers in Docker (WORKERS=N)
 	@echo "╔═══════════════════════════════════════════════════════════════════╗"
 	@echo "║         Starting Dine-In Workers (Docker)                         ║"
 	@echo "╚═══════════════════════════════════════════════════════════════════╝"

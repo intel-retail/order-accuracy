@@ -17,8 +17,8 @@ services:
     devices:
       - /dev/dri:/dev/dri
     group_add:
-      - "${VIDEO_GID:?VIDEO_GID not set, run make up first}"   # video group for GPU access
-      - "${RENDER_GID:?RENDER_GID not set, run make up first}"  # render group for GPU access
+      - "${VIDEO_GID:-video}"   # video group for GPU access
+      - "${RENDER_GID:-render}"  # render group for GPU access
     restart: unless-stopped
     healthcheck:
       # Check that model is AVAILABLE, not just that HTTP server is up

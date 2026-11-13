@@ -41,8 +41,8 @@ services:
     devices:
       - /dev/dri:/dev/dri
     group_add:
-      - "${VIDEO_GID:?VIDEO_GID not set, run make up first}"
-      - "${RENDER_GID:?RENDER_GID not set, run make up first}"
+      - "${VIDEO_GID:-video}"
+      - "${RENDER_GID:-render}"
     restart: unless-stopped
     healthcheck:
       # Check that model is AVAILABLE, not just that HTTP server is up
@@ -72,8 +72,8 @@ services:
     devices:
       - /dev/dri:/dev/dri
     group_add:
-      - "${VIDEO_GID:?VIDEO_GID not set, run make up first}"
-      - "${RENDER_GID:?RENDER_GID not set, run make up first}"
+      - "${VIDEO_GID:-video}"
+      - "${RENDER_GID:-render}"
     volumes:
       - ${VIDEOS_DIR:-./storage/videos}:/videos
       - ${UPLOADS_DIR:-./storage/uploads}:/uploads
@@ -305,8 +305,8 @@ services:
     devices:
       - /dev/dri:/dev/dri  # GPU access for OpenVINO
     group_add:
-      - "${VIDEO_GID:?VIDEO_GID not set, run make up first}"
-      - "${RENDER_GID:?RENDER_GID not set, run make up first}"
+      - "${VIDEO_GID:-video}"
+      - "${RENDER_GID:-render}"
     environment:
       # App settings
       - APP_NAME=semantic-search-agent

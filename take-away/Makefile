@@ -376,7 +376,7 @@ sync-gpu-gids:
 	@touch .env; [ -z "$$(tail -c1 .env)" ] || echo >> .env
 	@for kv in RENDER_GID=$(RENDER_GID) VIDEO_GID=$(VIDEO_GID); do \
 		k=$${kv%%=*}; v=$${kv#*=}; \
-		if [ -z "$$v" ]; then continue; fi; \
+		if [ -z "$$v" ]; then echo "$(RED)Error: $$k is empty - host has no matching group. Set $$k manually (shell or .env) to start GPU services.$(NC)"; exit 1; fi; \
 		if grep -q "^$$k=" .env; then \
 			[ "$$(grep "^$$k=" .env | tail -1 | cut -d= -f2)" = "$$v" ] || echo "$(YELLOW)Warning: $$k in .env differs from the value in use ($$v)$(NC)"; \
 		else \
@@ -402,7 +402,7 @@ up: check-env setup-dirs sync-gpu-gids
 	@echo ""
 	@echo "Run 'make logs' to view logs"
 
-up-parallel: check-env
+up-parallel: check-env sync-gpu-gids
 	@echo "$(BLUE)Starting Take-Away services with RTSP streamer ($(WORKERS) stations)...$(NC)"
 	@if [ "$(REGISTRY)" = "false" ] || [ "$(REGISTRY)" = "FALSE" ]; then \
 		echo "$(YELLOW)REGISTRY=false → Building and starting services locally...$(NC)"; \

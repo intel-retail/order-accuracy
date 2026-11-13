@@ -23,7 +23,7 @@ OVMS can take 2–5 minutes to load the model. Wait for `"Server started"` in th
 
 ## GPU Not Detected
 
-If the container fails with `RENDER_GID not set` (or a GPU permission error on a host whose render group ID is not the default), run `make up` so the host's group IDs are saved to `.env`, or export them before using `docker compose` directly:
+If the container fails with a GPU permission error or an empty `group_add` entry (or a GPU permission error on a host whose render group ID is not the default), run `make up` so the host's group IDs are saved to `.env`, or export them before using `docker compose` directly:
 
 ```bash
 export RENDER_GID=$(getent group render | cut -d: -f3) VIDEO_GID=$(getent group video | cut -d: -f3)
