@@ -53,6 +53,8 @@ OVMS_MODEL_NAME ?= openbmb/MiniCPM-V-4_5-int4
 OPENVINO_DEVICE ?= $(TARGET_DEVICE)
 # Automatically select CPU-only OVMS image when TARGET_DEVICE=CPU
 OVMS_IMAGE ?= $(if $(filter CPU,$(TARGET_DEVICE)),openvino/model_server:2026.3.1,openvino/model_server:2026.3.1-gpu)
+# The NPU is exposed to the OVMS container through /dev/accel instead of /dev/dri.
+OVMS_DEVICE_NODE ?= $(if $(filter NPU,$(TARGET_DEVICE)),/dev/accel,/dev/dri)
 # Select YOLO model: INT8 for CPU (fast integer ops), FP32 for GPU (avoids INT8 op fall-backs
 # that degrade GPU utilisation). Honoured by docker-compose via ${YOLO_MODEL_PATH}.
 YOLO_MODEL_PATH ?= $(if $(filter CPU,$(TARGET_DEVICE)),/models/yolo11n_int8_openvino_model,/models/yolo11n_openvino_model)
@@ -177,6 +179,9 @@ check-device: ## Check that graph.pbtxt device matches TARGET_DEVICE (auto-updat
 	GRAPH_DEVICE=$$(grep -oP '(?<=device: ")[^"]+' "$$GRAPH" || true); \
 	if [ "$$GRAPH_DEVICE" = "$(TARGET_DEVICE)" ]; then \
 		echo "$(GREEN)✓ graph.pbtxt device matches TARGET_DEVICE ($(TARGET_DEVICE))$(NC)"; \
+	elif [ "$$GRAPH_DEVICE" = "NPU" ] || [ "$(TARGET_DEVICE)" = "NPU" ]; then \
+		echo "$(RED)Error: model was exported for \"$$GRAPH_DEVICE\" but TARGET_DEVICE=$(TARGET_DEVICE). NPU models need a different export; re-run: cd ../ovms-service && TARGET_DEVICE=$(TARGET_DEVICE) ./setup_models.sh --app take-away$(NC)"; \
+		exit 1; \
 	else \
 		echo "$(YELLOW)⚙ Auto-updating graph.pbtxt: $$GRAPH_DEVICE → $(TARGET_DEVICE)$(NC)"; \
 		sed -i "s/device: \"$$GRAPH_DEVICE\"/device: \"$(TARGET_DEVICE)\"/" "$$GRAPH"; \
