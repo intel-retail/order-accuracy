@@ -199,7 +199,7 @@ The VLM (MiniCPM-V-4.5 INT4) can run on the Intel® NPU.
 > [!NOTE]
 > The first start compiles the model for the NPU and can take several minutes; wait until `curl http://localhost:8002/v1/config` reports `AVAILABLE`.
 > `make up` fails (via `check-device`) if the exported model does not match `TARGET_DEVICE=NPU`; re-run `setup_models.sh` in that case.
-> The model is shared with Take-Away, so switching device here also changes the model used by Take-Away.
+> The model is shared with Take-Away, so switching the device here also changes the model used by Take-Away.
 
 ## Quick Reference
 
