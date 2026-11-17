@@ -66,6 +66,10 @@ docker run --rm --device /dev/dri intel/openvino_dev:latest python3 -c \
 
 Expected output includes `GPU`.
 
+### NPU Drivers (optional)
+
+To run the VLM on the Intel® NPU, install the Intel NPU driver and verify the device node exists (`ls -l /dev/accel/accel0`). The user running Docker must have access to it (typically via the `render` group). See [Running on the NPU](../get-started.md#running-on-the-npu).
+
 ---
 
 ## Network Requirements

@@ -15,7 +15,7 @@ services:
       - --config_path=/models/config.json
       - --log_level=INFO
     devices:
-      - /dev/dri:/dev/dri
+      - ${OVMS_DEVICE_NODE:-/dev/dri}:${OVMS_DEVICE_NODE:-/dev/dri}  # /dev/accel when TARGET_DEVICE=NPU
     group_add:
       - "44"   # video group for GPU access
       - "992"  # render group for GPU access
