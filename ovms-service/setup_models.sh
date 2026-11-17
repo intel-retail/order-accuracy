@@ -272,6 +272,25 @@ check_model() {
     fi
 }
 
+# NPU and CPU/GPU exports are not interchangeable (pipeline type and weight
+# quantization differ). Returns non-zero if the graph cannot be used for the
+# current TARGET_DEVICE without a fresh export.
+graph_reusable_for_target() {
+    local graph="$1" dev
+    dev=$(grep -oP '(?<=device: ")[^"]+' "${graph}" || true)
+    if [ "${dev}" != "${TARGET_DEVICE_ENV}" ] && \
+       { [ "${dev}" = "NPU" ] || [ "${TARGET_DEVICE_ENV}" = "NPU" ]; }; then
+        return 1
+    fi
+    if [ "${TARGET_DEVICE_ENV}" = "NPU" ]; then
+        grep -qE 'pipeline_type:[[:space:]]*VLM[[:space:]]*,?[[:space:]]*$' "${graph}" || return 1
+        local len
+        len=$(grep -oE '"MAX_PROMPT_LEN"[[:space:]]*:[[:space:]]*[0-9]+' "${graph}" | grep -oE '[0-9]+$' || true)
+        [ "${len}" = "${NPU_MAX_PROMPT_LEN_ENV}" ] || return 1
+    fi
+    return 0
+}
+
 ###############################################
 # Migrate a model from a legacy path to the expected target path.
 # Pre-v2026.0.0 releases exported to Qwen2.5-VL-7B-Instruct-ov-int8;
@@ -559,13 +578,9 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
     # editing graph.pbtxt — the model must be re-exported.
     ###########################################
     REEXPORT=0
-    if [ -f "${TARGET_PATH}/graph.pbtxt" ]; then
-        _existing_device=$(grep -oP '(?<=device: ")[^"]+' "${TARGET_PATH}/graph.pbtxt" || true)
-        if [ "${_existing_device}" != "${TARGET_DEVICE_ENV}" ] && \
-           { [ "${_existing_device}" = "NPU" ] || [ "${TARGET_DEVICE_ENV}" = "NPU" ]; }; then
-            echo "  Existing model was exported for \"${_existing_device}\"; re-exporting for ${TARGET_DEVICE_ENV}"
-            REEXPORT=1
-        fi
+    if [ -f "${TARGET_PATH}/graph.pbtxt" ] && ! graph_reusable_for_target "${TARGET_PATH}/graph.pbtxt"; then
+        echo "  Existing model is not compatible with ${TARGET_DEVICE_ENV}; re-exporting"
+        REEXPORT=1
     fi
 
     ###########################################
@@ -580,7 +595,7 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
     ###########################################
     # Migrate from legacy model path (pre-v2026.0.0)
     ###########################################
-    if [ "${REEXPORT}" -eq 0 ] && migrate_legacy_model "${TARGET_PATH}"; then
+    if [ "${REEXPORT}" -eq 0 ] && [ "${TARGET_DEVICE_ENV}" != "NPU" ] && migrate_legacy_model "${TARGET_PATH}"; then
         echo "✓ Migrated from legacy path"
         update_graph_pbtxt_device "${MODEL_NAME}"
         continue
@@ -591,6 +606,10 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
     ###########################################
     for SOURCE_DIR in "${POTENTIAL_SOURCE_DIRS[@]}"; do
         [ "${REEXPORT}" -eq 0 ] || break
+        if [ -f "${SOURCE_DIR}/${MODEL_NAME}/graph.pbtxt" ] && \
+           ! graph_reusable_for_target "${SOURCE_DIR}/${MODEL_NAME}/graph.pbtxt"; then
+            continue
+        fi
         if [ -d "${SOURCE_DIR}/${MODEL_NAME}" ]; then
 
             if check_model "${SOURCE_DIR}/${MODEL_NAME}"; then
