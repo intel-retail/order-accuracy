@@ -118,7 +118,15 @@ fi
 _TARGET_DEVICE_FILE=$(read_env_value "TARGET_DEVICE" "${ENV_FILE}")
 TARGET_DEVICE_ENV="${TARGET_DEVICE:-${_TARGET_DEVICE_FILE:-GPU}}"
 case "${TARGET_DEVICE_ENV}" in
-    CPU|GPU|NPU) ;;
+    CPU|GPU) ;;
+    NPU)
+        # Preconverted INT8 IR is downloaded as-is, so NPU's INT4 export can't be applied
+        if [ "${OVMS_MODEL_NAME_ENV}" = "OpenVINO/Phi-3.5-vision-instruct-int8-ov" ]; then
+            echo "ERROR: ${OVMS_MODEL_NAME_ENV} has preconverted INT8 weights and cannot be exported for NPU."
+            echo "Use OVMS_MODEL_NAME=openbmb/MiniCPM-V-4_5-int4 for NPU, or select TARGET_DEVICE=CPU or GPU."
+            exit 1
+        fi
+        ;;
     *)
         echo "ERROR: Unsupported TARGET_DEVICE='${TARGET_DEVICE_ENV}' (expected CPU, GPU or NPU)"
         exit 1
