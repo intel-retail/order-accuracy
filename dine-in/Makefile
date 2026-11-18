@@ -90,7 +90,7 @@ export TAG
 
 # Dine-In image configuration
 DINEIN_IMAGE_NAME ?= intel/order-accuracy-dine-in
-DINEIN_IMAGE = $(DINEIN_IMAGE_NAME):$(TAG)
+DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(TAG)
 
 # Host user identity, passed to the container so the app user is remapped to
 # match. Keeps bind-mounted results/ owned by the invoking user on hosts where
