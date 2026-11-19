@@ -801,7 +801,8 @@ def _check_order_idle_timeout() -> None:
     caused premature EOS 8 seconds after order confirmation even while frames
     were actively being collected.
     """
-    if _active_order_id is None or _last_frame_collected_ts == 0.0:
+    if (_pending_close_since is not None or _active_order_id is None
+            or _last_frame_collected_ts == 0.0):
         return
 
     elapsed = time.time() - _last_frame_collected_ts
@@ -967,6 +968,7 @@ def _process_ocr_result(ocr_fid: int, ocr_oid: Optional[str]) -> None:
     """
     global _ocr_candidate, _ocr_vote_count, _ocr_first_vote_fid, _last_ocr_hit_ts
     global _ocr_warmup_count, _ocr_warmed_up, _pending_close_since, _order_lock_until
+    global _active_order_frame_count, _last_frame_collected_ts
 
     # Track OCR warmup - count valid responses until warmed up
     if _ocr_proc_ready and not _ocr_warmed_up:
@@ -1063,6 +1065,7 @@ def process_frame(frame: "VideoFrame") -> bool:
     global _frame_counter
     global _ocr_candidate, _ocr_vote_count, _ocr_first_vote_fid, _last_ocr_hit_ts
     global _active_order_id, _active_order_frame_count
+    global _pending_close_since
 
     _frame_counter += 1
     capture_ts_ms = int(time.time() * 1000)  # capture wall-clock immediately
