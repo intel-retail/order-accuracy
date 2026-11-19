@@ -140,7 +140,8 @@ services:
       YOLO_MODEL_PATH: ${YOLO_MODEL_PATH:-/models/yolo11n_int8_openvino_model}
       YOLO_TABLE_CONF: ${YOLO_TABLE_CONF:-0.25}           # min confidence to count as object on table
       TABLE_BUSY_THRESHOLD_SEC: ${TABLE_BUSY_THRESHOLD_SEC:-1.5}  # seconds before OCR is triggered
-      TABLE_EMPTY_THRESHOLD_SEC: ${TABLE_EMPTY_THRESHOLD_SEC:-2.0}  # seconds table must be empty before order ends
+      TABLE_EMPTY_THRESHOLD_SEC: ${TABLE_EMPTY_THRESHOLD_SEC:-2.0}  # seconds table must be empty before order is pending close
+      ORDER_RESUME_WINDOW_SEC: ${ORDER_RESUME_WINDOW_SEC:-6.0}  # pending-close window; same order re-read resumes it
       ORDER_LOCK_SEC: ${ORDER_LOCK_SEC:-5.0}               # lock duration after order confirmed
       OCR_RETRY_INTERVAL_SEC: ${OCR_RETRY_INTERVAL_SEC:-2.0}  # retry OCR when it returns nothing
       

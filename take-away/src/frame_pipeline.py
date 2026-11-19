@@ -159,6 +159,11 @@ TABLE_BUSY_THRESHOLD_SEC  = float(os.environ.get("TABLE_BUSY_THRESHOLD_SEC",  "1
 TABLE_EMPTY_THRESHOLD_SEC = float(os.environ.get("TABLE_EMPTY_THRESHOLD_SEC", "2.0"))
 ORDER_LOCK_SEC            = float(os.environ.get("ORDER_LOCK_SEC",            "5.0"))
 OCR_RETRY_INTERVAL_SEC    = float(os.environ.get("OCR_RETRY_INTERVAL_SEC",    "2.0"))
+# After the table looks empty, keep the order open this long so a worker pause
+# between items doesn't split one order into two.
+ORDER_RESUME_WINDOW_SEC   = float(os.environ.get("ORDER_RESUME_WINDOW_SEC",   "6.0"))
+# Hard cap on the pending-close state if the table is busy but OCR never decides.
+ORDER_RESUME_MAX_SEC      = float(os.environ.get("ORDER_RESUME_MAX_SEC",      "30.0"))
 
 import logging
 logging.basicConfig(
@@ -658,6 +663,7 @@ _table_busy_since:  Optional[float] = None  # wall-clock when objects FIRST dete
 _table_empty_since: Optional[float] = None  # wall-clock when table FIRST seen empty
 _ocr_last_trigger_ts: float         = 0.0   # wall-clock when OCR was last submitted
 _order_lock_until:    float         = 0.0   # table-empty timer suspended until this time
+_pending_close_since: Optional[float] = None  # table looked empty; order kept open for possible resume
 
 
 def _flush_pre_buffer(order_id: str, since_ts_ms: Optional[int] = None) -> int:
@@ -703,10 +709,11 @@ def _on_ocr_confirmed(confirmed_order_id: str, ocr_fid: int) -> None:
     placing the slip) does NOT prematurely trigger EOS.
     """
     global _active_order_id, _active_order_frame_count, _active_order_start_ts
-    global _order_lock_until
+    global _order_lock_until, _pending_close_since
 
     # Apply post-confirmation lock: ignore table-empty signals for ORDER_LOCK_SEC.
     _order_lock_until = time.time() + ORDER_LOCK_SEC
+    _pending_close_since = None
 
     # Compute the earliest valid timestamp for this order's frames.
     # We take the MAXIMUM of three candidates so that we never accidentally
@@ -875,7 +882,9 @@ def _finalize_current_order() -> None:
     global _ocr_candidate, _ocr_vote_count, _ocr_first_vote_fid, _last_ocr_hit_ts
     global _last_order_end_ts_ms, _order_lock_until, _ocr_last_trigger_ts
     global _table_busy_since, _table_empty_since, _last_frame_collected_ts
+    global _pending_close_since
 
+    _pending_close_since = None
     if _active_order_id is None:
         return
 
@@ -925,7 +934,7 @@ def _process_ocr_result(ocr_fid: int, ocr_oid: Optional[str]) -> None:
     order 384 (the first order) while OCR models are still loading.
     """
     global _ocr_candidate, _ocr_vote_count, _ocr_first_vote_fid, _last_ocr_hit_ts
-    global _ocr_warmup_count, _ocr_warmed_up
+    global _ocr_warmup_count, _ocr_warmed_up, _pending_close_since, _order_lock_until
 
     # Track OCR warmup - count valid responses until warmed up
     if _ocr_proc_ready and not _ocr_warmed_up:
@@ -958,6 +967,11 @@ def _process_ocr_result(ocr_fid: int, ocr_oid: Optional[str]) -> None:
         if _ocr_candidate is not None:
             log(f"[OCR-VOTE] [{ts()}] candidate={_ocr_candidate} overridden by "
                 f"active order re-confirm fid={ocr_fid} — clearing candidate")
+        if _pending_close_since is not None:
+            log(f"[STATE] [{ts()}] RESUME order_id={_active_order_id} "
+                f"(same order re-read {time.time() - _pending_close_since:.1f}s after table empty)")
+            _pending_close_since = None
+            _order_lock_until = time.time() + ORDER_LOCK_SEC
         _ocr_candidate      = None
         _ocr_vote_count     = 0
         _ocr_first_vote_fid = -1
@@ -1054,6 +1068,7 @@ def process_frame(frame: "VideoFrame") -> bool:
 
     # 6. YOLO table-presence gate + YOLO-triggered OCR
     global _table_busy_since, _table_empty_since, _ocr_last_trigger_ts, _order_lock_until
+    global _pending_close_since
 
     # Submit this frame to the YOLO subprocess (non-blocking; drops if queue full).
     # Drain any results that arrived since the last frame → updates _table_has_objects.
@@ -1072,10 +1087,17 @@ def process_frame(frame: "VideoFrame") -> bool:
         busy_sec     = time.time() - _table_busy_since
         ocr_retry_ok = (time.time() - _ocr_last_trigger_ts) >= OCR_RETRY_INTERVAL_SEC
 
-        # Fire OCR once when the table has been busy long enough and no order
-        # is active yet.  OCR is NOT submitted while an order is already open —
-        # that is the "only triggered once per order" guarantee.
-        if _active_order_id is None and busy_sec >= TABLE_BUSY_THRESHOLD_SEC and ocr_retry_ok:
+        if (_pending_close_since is not None
+                and time.time() - _pending_close_since >= ORDER_RESUME_MAX_SEC):
+            log(f"[STATE] [{ts()}] pending close exceeded {ORDER_RESUME_MAX_SEC}s "
+                f"without OCR decision — finalising order_id={_active_order_id}")
+            _finalize_current_order()
+
+        # Fire OCR when the table has been busy long enough and no order is
+        # active, or the active order is pending close (same order resumes,
+        # a different order triggers ORDER CHANGE).
+        awaiting_order = _active_order_id is None or _pending_close_since is not None
+        if awaiting_order and busy_sec >= TABLE_BUSY_THRESHOLD_SEC and ocr_retry_ok:
             log(f"[TABLE] [{ts()}] frame={_frame_counter} busy {busy_sec:.1f}s — "
                 f"triggering OCR (retry_interval={OCR_RETRY_INTERVAL_SEC}s)")
             _ocr_last_trigger_ts = time.time()
@@ -1105,9 +1127,19 @@ def process_frame(frame: "VideoFrame") -> bool:
                 empty_sec = time.time() - _table_empty_since
                 if empty_sec >= TABLE_EMPTY_THRESHOLD_SEC:
                     if _active_order_id is not None:
-                        log(f"[TABLE] [{ts()}] table confirmed empty for "
-                            f"{empty_sec:.1f}s — finalising order_id={_active_order_id}")
-                        _finalize_current_order()
+                        if _pending_close_since is None:
+                            log(f"[TABLE] [{ts()}] table empty for {empty_sec:.1f}s — "
+                                f"order_id={_active_order_id} pending close "
+                                f"(resume window {ORDER_RESUME_WINDOW_SEC}s)")
+                            _pending_close_since = time.time()
+                            _table_busy_since = None
+                            _ocr_candidate = None
+                            _ocr_vote_count = 0
+                            _ocr_first_vote_fid = -1
+                        elif time.time() - _pending_close_since >= ORDER_RESUME_WINDOW_SEC:
+                            log(f"[TABLE] [{ts()}] table confirmed empty for "
+                                f"{empty_sec:.1f}s — finalising order_id={_active_order_id}")
+                            _finalize_current_order()
                     else:
                         # No active order — reset so the timer doesn't keep firing.
                         _table_empty_since = None

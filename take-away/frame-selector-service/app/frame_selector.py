@@ -1102,11 +1102,10 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
         state.consecutive_no_item_frames = 0
         # Continue to process this order (don't return)
 
-    # ── Score-based frame selection (highest item count wins) ────────────────
-    # Sort ALL accepted frames by descending object count, then by diversity.
-    # The frames at the END of an order typically have the most items on the
-    # table (packing is complete) — temporal buckets would give those frames
-    # only 1 slot; a score sort ensures they naturally float to the top.
+    # ── Score-based frame selection ──────────────────────────────────────────
+    # Raw box count favours busy hand-placement frames (people, duplicate
+    # low-confidence boxes), so rank by expected-item coverage and person-free
+    # first, then box count.
     #
     # After score selection we still run the forced-coverage pass so we don't
     # miss an expected item that only appears in a lower-scoring frame.
@@ -1134,21 +1133,21 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
         except (ValueError, IndexError):
             return 0
 
-    # Sort: primary = item count (desc), secondary = diversity (desc),
-    # tertiary = frame number (desc, so LATER frames win ties — they show
-    # the most complete packing state).
+    # Sort: expected-item coverage, then person-free (hands occlude/move items
+    # and cause miscounts), then item count, then later frames win ties.
     scored_sorted = sorted(
         scored,
-        key=lambda x: (x[0], _diversity(x[1]), _frame_num(x[2])),
+        key=lambda x: (_diversity(x[1]), "person" not in x[1], x[0], _frame_num(x[2])),
         reverse=True,
     )
     topk = scored_sorted[:TOP_K]
 
     logger.info(f"[{station_id}][TOP-K] order={order_id} — scored {n} frames, "
-                f"selected top-{len(topk)} by item count:")
+                f"selected top-{len(topk)} by coverage, person-free, item count:")
     for rank, (items, labels, key, _) in enumerate(topk, 1):
         logger.info(f"[{station_id}][TOP-K]   rank_{rank} → {key.split('/')[-1]}  "
-                    f"(yolo_items={items}, diversity={_diversity(labels)})")
+                    f"(yolo_items={items}, diversity={_diversity(labels)}, "
+                    f"person_free={'person' not in labels})")
 
     if n < TOP_K:
         logger.info(f"[{station_id}][TOP-K] fewer frames ({n}) than TOP_K={TOP_K}, using all")
