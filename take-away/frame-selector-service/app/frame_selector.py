@@ -1137,7 +1137,8 @@ def process_completed_order(station_id: str, order_id: str, keys: List[str], sta
     # and cause miscounts), then item count, then later frames win ties.
     scored_sorted = sorted(
         scored,
-        key=lambda x: (_diversity(x[1]), "person" not in x[1], x[0], _frame_num(x[2])),
+        key=lambda x: (_diversity(x[1]) if expected_yolo else x[0],
+                       "person" not in x[1], x[0], _frame_num(x[2])),
         reverse=True,
     )
     topk = scored_sorted[:TOP_K]

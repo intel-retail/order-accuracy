@@ -626,6 +626,18 @@ def _enqueue_eos(order_id: str) -> None:
         log(f"[EOS] [{ts()}] QUEUE FULL — could not enqueue EOS order_id={order_id}")
 
 
+def _take_pending_close_frames() -> list:
+    """Remove staged frames from the rolling pre-buffer and return them."""
+    frames = list(_pending_close_frames)
+    _pending_close_frames.clear()
+    if frames:
+        staged_ids = {meta.frame_id for meta in frames}
+        retained = [meta for meta in _pre_buffer if meta.frame_id not in staged_ids]
+        _pre_buffer.clear()
+        _pre_buffer.extend(retained)
+    return frames
+
+
 # ==========================================================
 # ORDER STATE MACHINE
 # ==========================================================
@@ -664,6 +676,7 @@ _table_empty_since: Optional[float] = None  # wall-clock when table FIRST seen e
 _ocr_last_trigger_ts: float         = 0.0   # wall-clock when OCR was last submitted
 _order_lock_until:    float         = 0.0   # table-empty timer suspended until this time
 _pending_close_since: Optional[float] = None  # table looked empty; order kept open for possible resume
+_pending_close_frames: list = []  # frames held until resume-window OCR resolves the order
 
 
 def _flush_pre_buffer(order_id: str, since_ts_ms: Optional[int] = None) -> int:
@@ -739,6 +752,11 @@ def _on_ocr_confirmed(confirmed_order_id: str, ocr_fid: int) -> None:
         _active_order_id          = confirmed_order_id
         _active_order_frame_count = 0
         _active_order_start_ts    = time.time()
+        pending_frames = _take_pending_close_frames()
+        for meta in pending_frames:
+            if flush_since is None or meta.capture_ts_ms >= flush_since:
+                _enqueue_frame(meta, confirmed_order_id)
+                _active_order_frame_count += 1
         _flush_pre_buffer(confirmed_order_id, since_ts_ms=flush_since)
 
     elif confirmed_order_id != _active_order_id:
@@ -747,11 +765,20 @@ def _on_ocr_confirmed(confirmed_order_id: str, ocr_fid: int) -> None:
         log(f"[STATE] [{ts()}] ORDER CHANGE {prev} → {confirmed_order_id} "
             f"after {_active_order_frame_count} frames "
             f"lock={ORDER_LOCK_SEC}s (ocr_fid={ocr_fid} boundary_ts={flush_since})")
+        pending_frames = _take_pending_close_frames()
+        for meta in pending_frames:
+            if flush_since is not None and meta.capture_ts_ms < flush_since:
+                _enqueue_frame(meta, prev)
+                _active_order_frame_count += 1
         _enqueue_eos(prev)
 
         _active_order_id          = confirmed_order_id
         _active_order_frame_count = 0
         _active_order_start_ts    = time.time()
+        for meta in pending_frames:
+            if flush_since is None or meta.capture_ts_ms >= flush_since:
+                _enqueue_frame(meta, confirmed_order_id)
+                _active_order_frame_count += 1
         _flush_pre_buffer(confirmed_order_id, since_ts_ms=flush_since)
 
     # same order → already collecting; lock is refreshed above regardless
@@ -888,6 +915,7 @@ def _finalize_current_order() -> None:
     if _active_order_id is None:
         return
 
+    finalized_order_id = _active_order_id
     log(f"[STATE] [{ts()}] FINALISE order_id={_active_order_id} "
         f"({_active_order_frame_count} frames) — writing EOS")
     _enqueue_eos(_active_order_id)
@@ -905,6 +933,10 @@ def _finalize_current_order() -> None:
     _ocr_last_trigger_ts      = 0.0
     _table_busy_since         = None
     _table_empty_since        = None
+    if _pending_close_frames:
+        log(f"[STATE] [{ts()}] discarding {len(_pending_close_frames)} unresolved "
+            f"pending-close frames after finalizing order_id={finalized_order_id}")
+        _pending_close_frames.clear()
     _pre_buffer.clear()
 
 
@@ -970,6 +1002,12 @@ def _process_ocr_result(ocr_fid: int, ocr_oid: Optional[str]) -> None:
         if _pending_close_since is not None:
             log(f"[STATE] [{ts()}] RESUME order_id={_active_order_id} "
                 f"(same order re-read {time.time() - _pending_close_since:.1f}s after table empty)")
+            pending_frames = _take_pending_close_frames()
+            for meta in pending_frames:
+                _enqueue_frame(meta, _active_order_id)
+                _active_order_frame_count += 1
+            if pending_frames:
+                _last_frame_collected_ts = time.time()
             _pending_close_since = None
             _order_lock_until = time.time() + ORDER_LOCK_SEC
         _ocr_candidate      = None
@@ -1065,10 +1103,12 @@ def process_frame(frame: "VideoFrame") -> bool:
 
     # 5. Always feed the rolling pre-buffer
     _pre_buffer.append(meta)
+    staged_during_pending_close = _pending_close_since is not None
+    if staged_during_pending_close:
+        _pending_close_frames.append(meta)
 
     # 6. YOLO table-presence gate + YOLO-triggered OCR
     global _table_busy_since, _table_empty_since, _ocr_last_trigger_ts, _order_lock_until
-    global _pending_close_since
 
     # Submit this frame to the YOLO subprocess (non-blocking; drops if queue full).
     # Drain any results that arrived since the last frame → updates _table_has_objects.
@@ -1151,14 +1191,17 @@ def process_frame(frame: "VideoFrame") -> bool:
     # Frames are sent to MinIO for every frame while an order is open —
     # regardless of live table state.  The order remains open until
     # _finalize_current_order() is called (table confirmed empty for 2s).
-    if _active_order_id is not None:
-        _enqueue_frame(meta, _active_order_id)
-        _active_order_frame_count += 1
-        _last_frame_collected_ts = time.time()  # keep idle-timeout safety-net alive
-        if _active_order_frame_count % 50 == 0:
-            log(f"[COLLECT] [{ts()}] order_id={_active_order_id} "
-                f"frames_collected={_active_order_frame_count} "
-                f"frame={_frame_counter}")
+    if not staged_during_pending_close:
+        if _pending_close_since is not None:
+            _pending_close_frames.append(meta)
+        elif _active_order_id is not None:
+            _enqueue_frame(meta, _active_order_id)
+            _active_order_frame_count += 1
+            _last_frame_collected_ts = time.time()  # keep idle-timeout safety-net alive
+            if _active_order_frame_count % 50 == 0:
+                log(f"[COLLECT] [{ts()}] order_id={_active_order_id} "
+                    f"frames_collected={_active_order_frame_count} "
+                    f"frame={_frame_counter}")
 
     # 8. Safety-net idle-timeout (fires if YOLO table detection misbehaves)
     if _frame_counter % 10 == 0:
