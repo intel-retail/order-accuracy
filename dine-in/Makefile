@@ -119,6 +119,8 @@ BENCHMARK_TARGET_FPS ?= 15.0
 TARGET_DEVICE ?= GPU
 # Automatically select CPU-only OVMS image when TARGET_DEVICE=CPU
 OVMS_IMAGE ?= $(if $(filter CPU,$(TARGET_DEVICE)),openvino/model_server:2026.3.1,openvino/model_server:2026.3.1-gpu)
+# The NPU is exposed to the OVMS container through /dev/accel instead of /dev/dri.
+OVMS_DEVICE_NODE ?= $(if $(filter NPU,$(TARGET_DEVICE)),/dev/accel,/dev/dri)
 # Path to the exported OVMS model directory (relative to dine-in/)
 OVMS_MODELS_DIR ?= ../ovms-service/models
 
@@ -285,6 +287,9 @@ check-device: ## Check that graph.pbtxt device matches TARGET_DEVICE (auto-updat
 	GRAPH_DEVICE=$$(grep -oP '(?<=device: ")[^"]+' "$$GRAPH" || true); \
 	if [ "$$GRAPH_DEVICE" = "$(TARGET_DEVICE)" ]; then \
 		echo "$(GREEN)✓ graph.pbtxt device matches TARGET_DEVICE ($(TARGET_DEVICE))$(NC)"; \
+	elif [ "$$GRAPH_DEVICE" = "NPU" ] || [ "$(TARGET_DEVICE)" = "NPU" ]; then \
+		echo "$(RED)Error: model was exported for \"$$GRAPH_DEVICE\" but TARGET_DEVICE=$(TARGET_DEVICE). NPU models need a different export; re-run: cd ../ovms-service && TARGET_DEVICE=$(TARGET_DEVICE) ./setup_models.sh --app dine-in$(NC)"; \
+		exit 1; \
 	else \
 		echo "$(YELLOW)⚙ Auto-updating graph.pbtxt: $$GRAPH_DEVICE → $(TARGET_DEVICE)$(NC)"; \
 		sed -i "s/device: \"$$GRAPH_DEVICE\"/device: \"$(TARGET_DEVICE)\"/" "$$GRAPH"; \
