@@ -117,6 +117,26 @@ fi
 # Read TARGET_DEVICE: shell env var takes precedence over the app .env, default GPU
 _TARGET_DEVICE_FILE=$(read_env_value "TARGET_DEVICE" "${ENV_FILE}")
 TARGET_DEVICE_ENV="${TARGET_DEVICE:-${_TARGET_DEVICE_FILE:-GPU}}"
+case "${TARGET_DEVICE_ENV}" in
+    CPU|GPU) ;;
+    NPU)
+        # Preconverted INT8 IR is downloaded as-is, so NPU's INT4 export can't be applied
+        if [ "${OVMS_MODEL_NAME_ENV}" = "OpenVINO/Phi-3.5-vision-instruct-int8-ov" ]; then
+            echo "ERROR: ${OVMS_MODEL_NAME_ENV} has preconverted INT8 weights and cannot be exported for NPU."
+            echo "Use OVMS_MODEL_NAME=openbmb/MiniCPM-V-4_5-int4 for NPU, or select TARGET_DEVICE=CPU or GPU."
+            exit 1
+        fi
+        ;;
+    *)
+        echo "ERROR: Unsupported TARGET_DEVICE='${TARGET_DEVICE_ENV}' (expected CPU, GPU or NPU)"
+        exit 1
+        ;;
+esac
+
+# NPU only: maximum prompt length (tokens) compiled into the NPU model.
+# Prompts longer than this are rejected by OVMS.
+_NPU_MAX_PROMPT_LEN_FILE=$(read_env_value "NPU_MAX_PROMPT_LEN" "${ENV_FILE}")
+NPU_MAX_PROMPT_LEN_ENV="${NPU_MAX_PROMPT_LEN:-${_NPU_MAX_PROMPT_LEN_FILE:-4096}}"
 
 # Read VLM_PRECISION: shell env var takes precedence over the app .env.
 # The default is derived from the precision suffix of OVMS_MODEL_NAME
@@ -258,6 +278,25 @@ check_model() {
         echo "  ✗ Model not ready at ${model_path} (missing graph.pbtxt or .xml files)"
         return 1
     fi
+}
+
+# NPU and CPU/GPU exports are not interchangeable (pipeline type and weight
+# quantization differ). Returns non-zero if the graph cannot be used for the
+# current TARGET_DEVICE without a fresh export.
+graph_reusable_for_target() {
+    local graph="$1" dev
+    dev=$(grep -oP '(?<=device: ")[^"]+' "${graph}" || true)
+    if [ "${dev}" != "${TARGET_DEVICE_ENV}" ] && \
+       { [ "${dev}" = "NPU" ] || [ "${TARGET_DEVICE_ENV}" = "NPU" ]; }; then
+        return 1
+    fi
+    if [ "${TARGET_DEVICE_ENV}" = "NPU" ]; then
+        grep -qE 'pipeline_type:[[:space:]]*VLM[[:space:]]*,?[[:space:]]*$' "${graph}" || return 1
+        local len
+        len=$(grep -oE '"MAX_PROMPT_LEN"[[:space:]]*:[[:space:]]*[0-9]+' "${graph}" | grep -oE '[0-9]+$' || true)
+        [ "${len}" = "${NPU_MAX_PROMPT_LEN_ENV}" ] || return 1
+    fi
+    return 0
 }
 
 ###############################################
@@ -454,15 +493,32 @@ export_model() {
         local export_log
         export_log=$(mktemp)
 
+        # The NPU needs a different export from CPU/GPU: the continuous-batching
+        # pipeline (VLM_CB) and its cache/batching options are not supported, and
+        # the weights must be symmetric INT4 (export_model.py applies
+        # --sym --ratio 1.0 --group-size -1 automatically for NPU).
+        local pipeline_args=(--pipeline_type VLM_CB
+            --cache_size "${CACHE_SIZE_ENV}"
+            --max_num_seqs 4
+            --max_num_batched_tokens 8192
+            --enable_prefix_caching True)
+        if [ "${TARGET_DEVICE_ENV}" = "NPU" ]; then
+            pipeline_args=(--pipeline_type VLM --max_prompt_len "${NPU_MAX_PROMPT_LEN_ENV}")
+            if [ "${VLM_PRECISION_ENV}" != "int4" ]; then
+                echo "  ⚠ NPU requires int4 weights; overriding VLM_PRECISION=${VLM_PRECISION_ENV} → int4"
+            fi
+        fi
+        local overwrite_args=()
+        if [ "${REEXPORT}" -eq 1 ]; then
+            overwrite_args=(--overwrite_models)
+        fi
+
         python "${SCRIPT_DIR}/export_model.py" text_generation \
             --source_model "${SOURCE_MODEL}" \
             --weight-format "${VLM_PRECISION_ENV}" \
-            --pipeline_type VLM_CB \
+            "${pipeline_args[@]}" \
             "${target_device_args[@]}" \
-            --cache_size "${CACHE_SIZE_ENV}" \
-            --max_num_seqs 4 \
-            --max_num_batched_tokens 8192 \
-            --enable_prefix_caching True \
+            "${overwrite_args[@]}" \
             --config_file_path "${MODELS_DIR}/config.json" \
             --model_repository_path "${MODELS_DIR}" \
             --model_name "${MODEL_NAME}" 2>&1 | tee "${export_log}"
@@ -525,9 +581,20 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
     fi
 
     ###########################################
+    # NPU and CPU/GPU models are exported differently (pipeline type and weight
+    # quantization), so a device switch to or from NPU cannot be done by
+    # editing graph.pbtxt — the model must be re-exported.
+    ###########################################
+    REEXPORT=0
+    if [ -f "${TARGET_PATH}/graph.pbtxt" ] && ! graph_reusable_for_target "${TARGET_PATH}/graph.pbtxt"; then
+        echo "  Existing model is not compatible with ${TARGET_DEVICE_ENV}; re-exporting"
+        REEXPORT=1
+    fi
+
+    ###########################################
     # Check if already exists locally
     ###########################################
-    if check_model "${TARGET_PATH}"; then
+    if [ "${REEXPORT}" -eq 0 ] && check_model "${TARGET_PATH}"; then
         echo "✓ Model already exists locally"
         update_graph_pbtxt_device "${MODEL_NAME}"
         continue
@@ -536,7 +603,7 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
     ###########################################
     # Migrate from legacy model path (pre-v2026.0.0)
     ###########################################
-    if migrate_legacy_model "${TARGET_PATH}"; then
+    if [ "${REEXPORT}" -eq 0 ] && [ "${TARGET_DEVICE_ENV}" != "NPU" ] && migrate_legacy_model "${TARGET_PATH}"; then
         echo "✓ Migrated from legacy path"
         update_graph_pbtxt_device "${MODEL_NAME}"
         continue
@@ -546,6 +613,11 @@ for MODEL_NAME in "${!MODEL_SOURCES[@]}"; do
     # Check copy from external sources
     ###########################################
     for SOURCE_DIR in "${POTENTIAL_SOURCE_DIRS[@]}"; do
+        [ "${REEXPORT}" -eq 0 ] || break
+        if [ -f "${SOURCE_DIR}/${MODEL_NAME}/graph.pbtxt" ] && \
+           ! graph_reusable_for_target "${SOURCE_DIR}/${MODEL_NAME}/graph.pbtxt"; then
+            continue
+        fi
         if [ -d "${SOURCE_DIR}/${MODEL_NAME}" ]; then
 
             if check_model "${SOURCE_DIR}/${MODEL_NAME}"; then

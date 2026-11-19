@@ -41,6 +41,7 @@ For detailed hardware and software requirements, see the [System Requirements](.
 | Docker           | 24.0+   | Container runtime     |
 | Docker Compose   | V2+     | Service orchestration |
 | Intel GPU Driver | Latest  | GPU support           |
+| Intel NPU Driver | Latest  | NPU support (optional, see [Running on the NPU](#running-on-the-npu)) |
 
 ### Verify Prerequisites
 
@@ -116,7 +117,7 @@ VLM_BACKEND=ovms
 OVMS_ENDPOINT=http://ovms-vlm:8000
 OVMS_MODEL_NAME=openbmb/MiniCPM-V-4_5-int4
 VLM_PRECISION=int4           # must match the -int4 suffix in OVMS_MODEL_NAME
-TARGET_DEVICE=GPU            # 'GPU' or 'CPU' — also set OPENVINO_DEVICE to match
+TARGET_DEVICE=GPU            # 'GPU', 'CPU' or 'NPU' — also set OPENVINO_DEVICE to match
 
 # =============================================================================
 # VLM Image / Decoding Options
@@ -146,7 +147,7 @@ MINIO_ENDPOINT=minio:9000
 ```
 
 > [!NOTE]
-> **Changing the inference device:** Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU` or `CPU`), then re-run `./setup_models.sh --app take-away` to re-export the model for that device.
+> **Changing the inference device:** Set both `TARGET_DEVICE` and `OPENVINO_DEVICE` to the same value (`GPU`, `CPU` or `NPU`), then re-run `./setup_models.sh --app take-away` to re-export the model for that device. See [Running on the NPU](#running-on-the-npu) for NPU-specific steps.
 
 > [!NOTE]
 > **`VLM_ENABLE_THINKING`:** MiniCPM-V-4.5 is a hybrid reasoning model. Leave this
@@ -158,6 +159,37 @@ MINIO_ENDPOINT=minio:9000
 > **`VLM_IMAGE_MAX_SIZE`:** Each selected frame is fitted into a square canvas of
 > this size (aspect ratio preserved, white padding), matching the dine-in
 > pipeline. Larger values increase detail but also prompt tokens and latency.
+
+### Running on the NPU
+
+The VLM (MiniCPM-V-4.5 INT4) can run on the Intel® NPU. Only the VLM runs on the NPU; YOLO and OCR are unaffected.
+
+1. Install the Intel NPU driver and confirm the device is visible and accessible to your user:
+
+   ```bash
+   ls -l /dev/accel/accel0    # must exist; group is typically 'render'
+   ```
+
+2. Set the device in `.env`:
+
+   ```bash
+   TARGET_DEVICE=NPU
+   OPENVINO_DEVICE=NPU
+   # Optional: max prompt length (tokens) compiled into the NPU model (default 4096)
+   # NPU_MAX_PROMPT_LEN=4096
+   ```
+
+3. Re-export the model. The NPU needs a different export (non-continuous-batching VLM pipeline and symmetric INT4 weights), so `setup_models.sh` re-exports automatically when switching to or from NPU (the first NPU export takes a while):
+
+   ```bash
+   cd ../ovms-service && ./setup_models.sh --app take-away && cd ../take-away
+   ```
+
+4. Start the services with `make up`. The Makefile maps `/dev/accel` (instead of `/dev/dri`) into the OVMS container. If you use `docker compose` directly, also set `OVMS_DEVICE_NODE=/dev/accel` in `.env`.
+
+> [!NOTE]
+> The first start compiles the model for the NPU and can take several minutes; wait until `curl http://localhost:8001/v1/config` reports `AVAILABLE`.
+> `make check-env` fails if the exported model does not match `TARGET_DEVICE=NPU`; re-run `setup_models.sh` in that case.
 
 ### Validate Configuration
 

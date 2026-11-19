@@ -14,7 +14,7 @@ This guide walks you through installation, configuration, and first run of the D
 For detailed hardware and software requirements, see the [System Requirements](./get-started/system-requirements.md) guide.
 
 - Docker 24.0+ with Compose V2
-- Intel GPU with drivers installed
+- Intel GPU with drivers installed (or an Intel NPU with its driver — see [Running on the NPU](#running-on-the-npu))
 - 16 GB RAM minimum (64 GB recommended for production)
 - 50 GB free disk space
 
@@ -160,7 +160,7 @@ make benchmark-single IMAGE_ID=MCD-1001
 
 ## Changing Inference Device
 
-To switch between GPU and CPU, update `TARGET_DEVICE` in `.env` and re-run model setup:
+To switch between GPU, CPU and NPU, update `TARGET_DEVICE` in `.env` and re-run model setup:
 
 ```bash
 # In .env
@@ -169,6 +169,37 @@ TARGET_DEVICE=CPU
 cd ../ovms-service && ./setup_models.sh --app dine-in && cd ../dine-in
 make down && make up
 ```
+
+### Running on the NPU
+
+The VLM (MiniCPM-V-4.5 INT4) can run on the Intel® NPU.
+
+1. Install the Intel NPU driver and confirm the device is visible and accessible to your user:
+
+   ```bash
+   ls -l /dev/accel/accel0    # must exist; group is typically 'render'
+   ```
+
+2. Set the device in `.env`:
+
+   ```bash
+   TARGET_DEVICE=NPU
+   # Optional: max prompt length (tokens) compiled into the NPU model (default 4096)
+   # NPU_MAX_PROMPT_LEN=4096
+   ```
+
+3. Re-export the model. The NPU needs a different export (non-continuous-batching VLM pipeline and symmetric INT4 weights), so `setup_models.sh` re-exports automatically when switching to or from NPU:
+
+   ```bash
+   cd ../ovms-service && ./setup_models.sh --app dine-in && cd ../dine-in
+   ```
+
+4. Run `make up`. The Makefile maps `/dev/accel` (instead of `/dev/dri`) into the OVMS container. If you use `docker compose` directly, also set `OVMS_DEVICE_NODE=/dev/accel` in `.env`.
+
+> [!NOTE]
+> The first start compiles the model for the NPU and can take several minutes; wait until `curl http://localhost:8002/v1/config` reports `AVAILABLE`.
+> `make up` fails (via `check-device`) if the exported model does not match `TARGET_DEVICE=NPU`; re-run `setup_models.sh` in that case.
+> The model is shared with Take-Away, so switching the device here also changes the model used by Take-Away.
 
 ## Quick Reference
 
