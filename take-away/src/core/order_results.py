@@ -1,5 +1,5 @@
 from collections import deque
-from threading import Lock
+from threading import Event, Lock
 import logging
 import json
 import os
@@ -39,6 +39,17 @@ RESULTS_DIR = Path(os.environ.get('RESULTS_DIR', '/results'))
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 MAX_RESULTS = 200  # Keep results across many video loops for run comparison
+
+# Wakes API upload monitors on new results; UI uploads never register a monitor
+result_added = Event()
+_api_monitors = 0
+_api_monitors_lock = Lock()
+
+
+def track_api_monitor(active: bool):
+    global _api_monitors
+    with _api_monitors_lock:
+        _api_monitors = max(0, _api_monitors + (1 if active else -1))
 
 # Per-station state tracking
 class StationResults:
@@ -206,6 +217,8 @@ def add_result(result: dict, station_id: Optional[str] = None):
     except Exception as e:
         logger.debug(f"[RESULTS] Could not add to video history: {e}")
 
+    if _api_monitors:
+        result_added.set()
     logger.info(f"[RESULTS] {station_id} stats: {station.total_processed} processed, {station.total_validated} validated, {station.total_mismatch} mismatch")
 
 

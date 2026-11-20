@@ -23,7 +23,7 @@ COPY requirements.txt .
 # package) requires a newer PyJWT, causing the install to fail with "Cannot
 # uninstall PyJWT ... no RECORD file was found". Same fix as
 # take-away/Dockerfile (both share the intel/dlstreamer base image).
-RUN apt-get remove -y --purge python3-jwt 2>/dev/null || true
+RUN apt-get remove -y --purge python3-jwt python3-cryptography 2>/dev/null || true
 
 # Install Python dependencies
 RUN python3 -m pip install --break-system-packages --ignore-installed --no-cache-dir --upgrade pip setuptools wheel && \

@@ -58,7 +58,7 @@ services:
   # SINGLE Station (per-container): docker compose up -d --scale order-accuracy=4
   # MULTI Station (multi-process in one container): Set SERVICE_MODE=parallel
   order-accuracy:
-    image: ${TAKEAWAY_IMAGE:-intel/order-accuracy-take-away:${TAG:-2026.3.0-rc1}}
+    image: intel/order-accuracy-take-away:${TAG:-latest}
     build:
       context: .
       args:
@@ -140,7 +140,8 @@ services:
       YOLO_MODEL_PATH: ${YOLO_MODEL_PATH:-/models/yolo11n_int8_openvino_model}
       YOLO_TABLE_CONF: ${YOLO_TABLE_CONF:-0.25}           # min confidence to count as object on table
       TABLE_BUSY_THRESHOLD_SEC: ${TABLE_BUSY_THRESHOLD_SEC:-1.5}  # seconds before OCR is triggered
-      TABLE_EMPTY_THRESHOLD_SEC: ${TABLE_EMPTY_THRESHOLD_SEC:-2.0}  # seconds table must be empty before order ends
+      TABLE_EMPTY_THRESHOLD_SEC: ${TABLE_EMPTY_THRESHOLD_SEC:-2.0}  # seconds table must be empty before order is pending close
+      ORDER_RESUME_WINDOW_SEC: ${ORDER_RESUME_WINDOW_SEC:-6.0}  # pending-close window; same order re-read resumes it
       ORDER_LOCK_SEC: ${ORDER_LOCK_SEC:-5.0}               # lock duration after order confirmed
       OCR_RETRY_INTERVAL_SEC: ${OCR_RETRY_INTERVAL_SEC:-2.0}  # retry OCR when it returns nothing
       
@@ -218,7 +219,7 @@ services:
       - order-accuracy-net
 
   frame-selector:
-    image: ${FRAME_SELECTOR_IMAGE:-intel/order-accuracy-frame-selector:${TAG:-2026.3.0-rc1}}
+    image: intel/order-accuracy-frame-selector:${TAG:-latest}
     build:
       context: ./frame-selector-service
       args:
@@ -266,7 +267,7 @@ services:
       - order-accuracy-net
 
   gradio-ui:
-    image: ${TAKEAWAY_UI_IMAGE:-intel/order-accuracy-take-away-ui:${TAG:-2026.3.0-rc1}}
+    image: intel/order-accuracy-take-away-ui:${TAG:-latest}
     build:
       context: ./gradio-ui
       args:
@@ -290,11 +291,8 @@ services:
       - order-accuracy-net
 
   # Semantic Comparison Service
-  # NOTE: this image is published from a separate repo on its own release
-  # cadence, so it does not track the take-away TAG. Pin to the last known
-  # published tag here, or override via SEMANTIC_SEARCH_IMAGE in .env.
   semantic-service:
-    image: ${SEMANTIC_SEARCH_IMAGE:-intel/semantic-search-agent:2026.3.0-rc1}
+    image: intel/semantic-search-agent:${TAG:-latest}
     container_name: oa_semantic_service
     ports:
       - "8080:8080"
@@ -348,7 +346,7 @@ services:
   # RTSP Streamer - On-demand video streaming via MediaMTX
   # Streams start only when a GStreamer client connects — no sync needed.
   rtsp-streamer:
-    image: ${TAKEAWAY_RTSP_IMAGE:-intel/order-accuracy-take-away-rtsp:${TAG:-2026.3.0-rc1}}
+    image: intel/order-accuracy-take-away-rtsp:${TAG:-latest}
     build:
       context: ./rtsp-streamer
       args:
@@ -381,10 +379,7 @@ services:
       - order-accuracy-net
 
   metrics-collector:
-    # NOTE: published from performance-tools on its own release cadence, so it
-    # does not track the take-away TAG. Pin to the last known published tag
-    # here, or override via BENCHMARK_IMAGE in .env.
-    image: ${BENCHMARK_IMAGE:-intel/retail-benchmark:2026.3.0-rc1}
+    image: intel/retail-benchmark:${TAG:-latest}
     container_name: metrics-collector
     profiles:
       - benchmark

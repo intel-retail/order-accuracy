@@ -67,15 +67,12 @@ endif
 COMPOSE_FILE ?= docker-compose.yaml
 
 # Version tag for registry images
-export TAG = 2026.3.0-rc1
+TAG ?= $(shell cat ../VERSION)
+export TAG
 
 # Dine-In image configuration
 DINEIN_IMAGE_NAME ?= intel/order-accuracy-dine-in
-# Tag for the dine-in image only. Kept separate from TAG because TAG also
-# selects the benchmark image (intel/retail-benchmark:$(TAG)), which is
-# published per-version and has no "latest" tag.
-DINEIN_TAG ?= 2026.3.0-rc1
-DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(DINEIN_TAG)
+DINEIN_IMAGE ?= $(DINEIN_IMAGE_NAME):$(TAG)
 
 # Host user identity, passed to the container so the app user is remapped to
 # match. Keeps bind-mounted results/ owned by the invoking user on hosts where
