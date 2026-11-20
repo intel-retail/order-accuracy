@@ -18,7 +18,9 @@ from typing import Dict, Any, Optional, List
 import cv2
 
 from core.pipeline_runner import run_pipeline_async
-from core.order_results import get_results, get_statistics, clear_all_results
+from core.order_results import (
+    get_results, get_statistics, clear_all_results, result_added, track_api_monitor
+)
 from core.config_loader import load_config
 from core.vlm_service import run_vlm
 from core.video_history import (
@@ -103,13 +105,14 @@ def _monitor_api_upload(video_id: str, upload_time: str, initial_processed: int)
     """Mirror the UI's completion heuristic for API-only video uploads."""
     poll_interval = 1
     max_wait = 300
-    elapsed = 0
+    deadline = time.monotonic() + max_wait
     upload_timestamp = upload_time.replace("-", "").replace(":", "").replace(" ", "")
 
+    track_api_monitor(True)
     try:
-        while elapsed < max_wait:
-            time.sleep(poll_interval)
-            elapsed += poll_interval
+        while time.monotonic() < deadline:
+            result_added.wait(poll_interval)
+            result_added.clear()
 
             video = get_video(video_id)
             if not video or video.get("status") != "processing":
@@ -134,8 +137,12 @@ def _monitor_api_upload(video_id: str, upload_time: str, initial_processed: int)
         if video and video.get("status") == "processing":
             complete_video(video_id)
         _release_single_upload(video_id)
-    except Exception:
+    except Exception as e:
         logger.exception(f"[API] Could not monitor completion for video_id={video_id}")
+        fail_video(video_id, str(e))
+        _release_single_upload(video_id)
+    finally:
+        track_api_monitor(False)
 
 
 def create_app() -> FastAPI:

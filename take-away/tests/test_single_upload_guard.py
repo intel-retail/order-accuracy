@@ -52,6 +52,17 @@ class SingleUploadGuardTests(unittest.TestCase):
             self.assertEqual(list(Path(uploads_dir).iterdir()), [])
         pipeline.assert_not_called()
 
+    @patch.object(endpoints, "fail_video")
+    @patch.object(endpoints, "get_video", side_effect=RuntimeError("boom"))
+    @patch.object(endpoints, "result_added")
+    def test_monitor_error_marks_failed_and_releases_slot(self, _result_added, _get_video, fail_video):
+        endpoints._active_single_upload_id = "vid"
+
+        endpoints._monitor_api_upload("vid", "2026-11-19 00:00:00", 0)
+
+        fail_video.assert_called_once_with("vid", "boom")
+        self.assertIsNone(endpoints._active_single_upload_id)
+
 
 if __name__ == "__main__":
     unittest.main()
