@@ -19,7 +19,7 @@
 > For first-time model export, a higher-memory host (48–64 GB) is recommended.
 > On iGPU platforms, the KV cache is allocated from **system RAM**. Set `export CACHE_SIZE=2`
 > before running `setup_models.sh` to reduce KV cache to 2 GB (default is 4 GB).
-> See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/main/ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
+> See [ovms-service/README.md — Tuning the KV Cache Size](https://github.com/intel-retail/order-accuracy/blob/release-2026.3.0/ovms-service/README.md#tuning-the-kv-cache-size) for a full per-platform guide.
 
 ## Choose Your Application
 
@@ -53,7 +53,7 @@
 1. **Clone the Repository**
 
    ```bash
-   git clone -b main --single-branch https://github.com/intel-retail/order-accuracy.git
+   git clone -b release-2026.3.0 --single-branch https://github.com/intel-retail/order-accuracy.git
    cd order-accuracy/dine-in
    ```
 
@@ -125,7 +125,7 @@
 1. **Clone the Repository**
 
    ```bash
-   git clone -b main --single-branch https://github.com/intel-retail/order-accuracy.git
+   git clone -b release-2026.3.0 --single-branch https://github.com/intel-retail/order-accuracy.git
    cd order-accuracy/take-away
    ```
 

@@ -588,7 +588,7 @@ Retrying it for the same failed validation returns the original request (`alread
 and resends it only if the kitchen never acknowledged it (acknowledgements are logged as `remake_delivered`).
 Events pushed to the agent carry `"service": "accuracy"` and `data.venue: "take-away"`.
 
-See the [Take-Away README](https://github.com/intel-retail/order-accuracy/blob/main/take-away/README.md#mcp-server-events-durable-log-read-tools)
+See the [Take-Away README](https://github.com/intel-retail/order-accuracy/blob/release-2026.3.0/take-away/README.md#mcp-server-events-durable-log-read-tools)
 for the full event schema and a runnable `fastmcp` client example.
 
 ---
