@@ -459,7 +459,7 @@ Every completed station run emits an `order_validated` or `order_failed`
 event, which is durably logged **before** it is made available to any
 reader — this guarantees the log survives process/container restarts and
 that no event is lost. See the
-[Take-Away README](https://github.com/intel-retail/order-accuracy/blob/main/take-away/README.md#mcp-server-events-durable-log-read-tools)
+[Take-Away README](https://github.com/intel-retail/order-accuracy/blob/release-2026.3.0/take-away/README.md#mcp-server-events-durable-log-read-tools)
 for the full event schema, read-tool list, and a runnable client example.
 
 ---
